@@ -2,14 +2,16 @@
 
 面向学生学习资料管理的前后端分离云盘项目，包含文件管理、多存储接入、分享、三角色权限控制和“小芽”AI Agent。
 
-本仓库基于开源项目 ZFile 二次开发。原项目的版权和 MIT 许可声明保留在 [LICENSE](LICENSE)；论文或其他说明中应区分原有功能与个人完成的工作。后端、前端沿用原工程目录名以便追溯，应用代码的 Java 包名为 `im.tlgxy.cloud`。
+4.6.0 新增私人课程资料库（课程／学期／标签）、授权文件正文检索及 Agent 来源片段引用。入口为 `/learning`；详见 [设计与验收](docs/课程资料库设计与验收.md) 和 [版本记录](CHANGELOG.md)。
+
+本仓库基于开源项目 ZFile 二次开发。原项目的版权和 MIT 许可声明保留在 [LICENSE](LICENSE)；论文或其他说明中应区分原有功能与个人完成的工作。应用代码的 Java 包名为 `im.tlgxy.cloud`，前后端目录统一为 `backend` 和 `frontend`。
 
 ## 目录
 
 | 路径 | 用途 |
 | --- | --- |
-| `zfile-main/` | Spring Boot 3 / Java 21 后端 |
-| `zfile-vue-main/` | Vue 3 / Vite 前端 |
+| `backend/` | Spring Boot 3 / Java 21 后端 |
+| `frontend/` | Vue 3 / Vite 前端 |
 | `database/` | 手工重建数据库脚本；不能用于正常升级 |
 | `scripts/` | 本地验证和运行脚本 |
 | `项目功能说明.md` | 功能与 Agent 介绍 |

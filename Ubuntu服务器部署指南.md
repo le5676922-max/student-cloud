@@ -1,6 +1,6 @@
 # 学生云盘 Ubuntu 服务器部署指南
 
-> 适用项目：当前工作区的学生云盘，后端版本 `4.5.0`，Java 包名 `im.tlgxy.cloud`。  
+> 适用项目：当前工作区的学生云盘，后端版本 `4.6.0`，Java 包名 `im.tlgxy.cloud`。
 > 编写日期：2026-09-20。本文以 **Ubuntu Server 24.04 LTS、单服务器、独立域名、MySQL 8.0** 为基准。  
 > 本文已按当前项目代码核对配置和接口，但没有在你的 Ubuntu 服务器上实际执行；上线时仍需完成文末验收。
 
@@ -181,7 +181,7 @@ sudo install -d -o root -g root -m 0700 /var/backups/student-cloud
 在当前 Windows 项目根目录执行。推荐使用项目现有验证脚本，它会依次运行后端测试、后端打包、前端类型检查、单元测试和生产构建：
 
 ```powershell
-Set-Location 'C:\Users\31717\Desktop\yun'
+Set-Location 'C:\Users\31717\Desktop\yun\student-cloud-github'
 
 $env:JAVA_HOME = 'D:\develop\Java\jdk-21.0.11'
 $env:Path = "$env:JAVA_HOME\bin;$env:Path"
@@ -206,10 +206,10 @@ if ($LASTEXITCODE -ne 0) { throw '验证或构建失败，停止发布。' }
 当前产物应为：
 
 ```text
-zfile-main/target/tongligong-student-cloud-4.5.0.jar
-zfile-vue-main/dist/index.html
-zfile-vue-main/dist/assets/...
-zfile-vue-main/dist/student-cloud.config.json
+backend/target/tongligong-student-cloud-4.6.0.jar
+frontend/dist/index.html
+frontend/dist/assets/...
+frontend/dist/student-cloud.config.json
 ```
 
 前端 `public/student-cloud.config.json` 中保留 `"baseUrl": ""`、`"router": { "mode": "history" }`，并保留其他原有字段。同域部署不应写入 `http://127.0.0.1:8080`，否则用户浏览器会请求用户自己的电脑。
@@ -221,14 +221,14 @@ zfile-vue-main/dist/student-cloud.config.json
 在 Windows PowerShell 项目根目录打包前端：
 
 ```powershell
-tar -czf .\student-cloud-frontend-20260920-001.tar.gz -C .\zfile-vue-main\dist .
+tar -czf .\student-cloud-frontend-20260920-001.tar.gz -C .\frontend\dist .
 if ($LASTEXITCODE -ne 0) { throw '前端归档失败。' }
 
-Get-FileHash .\zfile-main\target\tongligong-student-cloud-4.5.0.jar -Algorithm SHA256
+Get-FileHash .\backend\target\tongligong-student-cloud-4.6.0.jar -Algorithm SHA256
 Get-FileHash .\student-cloud-frontend-20260920-001.tar.gz -Algorithm SHA256
 
 ssh deploy@SERVER_IP 'mkdir -p ~/student-cloud-upload/20260920-001'
-scp .\zfile-main\target\tongligong-student-cloud-4.5.0.jar deploy@SERVER_IP:~/student-cloud-upload/20260920-001/
+scp .\backend\target\tongligong-student-cloud-4.6.0.jar deploy@SERVER_IP:~/student-cloud-upload/20260920-001/
 scp .\student-cloud-frontend-20260920-001.tar.gz deploy@SERVER_IP:~/student-cloud-upload/20260920-001/
 ```
 
@@ -243,7 +243,7 @@ scp .\student-cloud-frontend-20260920-001.tar.gz deploy@SERVER_IP:~/student-clou
 ```bash
 set -e
 cd ~/student-cloud-upload/20260920-001
-sha256sum tongligong-student-cloud-4.5.0.jar student-cloud-frontend-20260920-001.tar.gz
+sha256sum tongligong-student-cloud-4.6.0.jar student-cloud-frontend-20260920-001.tar.gz
 # 先人工对比上一步 Windows 输出的 SHA256，再继续。
 
 # 要使用全新的目录；若已存在，换发布编号，不要覆盖旧版本。
@@ -256,7 +256,7 @@ test -f frontend-unpack/student-cloud.config.json
 sudo install -d -o root -g root -m 0755 \
   /opt/student-cloud/releases/20260920-001/frontend
 sudo install -o root -g studentcloud -m 0640 \
-  tongligong-student-cloud-4.5.0.jar \
+  tongligong-student-cloud-4.6.0.jar \
   /opt/student-cloud/releases/20260920-001/app.jar
 sudo rsync -a --chown=root:root --chmod=D755,F644 \
   frontend-unpack/ /opt/student-cloud/releases/20260920-001/frontend/
@@ -343,7 +343,7 @@ mysql -h 127.0.0.1 -P 3306 -u student_cloud_app -p student_cloud \
 Windows PowerShell 导出示例，需要 `mysqldump` 已加入 PATH：
 
 ```powershell
-Set-Location 'C:\Users\31717\Desktop\yun'
+Set-Location 'C:\Users\31717\Desktop\yun\student-cloud-github'
 New-Item -ItemType Directory -Force .\server-migration | Out-Null
 
 mysqldump -h 127.0.0.1 -P 3306 -u root -p `
@@ -883,10 +883,10 @@ Agent 是当前 Java 后端的一部分，不需要额外启动 Python 服务或
 当前知识检索配置使用 JAR 内的管理员/普通用户知识 JSON；基础运行不需要另外部署向量数据库。核心文件在源码中为：
 
 ```text
-zfile-main/src/main/resources/ai-agent.properties
-zfile-main/src/main/resources/ai-rag.properties
-zfile-main/src/main/resources/ai/knowledge/admin-knowledge.json
-zfile-main/src/main/resources/ai/knowledge/user-knowledge.json
+backend/src/main/resources/ai-agent.properties
+backend/src/main/resources/ai-rag.properties
+backend/src/main/resources/ai/knowledge/admin-knowledge.json
+backend/src/main/resources/ai/knowledge/user-knowledge.json
 ```
 
 ### 12.2 启用真实模型

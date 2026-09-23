@@ -9,8 +9,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$backendPath = Join-Path $projectRoot 'zfile-main'
-$frontendIndex = Join-Path $projectRoot 'zfile-vue-main/dist/index.html'
+$backendPath = Join-Path $projectRoot 'backend'
+$frontendIndex = Join-Path $projectRoot 'frontend/dist/index.html'
 
 if ($Build) {
     & (Join-Path $PSScriptRoot 'verify.ps1')

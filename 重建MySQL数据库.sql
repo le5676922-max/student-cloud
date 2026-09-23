@@ -28,6 +28,6 @@ WHERE SCHEMA_NAME = 'student_cloud';
 
 -- 下一步：退出 MySQL，然后用默认配置启动后端。
 -- Flyway 会自动执行：
---   zfile-main/src/main/resources/db/migration-mysql/V*.sql
---   zfile-main/src/main/resources/db/migration-mysql/R__data.sql
+--   backend/src/main/resources/db/migration-mysql/V*.sql
+--   backend/src/main/resources/db/migration-mysql/R__data.sql
 -- 启动完成后访问网页，重新初始化站点管理员。

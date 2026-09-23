@@ -7,8 +7,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$backendPath = Join-Path $projectRoot 'zfile-main'
-$frontendPath = Join-Path $projectRoot 'zfile-vue-main'
+$backendPath = Join-Path $projectRoot 'backend'
+$frontendPath = Join-Path $projectRoot 'frontend'
 
 foreach ($command in @('java', 'mvn', 'node', 'pnpm')) {
     if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
