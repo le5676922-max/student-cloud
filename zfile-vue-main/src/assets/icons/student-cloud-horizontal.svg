@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="538" height="143" viewBox="0 0 538 143" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title">
+  <title id="title">学生云盘横向标志</title>
+  <g fill="none" fill-rule="evenodd">
+    <circle cx="116" cy="39" r="15" fill="#F4CA1C"/>
+    <path d="M47 107h108c22 0 40-17 40-38s-18-38-40-38c-6 0-11 1-16 3C129 15 109 4 86 4 53 4 26 30 26 62v3C11 71 2 85 2 101c0 22 18 40 41 40h112"
+          fill="#EEF2FF" stroke="#595BB3" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M101 34v56m0-56L81 54m20-20 20 20" stroke="#4F46E5" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="235" y="92" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="58" font-weight="700" fill="#111827">学生云盘</text>
+  </g>
+</svg>

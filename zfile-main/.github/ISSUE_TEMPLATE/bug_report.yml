@@ -1,0 +1,11 @@
+name: 'Blank Issue'
+description: 报告可复现的问题
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请写明复现步骤、预期结果、实际结果、运行环境和相关日志，并注意删除账号、令牌等敏感信息。
+  - type: textarea
+    id: add-a-description
+    attributes:
+      label: Add a description

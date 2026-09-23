@@ -1,0 +1,107 @@
+[
+  {
+    "id": "project-overview",
+    "title": "学生云盘项目概览",
+    "tags": ["项目", "功能", "架构", "技术栈", "Spring Boot", "Vue"],
+    "source": "README.md；pom.xml；前后端工程结构",
+    "content": "学生云盘基于通理工学生个人云盘 4.5.0 改造，是一个适合个人或小团队使用的在线文件管理系统。后端使用 Java 21、Spring Boot 3.3.2、MyBatis-Plus、Sa-Token、Flyway 和 MySQL；前端使用 Vue 3、Vite、Element Plus 和 Pinia。核心业务是把本地磁盘、对象存储和网盘等不同存储源统一展示，并提供文件浏览、上传、下载、预览、移动、复制、删除、直链、短链、分享和用户权限管理。"
+  },
+  {
+    "id": "backend-structure",
+    "title": "后端项目结构",
+    "tags": ["后端", "包", "目录", "controller", "service", "mapper", "module"],
+    "source": "src/main/java/im/tlgxy/cloud",
+    "content": "后端根包是 im.tlgxy.cloud。core 放通用配置、异常、切面、工具类和安全处理；module 按业务拆分。module.storage 负责存储源和文件操作，module.user 负责登录与用户管理，module.permission 负责权限，module.share 负责文件分享，module.link 负责直链和短链，module.config 负责站点配置，module.install 负责初始化，module.log 负责日志，module.ai 负责 AI Agent 和 RAG。常见调用方向是 Controller 接收请求，Service 处理业务，Mapper 通过 MyBatis-Plus访问数据库，model 下的 request、result、entity 分别表示请求、返回和数据库实体。"
+  },
+  {
+    "id": "storage-types",
+    "title": "支持的存储源类型",
+    "tags": ["存储源", "本地存储", "FTP", "SFTP", "WebDAV", "S3", "OneDrive", "网盘"],
+    "source": "StorageTypeEnum.java",
+    "content": "当前代码支持本地存储、阿里云 OSS、WebDAV、腾讯云 COS、又拍云 USS、FTP、SFTP、华为云 OBS、MinIO、S3 通用协议、OneDrive、OneDrive 世纪互联、SharePoint、SharePoint 世纪互联、Google Drive、七牛云 KODO、多吉云和 115。管理员在后台的存储源管理页面新增存储源，选择类型后填写该类型要求的连接参数。存储源 key 是前端 URL 和接口中使用的唯一标识，不能与已有 key 重复；启用后才会在前台显示。"
+  },
+  {
+    "id": "local-storage",
+    "title": "添加和使用本地存储",
+    "tags": ["本地", "本地存储", "文件路径", "绝对路径", "目录", "Docker"],
+    "source": "LocalParam.java；LocalServiceImpl.java；StorageSourceController.java",
+    "content": "添加本地存储时，管理员进入后台存储源管理，选择“本地存储”，填写名称、唯一 key 和文件路径。文件路径必须是后端电脑上的绝对路径，并且目录必须已经存在，否则初始化会提示路径不存在。Windows 示例可以是 C:/student-cloud-files，建议使用专门目录，不要直接填写磁盘根目录。Docker 部署时必须先把宿主机目录挂载到容器，再填写容器内路径。本地存储的文件列表、创建文件夹、上传、删除、重命名、复制和移动最终都操作这个目录；普通用户还会叠加自己的授权根目录。"
+  },
+  {
+    "id": "upload-file",
+    "title": "上传文件流程",
+    "tags": ["上传", "上传文件", "上传按钮", "文件", "权限", "proxy upload"],
+    "source": "FileOperatorController.java；UploadFileRequest.java；LocalServiceImpl.java；前端 Header.vue",
+    "content": "上传前必须先进入一个已启用且已授权的存储源。前端只有在当前路由包含 storageKey，并且当前用户拥有 upload 权限时才显示上传入口。用户点击上传文件后，前端先调用 POST /api/file/operator/upload/file，提交 storageKey、目标 path、文件名 name、文件大小 size 和可选目录密码，后端返回上传地址；本地存储使用后端代理上传，最终把文件流写入“存储源文件路径 + 用户授权根目录 + 当前目录”。如果看不到上传按钮，优先检查用户是否被允许使用该存储源、授权根目录是否正确、upload 权限是否勾选、存储源是否启用。"
+  },
+  {
+    "id": "file-operations",
+    "title": "文件与文件夹操作",
+    "tags": ["新建文件夹", "重命名", "复制", "移动", "删除", "文件操作"],
+    "source": "FileOperatorController.java；FileOperatorTypeEnum.java；LocalServiceImpl.java",
+    "content": "文件操作接口统一位于 /api/file/operator。新建文件夹使用 /mkdir，批量删除使用 /delete/batch，文件和文件夹分别有重命名操作，移动或复制使用 /{action:move|copy}/{type:file|folder}。操作是否可见和可执行由用户在该存储源目录上的 newFolder、rename、copy、move、delete 等权限决定。受密码保护的目录还需要目录密码。本地存储会校验路径和文件名，防止通过 ../ 等方式越过配置的根目录。"
+  },
+  {
+    "id": "user-permissions",
+    "title": "用户、存储源授权和权限",
+    "tags": ["用户", "权限", "授权", "允许使用", "根目录", "上传权限", "下载权限"],
+    "source": "SaveUserRequest.java；UserStorageSource.java；FileOperatorTypeEnum.java",
+    "content": "用户权限分两层：第一层是存储源授权，只有把某个存储源设置为“允许使用”，用户才能访问；第二层是该存储源及目录的操作权限。可配置权限包括新建文件夹、上传、预览、下载、复制下载链接、重命名、复制、移动、删除、获取直链、生成短链、创建分享链接、自定义分享 key、忽略密码和忽略隐藏。授权根目录决定用户在真实存储中的可见起点，例如填写 /studentA 后，该用户只能从这个目录开始访问。用户默认权限只在以后新增存储源时作为初始授权，已经存在的存储源仍要在存储源授权列表中单独设置。"
+  },
+  {
+    "id": "download-preview",
+    "title": "下载和在线预览",
+    "tags": ["下载", "预览", "图片", "视频", "音频", "PDF", "Office", "3D"],
+    "source": "README.md；FileOperatorTypeEnum.java；文件预览模块",
+    "content": "系统支持图片、音频、视频、文本、PDF、Office 和 Obj 等 3D 文件的在线预览，具体能否预览还取决于文件格式、浏览器和存储源返回的地址。preview 权限控制预览入口，download 权限控制下载按钮。代码中特别说明：如果允许预览但关闭下载，通常只是隐藏下载按钮，不能绝对阻止用户通过浏览器获取文件数据；直链下载也不受普通 download 权限完全限制。敏感文件不应只依靠隐藏下载按钮保护。"
+  },
+  {
+    "id": "direct-short-link",
+    "title": "直链、短链和下载链接的区别",
+    "tags": ["直链", "短链", "下载链接", "generateLink", "generateShortLink"],
+    "source": "DirectLinkController.java；ShortLinkController.java；FileOperatorTypeEnum.java",
+    "content": "复制下载链接得到的是存储源自身或系统代理生成的文件下载地址。直链由 POST /api/path-link/batch/generate 批量生成，适合让程序、网页或下载工具直接访问文件，要求用户具有 generateLink 权限。短链由 POST /api/short-link/batch/generate 生成，用较短的 key 映射真实文件地址，访问入口是 /s/{key}，可以结合过期时间和后台记录管理，要求 generateShortLink 权限。直链和短链都可能绕过普通文件列表页面，因此不要给无关用户开放。"
+  },
+  {
+    "id": "share-link",
+    "title": "文件分享链接",
+    "tags": ["分享", "分享链接", "分享密码", "过期时间", "share key"],
+    "source": "ShareLinkController.java；CreateShareLinkRequest.java；FileOperatorTypeEnum.java",
+    "content": "分享链接用于把一个或多个文件、文件夹以独立页面分享给别人。创建接口是 POST /api/share/create，需要 storageKey、分享目录 sharePath、分享条目列表 shareEntries 和分享类型 shareType；还可以设置访问密码、过期时间和自定义 shareKey。用户必须有 createShareLink 权限，使用自定义 key 还需要 customShareKey 权限。分享访问者可以通过 shareKey 查看分享信息、验证密码、浏览文件并下载；用户可以在“我的分享”中查看和删除自己的分享，管理员可以在后台管理全部分享。"
+  },
+  {
+    "id": "ftp-sftp-phone",
+    "title": "FTP、SFTP 与手机作为存储节点",
+    "tags": ["FTP", "SFTP", "手机", "存储节点", "SSH", "WebDAV"],
+    "source": "StorageTypeEnum.java；FTP/SFTP 存储实现",
+    "content": "FTP 是专门传输文件的协议，通常需要服务器地址、端口、用户名、密码和远程目录；普通 FTP 默认不加密。SFTP 是基于 SSH 的安全文件传输协议，通常使用 22 端口，登录和文件内容都会加密，它不是“加密版 FTP”，而是另一套协议。手机不能直接作为存储源，除非手机安装并运行 SFTP、FTP 或 WebDAV 服务，并且后端电脑能够通过局域网 IP 和端口访问它。手机休眠、切换网络或系统清理后台应用都会导致节点离线，因此更适合学习测试，不适合作为长期稳定存储。"
+  },
+  {
+    "id": "database-startup",
+    "title": "MySQL 数据库与后端启动",
+    "tags": ["MySQL", "数据库", "JDBC", "启动", "Flyway", "Java 21", "3306"],
+    "source": "application.properties；pom.xml；Flyway 配置",
+    "content": "当前项目使用 MySQL JDBC 驱动，数据库地址配置为 localhost:3306，数据库名为 student_cloud。需要先在本机 MySQL 创建空数据库 student_cloud，并保证 application.properties 中的用户名和密码正确。启动时 HikariCP 创建数据库连接池，Flyway 自动校验并执行版本迁移，因此通常不需要手工导入完整表结构。项目要求 Java 21，本机使用 D:/develop/Java/jdk-21.0.11。后端默认端口是 8080，前端开发端口是 5173。数据库连接失败时应依次检查 MySQL 服务是否启动、student_cloud 数据库是否存在、账号密码、3306 端口和 JDBC URL。"
+  },
+  {
+    "id": "login-and-security",
+    "title": "登录、Token 与接口安全",
+    "tags": ["登录", "Token", "tongligong-student-cloud-token", "Sa-Token", "管理员", "安全"],
+    "source": "UserController.java；前端 HTTP 请求拦截器；Sa-Token 配置",
+    "content": "用户登录成功后，后端通过 Sa-Token 创建会话并返回 token；前端把它保存为 tongligong-student-cloud-token，并在请求头中自动携带。管理员可以进入后台管理存储源、用户和系统配置，普通用户只能使用已授权功能。AI 对话和 RAG 检索接口也要求登录。不要把管理员密码、数据库密码或 AI API Key 写入前端代码；AI 密钥只通过后端环境变量 TLGXY_CLOUD_AI_API_KEY 配置。"
+  },
+  {
+    "id": "api-map",
+    "title": "主要后端接口速查",
+    "tags": ["接口", "API", "联调", "Swagger", "Knife4j"],
+    "source": "各业务 Controller",
+    "content": "常用接口包括：GET /api/storage/list 获取可用存储源；POST /api/storage/files 获取文件列表；POST /api/storage/file/item 获取文件详情；POST /api/file/operator/upload/file 获取上传地址；POST /api/file/operator/mkdir 新建文件夹；POST /api/file/operator/delete/batch 删除；POST /api/path-link/batch/generate 生成直链；POST /api/short-link/batch/generate 生成短链；POST /api/share/create 创建分享；POST /api/ai/chat 与 Agent 对话；GET /api/ai/knowledge/search 调试 RAG 检索。管理员接口大多使用 /admin 前缀。项目集成 Knife4j/OpenAPI，可通过接口文档页面查看请求参数。"
+  },
+  {
+    "id": "common-troubleshooting",
+    "title": "常见问题排查顺序",
+    "tags": ["错误", "排查", "没有按钮", "无法上传", "连接失败", "403", "500"],
+    "source": "项目异常处理、权限和存储实现",
+    "content": "页面没有文件或按钮时，先确认存储源已启用，再确认用户被授权使用该存储源，然后检查授权根目录和具体操作权限。上传失败时继续检查目录密码、存储源路径是否存在、后端进程是否有目录写权限以及磁盘空间。接口提示未登录时检查请求头 tongligong-student-cloud-token；403 通常表示权限不足；500 需要查看后端日志中的 traceId 对应记录。第三方存储连接失败时检查地址、端口、账号、密钥、网络和服务端权限。AI 助手提示尚未配置时，需要设置 TLGXY_CLOUD_AI_API_KEY 并重启后端。"
+  }
+]

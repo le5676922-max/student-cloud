@@ -1,0 +1,46 @@
+# Local runtime state and user data
+.codex-run/
+.codex-tmp/
+.agent-test/
+.pet-work/
+.package/
+.pnpm-store/
+.local-data/
+student-cloud-files/
+*.db
+*.sqlite
+*.sqlite3
+*.sql.gz
+*.bak
+*.backup
+
+# Build output and dependencies
+**/target/
+**/dist/
+**/node_modules/
+**/.cache/
+
+# Secrets and machine-specific configuration
+.env.local
+.env.*.local
+*.secret
+*.secrets
+secrets.env
+application-local-secrets.properties
+**/application-local-secrets.properties
+
+# Logs and generated reports
+*.log
+*.err
+*.out
+lint-results.json
+three-role-lint-results.json
+stats.html
+**/surefire-reports/
+
+# Editors and OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

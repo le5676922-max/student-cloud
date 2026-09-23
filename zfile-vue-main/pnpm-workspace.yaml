@@ -1,0 +1,15 @@
+packages:
+  - '.'
+
+allowBuilds:
+  '@parcel/watcher': true
+  canvas: true
+  core-js: true
+  esbuild: true
+  vue-demi: true
+
+peerDependencyRules:
+  ignoreMissing:
+    - rollup
+    - markdown-it
+    - '@types/markdown-it'
