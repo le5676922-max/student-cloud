@@ -1,5 +1,5 @@
 {
-	"root": false, // 禁止接着往上找
+	"root": true, // 不继承项目外的本机配置，保持 CI 与本地一致
 	"env": {
 		"node": true,
 		"es2021": true,
