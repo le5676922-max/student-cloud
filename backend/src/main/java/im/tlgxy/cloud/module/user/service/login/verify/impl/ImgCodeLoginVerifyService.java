@@ -35,7 +35,9 @@ public class ImgCodeLoginVerifyService implements LoginVerifyService {
         }
 
         // 如果是管理员, 且开启了管理员二次验证, 则不需要进行图片验证码验证
-        boolean isAdmin = userService.isAdmin(userLoginRequest.getUsername());
+        boolean isAdmin = userLoginRequest.getResolvedUserId() == null
+                ? userService.isAdmin(userLoginRequest.getUsername())
+                : userService.isAdmin(userLoginRequest.getResolvedUserId());
         boolean enable2FA = BooleanUtils.isTrue(systemConfig.getAdminTwoFactorVerify()) && StringUtils.isNotBlank(systemConfig.getLoginVerifySecret());
         if (isAdmin && enable2FA) {
             return;

@@ -23,7 +23,7 @@ import java.util.Date;
  * <p>
  * 使用 AOP 环绕通知拦截用户登录方法，根据系统配置的登录日志记录模式，
  * 自动记录用户的登录信息（用户名、IP、User-Agent、登录结果等）到数据库中。
- * 支持多种日志记录模式：关闭、记录所有、忽略成功密码、忽略所有密码等。
+ * 支持关闭或记录登录事件；所有历史模式均不记录密码。
  * </p>
  *
  * @author zhaojun
@@ -86,8 +86,11 @@ public class LoginLogAspect {
         // 构建登录日志实体，填充基本信息
         LoginLog loginLog = new LoginLog();
         loginLog.setUsername(userLoginRequest.getUsername());
-        loginLog.setPassword(userLoginRequest.getPassword());
-        loginLog.setCreateTime(new Date());
+        // Legacy modes remain compatible, but passwords never enter the log entity.
+        loginLog.setPassword("******");
+        // login_log uses second-precision DATETIME. Truncate explicitly so MySQL cannot
+        // round a just-recorded attempt into the future and omit it from current statistics.
+        loginLog.setCreateTime(new Date(System.currentTimeMillis() / 1000 * 1000));
         loginLog.setIp(JakartaServletUtil.getClientIP(httpServletRequest));
         loginLog.setUserAgent(httpServletRequest.getHeader(HttpHeaders.USER_AGENT));
         loginLog.setReferer(httpServletRequest.getHeader(HttpHeaders.REFERER));
@@ -102,17 +105,6 @@ public class LoginLogAspect {
             msg = throwable.getMessage();
             throw throwable;
         } finally {
-            // 根据日志模式决定是否脱敏处理密码字段
-            if (loginLogMode != LoginLogModeEnum.ALL) {
-                // 忽略所有密码模式：始终用星号替换密码
-                if (loginLogMode == LoginLogModeEnum.IGNORE_ALL_PWD) {
-                    loginLog.setPassword("******");
-                }
-                // 忽略成功密码模式：仅在登录成功时用星号替换密码
-                if (loginLogMode == LoginLogModeEnum.IGNORE_SUCCESS_PWD && DEFAULT_LOGIN_SUCCESS_RESULT.equals(msg)) {
-                    loginLog.setPassword("******");
-                }
-            }
             // 设置登录结果并保存日志
             loginLog.setResult(msg);
             loginLogService.save(loginLog);

@@ -1,0 +1,17 @@
+node_modules
+dist
+.git
+.idea
+.vscode
+.cache
+.codex-run
+coverage
+*.log
+*.err
+*.out
+.env.local
+.env.*.local
+**/*.secret
+**/*.secrets
+**/*.pem
+**/*.key

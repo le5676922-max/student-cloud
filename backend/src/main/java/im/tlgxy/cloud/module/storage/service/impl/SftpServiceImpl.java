@@ -78,7 +78,7 @@ public class SftpServiceImpl extends AbstractProxyTransferService<SftpParam> {
         // 根据配置的编码创建 Charset 对象
         Charset charset = Charset.forName(param.getEncoding());
         // 创建 SFTP 客户端工厂，传入主机、端口、用户名、密码/密钥等连接参数
-        SFtpClientFactory factory = new SFtpClientFactory(param.getHost(), param.getPort(), param.getUsername(), param.getPassword(), param.getPrivateKey(), param.getPassphrase(), charset);
+        SFtpClientFactory factory = new SFtpClientFactory(param.getHost(), param.getPort(), param.getUsername(), param.getPassword(), param.getPrivateKey(), param.getPassphrase(), charset, param.getHostKeyFingerprint());
         // 配置连接池参数
         GenericObjectPoolConfig<FtpClientFactory> config = new GenericObjectPoolConfig<>();
         // 从连接池借用对象时，先进行有效性测试

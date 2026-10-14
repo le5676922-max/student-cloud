@@ -5,6 +5,7 @@ import im.tlgxy.cloud.module.share.model.enums.ShareEntryTypeEnum;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -48,6 +49,8 @@ public class ShareEntryDTO {
      */
     @Schema(title = "条目名称", example = "document.pdf")
     @NotBlank(message = "分享条目名称不能为空")
+    @Pattern(regexp = "^(?!\\.{1,2}$)[^/\\\\\\p{Cc}]+$",
+            message = "分享条目名称必须是单个文件或文件夹名称，不能包含路径分隔符、控制字符或为 .、..")
     private String name;
 
     /**

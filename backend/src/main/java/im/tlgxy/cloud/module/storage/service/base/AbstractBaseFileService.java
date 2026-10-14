@@ -164,12 +164,8 @@ public abstract class AbstractBaseFileService<P extends IStorageParam> implement
             return ShareAccessContext.getShareBasePath();
         }
 
-        // 原有逻辑：获取当前登录用户的基础路径
-        Integer userId = TlgxyCloudAuthUtil.getCurrentUserId();
-        // 存储源未初始化时使用管理员 ID（初始化阶段不需要用户上下文）
-        if (!this.isInitialized) {
-            userId = UserConstant.ADMIN_ID;
-        }
+        // 初始化连接检查使用管理员根路径；已初始化的业务访问必须读取登录身份。
+        Integer userId = this.isInitialized ? TlgxyCloudAuthUtil.getCurrentUserId() : UserConstant.ADMIN_ID;
         UserStorageSource userStorageSource = userStorageSourceService.getByUserIdAndStorageId(userId, storageId);
         // 用户未设置根路径或根路径为空时，返回根路径 "/"
         if (userStorageSource == null || StringUtils.isEmpty(userStorageSource.getRootPath())) {

@@ -15,6 +15,7 @@ import im.tlgxy.cloud.module.storage.service.base.AbstractBaseFileService;
 import im.tlgxy.cloud.module.user.model.entity.User;
 import im.tlgxy.cloud.module.user.service.UserService;
 import im.tlgxy.cloud.module.learning.service.LearningLibraryService;
+import im.tlgxy.cloud.module.ai.model.automation.Automation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -33,7 +34,7 @@ import java.util.Objects;
 /**
  * Agent 可调用的站内工具。
  *
- * <p>这里只开放只读能力，并始终使用当前登录用户的权限上下文。</p>
+ * <p>仅开放查询和任务预览；模型不能确认或执行写入任务。</p>
  */
 @Slf4j
 @Service
@@ -49,6 +50,8 @@ public class AiAgentToolService {
     private final UserService userService;
     private final FileChain fileChain;
     private final LearningLibraryService learningLibrary;
+    private final AgentTaskService tasks;
+    private final ProjectKnowledgeService knowledge;
 
     /** 根据模型给出的工具名称执行白名单内的站内查询。 */
     public ToolExecution execute(String toolName, JsonNode arguments) {
@@ -62,8 +65,27 @@ public class AiAgentToolService {
             case "find_files" -> findFiles(arguments);
             case "get_file_details" -> fileDetails(arguments);
             case "search_learning_materials" -> searchLearningMaterials(arguments);
+            case "summarize_learning_course" -> new ToolExecution(learningLibrary.courseOverview(
+                    boundedIntArgument(arguments, "courseId", 0, 1, Integer.MAX_VALUE)), "已读取本人课程的真实资料片段");
+            case "list_learning_courses" -> new ToolExecution(learningLibrary.courses(), "已查询本人课程列表");
+            case "search_project_knowledge" -> new ToolExecution(knowledge.search(requiredArgument(arguments, "query", "请提供检索问题"), knowledge.resolveCurrentAudience()), "已检索当前角色的项目知识库");
+            case "plan_file_organization" -> previewTask(arguments, "ORGANIZE_FILES");
+            case "plan_date_rename" -> previewTask(arguments, "RENAME_BY_DATE");
+            case "find_duplicate_files" -> new ToolExecution(tasks.duplicates(
+                    requiredArgument(arguments, "storageKey", "请选择存储源"),
+                    requiredArgument(arguments, "path", "请指定目录")), "已按文件内容检查当前目录重复项");
+            case "plan_learning_import" -> previewTask(arguments, "IMPORT_LEARNING");
             default -> throw new BizException("Agent 请求了不支持的工具：" + toolName);
         };
+    }
+
+    private ToolExecution previewTask(JsonNode arguments, String type) {
+        var plan = tasks.preview(new Automation.Request(type,
+                requiredArgument(arguments, "storageKey", "请先选择存储源"),
+                requiredArgument(arguments, "path", "请明确要处理的目录"),
+                arguments.path("courseId").canConvertToInt() ? arguments.path("courseId").asInt() : null,
+                textArgument(arguments, "tags")));
+        return new ToolExecution(plan, "已生成待确认任务，尚未执行：" + plan.title());
     }
 
     private ToolExecution currentUser() {
@@ -73,7 +95,7 @@ public class AiAgentToolService {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("username", user.getUsername());
         data.put("nickname", StringUtils.defaultIfBlank(user.getNickname(), user.getUsername()));
-        data.put("role", userService.isAdmin(userId) ? "管理员" : "普通用户");
+        data.put("role", user.getRole().getDescription());
         data.put("enabled", user.getEnable());
         return new ToolExecution(data, "已读取当前账号：" + user.getUsername());
     }
@@ -116,15 +138,15 @@ public class AiAgentToolService {
 
     private ToolExecution agentCapabilities() {
         Integer userId = TlgxyCloudAuthUtil.getCurrentUserId();
-        boolean admin = userService.isAdmin(userId);
+        User user = userService.requireLoginUser(userId);
         List<StorageSource> sources = accessibleStorageSources();
 
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("role", admin ? "管理员" : "普通用户");
+        data.put("role", user.getRole().getDescription());
         data.put("accessibleStorageCount", sources.size());
-        data.put("readActions", List.of("查询可用存储源", "浏览目录", "搜索文件", "统计目录", "查看文件详情", "检索课程资料并提供片段引用"));
-        data.put("confirmedActions", List.of("通过页面确认后上传文件"));
-        data.put("blockedDirectActions", List.of("删除", "移动", "复制", "重命名", "创建分享", "修改权限或系统设置"));
+        data.put("readActions", List.of("查询可用存储源", "浏览目录", "搜索文件", "统计目录", "查看文件详情", "检查本地目录重复文件", "检索课程资料并提供片段引用"));
+        data.put("confirmedActions", List.of("通过页面确认后上传文件", "预览并确认本地文件分类整理", "预览并确认本地文件按日期重命名", "预览并确认本地资料批量归档到本人课程", "创建每周规则，到点生成待确认任务"));
+        data.put("blockedDirectActions", List.of("未确认的移动、重命名或索引", "覆盖同名文件", "删除", "复制", "创建分享", "修改权限或系统设置"));
         data.put("permissionRule", "所有读取均按当前登录用户权限执行，不能切换身份或绕过目录限制");
         return new ToolExecution(data, "已确认小芽当前可用的 Agent 能力");
     }

@@ -1,7 +1,6 @@
 package im.tlgxy.cloud.module.storage.model.result;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import lombok.AllArgsConstructor;
 import lombok.Data;
 
 import java.util.List;
@@ -18,7 +17,6 @@ import java.util.List;
  */
 @Data
 @Schema(title="文件列表信息结果类")
-@AllArgsConstructor
 public class FileInfoResult {
 
 	/**
@@ -32,5 +30,22 @@ public class FileInfoResult {
 	 */
 	@Schema(title="当前目录密码路径表达式")
 	private String passwordPattern;
+
+    private boolean paged;
+    private Integer total;
+    private boolean totalKnown = true;
+    private boolean nativePagination;
+    private boolean nativePaginationAvailable;
+    private int pageIndex;
+    private int offset;
+    private Integer pageSize;
+    private String nextCursor;
+    private String previousCursor;
+
+    public FileInfoResult(List<FileItemResult> files, String passwordPattern) {
+        this.files = files;
+        this.passwordPattern = passwordPattern;
+        this.total = files.size();
+    }
 
 }

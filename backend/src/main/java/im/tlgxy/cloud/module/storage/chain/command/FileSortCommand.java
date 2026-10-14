@@ -44,6 +44,8 @@ public class FileSortCommand implements Command {
 
 		List<FileItemResult> fileItemList = fileContext.getFileItemList();
 		FileListRequest fileListRequest = fileContext.getFileListRequest();
+        // Sorting one remote page would falsely look like a globally sorted directory.
+        if (fileListRequest.isNativePagination()) return false;
 
 		// 如果没有指定排序字段或排序方向，则不排序，直接返回
 		if (fileListRequest.getOrderBy() == null || fileListRequest.getOrderDirection() == null) {
@@ -54,7 +56,9 @@ public class FileSortCommand implements Command {
 		List<FileItemResult> copyList = new ArrayList<>(fileItemList);
 
 		// 使用 FileComparator 按照自然排序规则进行排序
-		copyList.sort(new FileComparator(fileListRequest.getOrderBy(), fileListRequest.getOrderDirection()));
+        copyList.sort(new FileComparator(fileListRequest.getOrderBy(), fileListRequest.getOrderDirection())
+                .thenComparing(FileItemResult::getName, java.util.Comparator.nullsFirst(String::compareTo))
+                .thenComparing(FileItemResult::getPath, java.util.Comparator.nullsFirst(String::compareTo)));
 		fileContext.setFileItemList(copyList);
 		return false;
 	}

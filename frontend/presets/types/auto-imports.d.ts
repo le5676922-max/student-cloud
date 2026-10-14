@@ -10,11 +10,6 @@ declare global {
   const ElLoading: typeof import('element-plus/es')['ElLoading']
   const ElMessage: typeof import('element-plus/es')['ElMessage']
   const ElMessageBox: typeof import('element-plus/es')['ElMessageBox']
-  const PANEL_BOTTOM_OFFSET: typeof import('../../src/components/ai/ai-assistant-panel.mjs')['PANEL_BOTTOM_OFFSET']
-  const PANEL_MIN_HEIGHT: typeof import('../../src/components/ai/ai-assistant-panel.mjs')['PANEL_MIN_HEIGHT']
-  const PANEL_MIN_WIDTH: typeof import('../../src/components/ai/ai-assistant-panel.mjs')['PANEL_MIN_WIDTH']
-  const PANEL_RIGHT_OFFSET: typeof import('../../src/components/ai/ai-assistant-panel.mjs')['PANEL_RIGHT_OFFSET']
-  const SvgIcon: typeof import('../../src/components/SvgIcon.vue')['default']
   const acceptHMRUpdate: typeof import('pinia')['acceptHMRUpdate']
   const adminLayout: typeof import('../../src/composables/admin/layout/admin-layout.js')['default']
   const allowShortcuts: typeof import('../../src/composables/file/useTableOperator.js')['allowShortcuts']
@@ -23,17 +18,16 @@ declare global {
   const baseSsoConfig: typeof import('../../src/composables/admin/sso/baseSsoConfig.js')['baseSsoConfig']
   const buildTableOperator: typeof import('../../src/composables/file/useTableOperator.js')['buildTableOperator']
   const calculateUploadProgress: typeof import('../../src/composables/file/upload-progress.mjs')['calculateUploadProgress']
-  const clampPanelSize: typeof import('../../src/components/ai/ai-assistant-panel.mjs')['clampPanelSize']
+  const captureFileOperationContext: typeof import('../../src/composables/file/file-operation-context.mjs')['captureFileOperationContext']
+  const captureUploadTarget: typeof import('../../src/composables/file/upload-lifecycle.mjs')['captureUploadTarget']
   const computed: typeof import('vue')['computed']
   const computedAsync: typeof import('@vueuse/core')['computedAsync']
   const computedEager: typeof import('@vueuse/core')['computedEager']
   const computedInject: typeof import('@vueuse/core')['computedInject']
   const computedWithControl: typeof import('@vueuse/core')['computedWithControl']
-  const confirm: typeof import('../../src/components/messageBox/confirm/index')['default']
   const constant: typeof import('../../src/constant/index.js')['constant']
   const controlledComputed: typeof import('@vueuse/core')['controlledComputed']
   const controlledRef: typeof import('@vueuse/core')['controlledRef']
-  const cpp: typeof import('../../src/components/vue-codemirror/lang-code/cpp/index')['default']
   const createApp: typeof import('vue')['createApp']
   const createEventHook: typeof import('@vueuse/core')['createEventHook']
   const createGlobalState: typeof import('@vueuse/core')['createGlobalState']
@@ -44,44 +38,34 @@ declare global {
   const createSharedComposable: typeof import('@vueuse/core')['createSharedComposable']
   const createTemplatePromise: typeof import('@vueuse/core')['createTemplatePromise']
   const createUnrefFn: typeof import('@vueuse/core')['createUnrefFn']
-  const css: typeof import('../../src/components/vue-codemirror/lang-code/css/index')['default']
   const customRef: typeof import('vue')['customRef']
   const debouncedRef: typeof import('@vueuse/core')['debouncedRef']
   const debouncedWatch: typeof import('@vueuse/core')['debouncedWatch']
   const defineAsyncComponent: typeof import('vue')['defineAsyncComponent']
   const defineComponent: typeof import('vue')['defineComponent']
   const defineStore: typeof import('pinia')['defineStore']
-  const dockerfile: typeof import('../../src/components/vue-codemirror/lang-code/dockerfile/index')['default']
   const eagerComputed: typeof import('@vueuse/core')['eagerComputed']
   const effectScope: typeof import('vue')['effectScope']
-  const encodings: typeof import('../../src/components/vue-codemirror/encodings')['default']
-  const erlang: typeof import('../../src/components/vue-codemirror/lang-code/erlang/index')['default']
   const extendRef: typeof import('@vueuse/core')['extendRef']
   const fileData: typeof import('../../src/stores/file-data')['default']
+  const fileOperationSelectionType: typeof import('../../src/composables/file/file-operation-context.mjs')['fileOperationSelectionType']
   const getActivePinia: typeof import('pinia')['getActivePinia']
   const getCurrentInstance: typeof import('vue')['getCurrentInstance']
   const getCurrentScope: typeof import('vue')['getCurrentScope']
   const globalConfig: typeof import('../../src/stores/global-config')['default']
-  const go: typeof import('../../src/components/vue-codemirror/lang-code/go/index')['default']
   const h: typeof import('vue')['h']
   const hasDialog: typeof import('../../src/composables/file/useTableOperator.js')['hasDialog']
   const hasPasswordInputFocus: typeof import('../../src/composables/file/useTableOperator.js')['hasPasswordInputFocus']
   const hasSearchInputFocus: typeof import('../../src/composables/file/useTableOperator.js')['hasSearchInputFocus']
   const hoverBody: typeof import('../../src/composables/file/useTableOperator.js')['hoverBody']
-  const html: typeof import('../../src/components/vue-codemirror/lang-code/html/index')['default']
   const ignorableWatch: typeof import('@vueuse/core')['ignorableWatch']
   const inject: typeof import('vue')['inject']
   const isDefined: typeof import('@vueuse/core')['isDefined']
+  const isFileOperationContextCurrent: typeof import('../../src/composables/file/file-operation-context.mjs')['isFileOperationContextCurrent']
   const isProxy: typeof import('vue')['isProxy']
   const isReactive: typeof import('vue')['isReactive']
   const isReadonly: typeof import('vue')['isReadonly']
   const isRef: typeof import('vue')['isRef']
-  const java: typeof import('../../src/components/vue-codemirror/lang-code/java/index')['default']
-  const javascript: typeof import('../../src/components/vue-codemirror/lang-code/javascript/index')['default']
-  const json: typeof import('../../src/components/vue-codemirror/lang-code/json/index')['default']
-  const jsx: typeof import('../../src/components/vue-codemirror/lang-code/jsx/index')['default']
-  const languages: typeof import('../../src/components/vue-codemirror/languages')['default']
-  const lua: typeof import('../../src/components/vue-codemirror/lang-code/lua/index')['default']
   const makeDestructurable: typeof import('@vueuse/core')['makeDestructurable']
   const mapActions: typeof import('pinia')['mapActions']
   const mapGetters: typeof import('pinia')['mapGetters']
@@ -89,11 +73,7 @@ declare global {
   const mapStores: typeof import('pinia')['mapStores']
   const mapWritableState: typeof import('pinia')['mapWritableState']
   const markRaw: typeof import('vue')['markRaw']
-  const markdown: typeof import('../../src/components/vue-codemirror/lang-code/markdown/index')['default']
-  const messageBox: typeof import('../../src/components/messageBox/messageBox')['default']
-  const mysql: typeof import('../../src/components/vue-codemirror/lang-code/mysql/index')['default']
   const nextTick: typeof import('vue')['nextTick']
-  const nginx: typeof import('../../src/components/vue-codemirror/lang-code/nginx/index')['default']
   const onActivated: typeof import('vue')['onActivated']
   const onBeforeMount: typeof import('vue')['onBeforeMount']
   const onBeforeRouteLeave: typeof import('vue-router')['onBeforeRouteLeave']
@@ -115,15 +95,9 @@ declare global {
   const onUpdated: typeof import('vue')['onUpdated']
   const onWatcherCleanup: typeof import('vue')['onWatcherCleanup']
   const open115Util: typeof import('../../src/composables/admin/storage/utils/open115-util.js')['default']
+  const operationBusy: typeof import('../../src/composables/file/useFileOperator.js')['operationBusy']
   const pausableWatch: typeof import('@vueuse/core')['pausableWatch']
-  const perl: typeof import('../../src/components/vue-codemirror/lang-code/perl/index')['default']
-  const pgsql: typeof import('../../src/components/vue-codemirror/lang-code/pgsql/index')['default']
-  const php: typeof import('../../src/components/vue-codemirror/lang-code/php/index')['default']
-  const powershell: typeof import('../../src/components/vue-codemirror/lang-code/powershell/index')['default']
-  const prompt: typeof import('../../src/components/messageBox/prompt/index')['default']
   const provide: typeof import('vue')['provide']
-  const python: typeof import('../../src/components/vue-codemirror/lang-code/python/index')['default']
-  const r: typeof import('../../src/components/vue-codemirror/lang-code/r/index')['default']
   const reactify: typeof import('@vueuse/core')['reactify']
   const reactifyObject: typeof import('@vueuse/core')['reactifyObject']
   const reactive: typeof import('vue')['reactive']
@@ -140,17 +114,11 @@ declare global {
   const resolveComponent: typeof import('vue')['resolveComponent']
   const resolveRef: typeof import('@vueuse/core')['resolveRef']
   const resolveUnref: typeof import('@vueuse/core')['resolveUnref']
-  const restorePanelSize: typeof import('../../src/components/ai/ai-assistant-panel.mjs')['restorePanelSize']
-  const ruby: typeof import('../../src/components/vue-codemirror/lang-code/ruby/index')['default']
-  const rust: typeof import('../../src/components/vue-codemirror/lang-code/rust/index')['default']
-  const selectFolder: typeof import('../../src/components/file/selectFolder/index')['default']
   const setActivePinia: typeof import('pinia')['setActivePinia']
   const setMapStoreSuffix: typeof import('pinia')['setMapStoreSuffix']
   const shallowReactive: typeof import('vue')['shallowReactive']
   const shallowReadonly: typeof import('vue')['shallowReadonly']
   const shallowRef: typeof import('vue')['shallowRef']
-  const shell: typeof import('../../src/components/vue-codemirror/lang-code/shell/index')['default']
-  const sql: typeof import('../../src/components/vue-codemirror/lang-code/sql/index')['default']
   const storageConfig: typeof import('../../src/stores/storage-config')['default']
   const storageCopy: typeof import('../../src/composables/admin/storage/storage-copy.js')['default']
   const storageFilter: typeof import('../../src/composables/admin/storage/storage-filter.js')['default']
@@ -158,12 +126,9 @@ declare global {
   const storagePassword: typeof import('../../src/composables/admin/storage/storage-password.js')['default']
   const storageReadme: typeof import('../../src/composables/admin/storage/storage-readme.js')['default']
   const storeToRefs: typeof import('pinia')['storeToRefs']
-  const stylus: typeof import('../../src/components/vue-codemirror/lang-code/stylus/index')['default']
-  const swift: typeof import('../../src/components/vue-codemirror/lang-code/swift/index')['default']
   const syncRef: typeof import('@vueuse/core')['syncRef']
   const syncRefs: typeof import('@vueuse/core')['syncRefs']
   const templateRef: typeof import('@vueuse/core')['templateRef']
-  const themes: typeof import('../../src/components/vue-codemirror/themes')['default']
   const throttledRef: typeof import('@vueuse/core')['throttledRef']
   const throttledWatch: typeof import('@vueuse/core')['throttledWatch']
   const toRaw: typeof import('vue')['toRaw']
@@ -171,18 +136,17 @@ declare global {
   const toRef: typeof import('vue')['toRef']
   const toRefs: typeof import('vue')['toRefs']
   const toValue: typeof import('vue')['toValue']
-  const toml: typeof import('../../src/components/vue-codemirror/lang-code/toml/index')['default']
   const triggerRef: typeof import('vue')['triggerRef']
   const tryOnBeforeMount: typeof import('@vueuse/core')['tryOnBeforeMount']
   const tryOnBeforeUnmount: typeof import('@vueuse/core')['tryOnBeforeUnmount']
   const tryOnMounted: typeof import('@vueuse/core')['tryOnMounted']
   const tryOnScopeDispose: typeof import('@vueuse/core')['tryOnScopeDispose']
   const tryOnUnmounted: typeof import('@vueuse/core')['tryOnUnmounted']
-  const tsx: typeof import('../../src/components/vue-codemirror/lang-code/tsx/index')['default']
-  const typescript: typeof import('../../src/components/vue-codemirror/lang-code/typescript/index')['default']
   const unref: typeof import('vue')['unref']
   const unrefElement: typeof import('@vueuse/core')['unrefElement']
   const until: typeof import('@vueuse/core')['until']
+  const uploadAccountIdentity: typeof import('../../src/composables/file/upload-lifecycle.mjs')['uploadAccountIdentity']
+  const uploadCancellationError: typeof import('../../src/composables/file/upload-lifecycle.mjs')['uploadCancellationError']
   const useActiveElement: typeof import('@vueuse/core')['useActiveElement']
   const useAdminSetting: typeof import('../../src/composables/admin/useAdminSetting.js')['default']
   const useAnimate: typeof import('@vueuse/core')['useAnimate']
@@ -230,8 +194,6 @@ declare global {
   const useDeviceOrientation: typeof import('@vueuse/core')['useDeviceOrientation']
   const useDevicePixelRatio: typeof import('@vueuse/core')['useDevicePixelRatio']
   const useDevicesList: typeof import('@vueuse/core')['useDevicesList']
-  const useDialog: typeof import('../../src/components/common/dialog/useDialog')['default']
-  const useDialogWithForm: typeof import('../../src/components/common/dialog/useDialogWithForm')['default']
   const useDisplayMedia: typeof import('@vueuse/core')['useDisplayMedia']
   const useDocumentVisibility: typeof import('@vueuse/core')['useDocumentVisibility']
   const useDraggable: typeof import('@vueuse/core')['useDraggable']
@@ -380,8 +342,6 @@ declare global {
   const useWindowScroll: typeof import('@vueuse/core')['useWindowScroll']
   const useWindowSize: typeof import('@vueuse/core')['useWindowSize']
   const userCopy: typeof import('../../src/composables/admin/user/user-copy.js')['default']
-  const vb: typeof import('../../src/components/vue-codemirror/lang-code/vb/index')['default']
-  const vbscript: typeof import('../../src/components/vue-codemirror/lang-code/vbscript/index')['default']
   const watch: typeof import('vue')['watch']
   const watchArray: typeof import('@vueuse/core')['watchArray']
   const watchAtMost: typeof import('@vueuse/core')['watchAtMost']
@@ -398,23 +358,12 @@ declare global {
   const watchTriggerable: typeof import('@vueuse/core')['watchTriggerable']
   const watchWithFilter: typeof import('@vueuse/core')['watchWithFilter']
   const whenever: typeof import('@vueuse/core')['whenever']
-  const xml: typeof import('../../src/components/vue-codemirror/lang-code/xml/index')['default']
-  const yaml: typeof import('../../src/components/vue-codemirror/lang-code/yaml/index')['default']
 }
 // for type re-export
 declare global {
   // @ts-ignore
   export type { Component, ComponentPublicInstance, ComputedRef, DirectiveBinding, ExtractDefaultPropTypes, ExtractPropTypes, ExtractPublicPropTypes, InjectionKey, PropType, Ref, MaybeRef, MaybeRefOrGetter, VNode, WritableComputedRef } from 'vue'
   import('vue')
-  // @ts-ignore
-  export type { PropsType } from '../../src/components/common/dialog/types'
-  import('../../src/components/common/dialog/types')
-  // @ts-ignore
-  export type { ConfirmResult, Props } from '../../src/components/messageBox/prompt/types'
-  import('../../src/components/messageBox/prompt/types')
-  // @ts-ignore
-  export type { ToolBarConfig } from '../../src/components/vue-codemirror/types'
-  import('../../src/components/vue-codemirror/types')
 }
 
 // for vue template auto import
@@ -426,11 +375,6 @@ declare module 'vue' {
     readonly ElLoading: UnwrapRef<typeof import('element-plus/es')['ElLoading']>
     readonly ElMessage: UnwrapRef<typeof import('element-plus/es')['ElMessage']>
     readonly ElMessageBox: UnwrapRef<typeof import('element-plus/es')['ElMessageBox']>
-    readonly PANEL_BOTTOM_OFFSET: UnwrapRef<typeof import('../../src/components/ai/ai-assistant-panel.mjs')['PANEL_BOTTOM_OFFSET']>
-    readonly PANEL_MIN_HEIGHT: UnwrapRef<typeof import('../../src/components/ai/ai-assistant-panel.mjs')['PANEL_MIN_HEIGHT']>
-    readonly PANEL_MIN_WIDTH: UnwrapRef<typeof import('../../src/components/ai/ai-assistant-panel.mjs')['PANEL_MIN_WIDTH']>
-    readonly PANEL_RIGHT_OFFSET: UnwrapRef<typeof import('../../src/components/ai/ai-assistant-panel.mjs')['PANEL_RIGHT_OFFSET']>
-    readonly SvgIcon: UnwrapRef<typeof import('../../src/components/SvgIcon.vue')['default']>
     readonly acceptHMRUpdate: UnwrapRef<typeof import('pinia')['acceptHMRUpdate']>
     readonly adminLayout: UnwrapRef<typeof import('../../src/composables/admin/layout/admin-layout.js')['default']>
     readonly allowShortcuts: UnwrapRef<typeof import('../../src/composables/file/useTableOperator.js')['allowShortcuts']>
@@ -439,17 +383,16 @@ declare module 'vue' {
     readonly baseSsoConfig: UnwrapRef<typeof import('../../src/composables/admin/sso/baseSsoConfig.js')['baseSsoConfig']>
     readonly buildTableOperator: UnwrapRef<typeof import('../../src/composables/file/useTableOperator.js')['buildTableOperator']>
     readonly calculateUploadProgress: UnwrapRef<typeof import('../../src/composables/file/upload-progress.mjs')['calculateUploadProgress']>
-    readonly clampPanelSize: UnwrapRef<typeof import('../../src/components/ai/ai-assistant-panel.mjs')['clampPanelSize']>
+    readonly captureFileOperationContext: UnwrapRef<typeof import('../../src/composables/file/file-operation-context.mjs')['captureFileOperationContext']>
+    readonly captureUploadTarget: UnwrapRef<typeof import('../../src/composables/file/upload-lifecycle.mjs')['captureUploadTarget']>
     readonly computed: UnwrapRef<typeof import('vue')['computed']>
     readonly computedAsync: UnwrapRef<typeof import('@vueuse/core')['computedAsync']>
     readonly computedEager: UnwrapRef<typeof import('@vueuse/core')['computedEager']>
     readonly computedInject: UnwrapRef<typeof import('@vueuse/core')['computedInject']>
     readonly computedWithControl: UnwrapRef<typeof import('@vueuse/core')['computedWithControl']>
-    readonly confirm: UnwrapRef<typeof import('../../src/components/messageBox/confirm/index')['default']>
     readonly constant: UnwrapRef<typeof import('../../src/constant/index.js')['constant']>
     readonly controlledComputed: UnwrapRef<typeof import('@vueuse/core')['controlledComputed']>
     readonly controlledRef: UnwrapRef<typeof import('@vueuse/core')['controlledRef']>
-    readonly cpp: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/cpp/index')['default']>
     readonly createApp: UnwrapRef<typeof import('vue')['createApp']>
     readonly createEventHook: UnwrapRef<typeof import('@vueuse/core')['createEventHook']>
     readonly createGlobalState: UnwrapRef<typeof import('@vueuse/core')['createGlobalState']>
@@ -460,44 +403,34 @@ declare module 'vue' {
     readonly createSharedComposable: UnwrapRef<typeof import('@vueuse/core')['createSharedComposable']>
     readonly createTemplatePromise: UnwrapRef<typeof import('@vueuse/core')['createTemplatePromise']>
     readonly createUnrefFn: UnwrapRef<typeof import('@vueuse/core')['createUnrefFn']>
-    readonly css: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/css/index')['default']>
     readonly customRef: UnwrapRef<typeof import('vue')['customRef']>
     readonly debouncedRef: UnwrapRef<typeof import('@vueuse/core')['debouncedRef']>
     readonly debouncedWatch: UnwrapRef<typeof import('@vueuse/core')['debouncedWatch']>
     readonly defineAsyncComponent: UnwrapRef<typeof import('vue')['defineAsyncComponent']>
     readonly defineComponent: UnwrapRef<typeof import('vue')['defineComponent']>
     readonly defineStore: UnwrapRef<typeof import('pinia')['defineStore']>
-    readonly dockerfile: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/dockerfile/index')['default']>
     readonly eagerComputed: UnwrapRef<typeof import('@vueuse/core')['eagerComputed']>
     readonly effectScope: UnwrapRef<typeof import('vue')['effectScope']>
-    readonly encodings: UnwrapRef<typeof import('../../src/components/vue-codemirror/encodings')['default']>
-    readonly erlang: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/erlang/index')['default']>
     readonly extendRef: UnwrapRef<typeof import('@vueuse/core')['extendRef']>
     readonly fileData: UnwrapRef<typeof import('../../src/stores/file-data')['default']>
+    readonly fileOperationSelectionType: UnwrapRef<typeof import('../../src/composables/file/file-operation-context.mjs')['fileOperationSelectionType']>
     readonly getActivePinia: UnwrapRef<typeof import('pinia')['getActivePinia']>
     readonly getCurrentInstance: UnwrapRef<typeof import('vue')['getCurrentInstance']>
     readonly getCurrentScope: UnwrapRef<typeof import('vue')['getCurrentScope']>
     readonly globalConfig: UnwrapRef<typeof import('../../src/stores/global-config')['default']>
-    readonly go: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/go/index')['default']>
     readonly h: UnwrapRef<typeof import('vue')['h']>
     readonly hasDialog: UnwrapRef<typeof import('../../src/composables/file/useTableOperator.js')['hasDialog']>
     readonly hasPasswordInputFocus: UnwrapRef<typeof import('../../src/composables/file/useTableOperator.js')['hasPasswordInputFocus']>
     readonly hasSearchInputFocus: UnwrapRef<typeof import('../../src/composables/file/useTableOperator.js')['hasSearchInputFocus']>
     readonly hoverBody: UnwrapRef<typeof import('../../src/composables/file/useTableOperator.js')['hoverBody']>
-    readonly html: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/html/index')['default']>
     readonly ignorableWatch: UnwrapRef<typeof import('@vueuse/core')['ignorableWatch']>
     readonly inject: UnwrapRef<typeof import('vue')['inject']>
     readonly isDefined: UnwrapRef<typeof import('@vueuse/core')['isDefined']>
+    readonly isFileOperationContextCurrent: UnwrapRef<typeof import('../../src/composables/file/file-operation-context.mjs')['isFileOperationContextCurrent']>
     readonly isProxy: UnwrapRef<typeof import('vue')['isProxy']>
     readonly isReactive: UnwrapRef<typeof import('vue')['isReactive']>
     readonly isReadonly: UnwrapRef<typeof import('vue')['isReadonly']>
     readonly isRef: UnwrapRef<typeof import('vue')['isRef']>
-    readonly java: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/java/index')['default']>
-    readonly javascript: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/javascript/index')['default']>
-    readonly json: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/json/index')['default']>
-    readonly jsx: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/jsx/index')['default']>
-    readonly languages: UnwrapRef<typeof import('../../src/components/vue-codemirror/languages')['default']>
-    readonly lua: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/lua/index')['default']>
     readonly makeDestructurable: UnwrapRef<typeof import('@vueuse/core')['makeDestructurable']>
     readonly mapActions: UnwrapRef<typeof import('pinia')['mapActions']>
     readonly mapGetters: UnwrapRef<typeof import('pinia')['mapGetters']>
@@ -505,11 +438,7 @@ declare module 'vue' {
     readonly mapStores: UnwrapRef<typeof import('pinia')['mapStores']>
     readonly mapWritableState: UnwrapRef<typeof import('pinia')['mapWritableState']>
     readonly markRaw: UnwrapRef<typeof import('vue')['markRaw']>
-    readonly markdown: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/markdown/index')['default']>
-    readonly messageBox: UnwrapRef<typeof import('../../src/components/messageBox/messageBox')['default']>
-    readonly mysql: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/mysql/index')['default']>
     readonly nextTick: UnwrapRef<typeof import('vue')['nextTick']>
-    readonly nginx: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/nginx/index')['default']>
     readonly onActivated: UnwrapRef<typeof import('vue')['onActivated']>
     readonly onBeforeMount: UnwrapRef<typeof import('vue')['onBeforeMount']>
     readonly onBeforeRouteLeave: UnwrapRef<typeof import('vue-router')['onBeforeRouteLeave']>
@@ -531,15 +460,9 @@ declare module 'vue' {
     readonly onUpdated: UnwrapRef<typeof import('vue')['onUpdated']>
     readonly onWatcherCleanup: UnwrapRef<typeof import('vue')['onWatcherCleanup']>
     readonly open115Util: UnwrapRef<typeof import('../../src/composables/admin/storage/utils/open115-util.js')['default']>
+    readonly operationBusy: UnwrapRef<typeof import('../../src/composables/file/useFileOperator.js')['operationBusy']>
     readonly pausableWatch: UnwrapRef<typeof import('@vueuse/core')['pausableWatch']>
-    readonly perl: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/perl/index')['default']>
-    readonly pgsql: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/pgsql/index')['default']>
-    readonly php: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/php/index')['default']>
-    readonly powershell: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/powershell/index')['default']>
-    readonly prompt: UnwrapRef<typeof import('../../src/components/messageBox/prompt/index')['default']>
     readonly provide: UnwrapRef<typeof import('vue')['provide']>
-    readonly python: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/python/index')['default']>
-    readonly r: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/r/index')['default']>
     readonly reactify: UnwrapRef<typeof import('@vueuse/core')['reactify']>
     readonly reactifyObject: UnwrapRef<typeof import('@vueuse/core')['reactifyObject']>
     readonly reactive: UnwrapRef<typeof import('vue')['reactive']>
@@ -556,17 +479,11 @@ declare module 'vue' {
     readonly resolveComponent: UnwrapRef<typeof import('vue')['resolveComponent']>
     readonly resolveRef: UnwrapRef<typeof import('@vueuse/core')['resolveRef']>
     readonly resolveUnref: UnwrapRef<typeof import('@vueuse/core')['resolveUnref']>
-    readonly restorePanelSize: UnwrapRef<typeof import('../../src/components/ai/ai-assistant-panel.mjs')['restorePanelSize']>
-    readonly ruby: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/ruby/index')['default']>
-    readonly rust: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/rust/index')['default']>
-    readonly selectFolder: UnwrapRef<typeof import('../../src/components/file/selectFolder/index')['default']>
     readonly setActivePinia: UnwrapRef<typeof import('pinia')['setActivePinia']>
     readonly setMapStoreSuffix: UnwrapRef<typeof import('pinia')['setMapStoreSuffix']>
     readonly shallowReactive: UnwrapRef<typeof import('vue')['shallowReactive']>
     readonly shallowReadonly: UnwrapRef<typeof import('vue')['shallowReadonly']>
     readonly shallowRef: UnwrapRef<typeof import('vue')['shallowRef']>
-    readonly shell: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/shell/index')['default']>
-    readonly sql: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/sql/index')['default']>
     readonly storageConfig: UnwrapRef<typeof import('../../src/stores/storage-config')['default']>
     readonly storageCopy: UnwrapRef<typeof import('../../src/composables/admin/storage/storage-copy.js')['default']>
     readonly storageFilter: UnwrapRef<typeof import('../../src/composables/admin/storage/storage-filter.js')['default']>
@@ -574,12 +491,9 @@ declare module 'vue' {
     readonly storagePassword: UnwrapRef<typeof import('../../src/composables/admin/storage/storage-password.js')['default']>
     readonly storageReadme: UnwrapRef<typeof import('../../src/composables/admin/storage/storage-readme.js')['default']>
     readonly storeToRefs: UnwrapRef<typeof import('pinia')['storeToRefs']>
-    readonly stylus: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/stylus/index')['default']>
-    readonly swift: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/swift/index')['default']>
     readonly syncRef: UnwrapRef<typeof import('@vueuse/core')['syncRef']>
     readonly syncRefs: UnwrapRef<typeof import('@vueuse/core')['syncRefs']>
     readonly templateRef: UnwrapRef<typeof import('@vueuse/core')['templateRef']>
-    readonly themes: UnwrapRef<typeof import('../../src/components/vue-codemirror/themes')['default']>
     readonly throttledRef: UnwrapRef<typeof import('@vueuse/core')['throttledRef']>
     readonly throttledWatch: UnwrapRef<typeof import('@vueuse/core')['throttledWatch']>
     readonly toRaw: UnwrapRef<typeof import('vue')['toRaw']>
@@ -587,18 +501,17 @@ declare module 'vue' {
     readonly toRef: UnwrapRef<typeof import('vue')['toRef']>
     readonly toRefs: UnwrapRef<typeof import('vue')['toRefs']>
     readonly toValue: UnwrapRef<typeof import('vue')['toValue']>
-    readonly toml: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/toml/index')['default']>
     readonly triggerRef: UnwrapRef<typeof import('vue')['triggerRef']>
     readonly tryOnBeforeMount: UnwrapRef<typeof import('@vueuse/core')['tryOnBeforeMount']>
     readonly tryOnBeforeUnmount: UnwrapRef<typeof import('@vueuse/core')['tryOnBeforeUnmount']>
     readonly tryOnMounted: UnwrapRef<typeof import('@vueuse/core')['tryOnMounted']>
     readonly tryOnScopeDispose: UnwrapRef<typeof import('@vueuse/core')['tryOnScopeDispose']>
     readonly tryOnUnmounted: UnwrapRef<typeof import('@vueuse/core')['tryOnUnmounted']>
-    readonly tsx: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/tsx/index')['default']>
-    readonly typescript: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/typescript/index')['default']>
     readonly unref: UnwrapRef<typeof import('vue')['unref']>
     readonly unrefElement: UnwrapRef<typeof import('@vueuse/core')['unrefElement']>
     readonly until: UnwrapRef<typeof import('@vueuse/core')['until']>
+    readonly uploadAccountIdentity: UnwrapRef<typeof import('../../src/composables/file/upload-lifecycle.mjs')['uploadAccountIdentity']>
+    readonly uploadCancellationError: UnwrapRef<typeof import('../../src/composables/file/upload-lifecycle.mjs')['uploadCancellationError']>
     readonly useActiveElement: UnwrapRef<typeof import('@vueuse/core')['useActiveElement']>
     readonly useAdminSetting: UnwrapRef<typeof import('../../src/composables/admin/useAdminSetting.js')['default']>
     readonly useAnimate: UnwrapRef<typeof import('@vueuse/core')['useAnimate']>
@@ -646,8 +559,6 @@ declare module 'vue' {
     readonly useDeviceOrientation: UnwrapRef<typeof import('@vueuse/core')['useDeviceOrientation']>
     readonly useDevicePixelRatio: UnwrapRef<typeof import('@vueuse/core')['useDevicePixelRatio']>
     readonly useDevicesList: UnwrapRef<typeof import('@vueuse/core')['useDevicesList']>
-    readonly useDialog: UnwrapRef<typeof import('../../src/components/common/dialog/useDialog')['default']>
-    readonly useDialogWithForm: UnwrapRef<typeof import('../../src/components/common/dialog/useDialogWithForm')['default']>
     readonly useDisplayMedia: UnwrapRef<typeof import('@vueuse/core')['useDisplayMedia']>
     readonly useDocumentVisibility: UnwrapRef<typeof import('@vueuse/core')['useDocumentVisibility']>
     readonly useDraggable: UnwrapRef<typeof import('@vueuse/core')['useDraggable']>
@@ -796,8 +707,6 @@ declare module 'vue' {
     readonly useWindowScroll: UnwrapRef<typeof import('@vueuse/core')['useWindowScroll']>
     readonly useWindowSize: UnwrapRef<typeof import('@vueuse/core')['useWindowSize']>
     readonly userCopy: UnwrapRef<typeof import('../../src/composables/admin/user/user-copy.js')['default']>
-    readonly vb: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/vb/index')['default']>
-    readonly vbscript: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/vbscript/index')['default']>
     readonly watch: UnwrapRef<typeof import('vue')['watch']>
     readonly watchArray: UnwrapRef<typeof import('@vueuse/core')['watchArray']>
     readonly watchAtMost: UnwrapRef<typeof import('@vueuse/core')['watchAtMost']>
@@ -814,7 +723,5 @@ declare module 'vue' {
     readonly watchTriggerable: UnwrapRef<typeof import('@vueuse/core')['watchTriggerable']>
     readonly watchWithFilter: UnwrapRef<typeof import('@vueuse/core')['watchWithFilter']>
     readonly whenever: UnwrapRef<typeof import('@vueuse/core')['whenever']>
-    readonly xml: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/xml/index')['default']>
-    readonly yaml: UnwrapRef<typeof import('../../src/components/vue-codemirror/lang-code/yaml/index')['default']>
   }
 }

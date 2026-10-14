@@ -1,10 +1,19 @@
 <template>
-	<el-table-column v-if="isNotMobile && (props.type === 'selection') " v-bind="props" />
+	<el-table-column
+		v-if="isNotMobile && props.type === 'selection'"
+		v-bind="props"
+	/>
 	<el-table-column v-else-if="isNotMobile" v-bind="props">
-		<template #default="scope">
-			<slot v-bind="{ row: scope.row, $index: scope.$index, column: scope.column }">
+		<template #default="cellScope">
+			<slot
+				v-bind="{
+					row: cellScope.row,
+					$index: cellScope.$index,
+					column: cellScope.column,
+				}"
+			>
 				<div>
-					{{ scope.row[props.prop] }}
+					{{ cellScope.row[props.prop] }}
 				</div>
 			</slot>
 		</template>
@@ -14,7 +23,7 @@
 			</slot>
 		</template>
 	</el-table-column>
-	<div class="w-full" v-else>
+	<div v-else class="w-full">
 		<slot v-bind="{ row: props.scope.row, $index: props.scope.$index }">
 			<div>
 				{{ props.scope.row[props.prop] }}
@@ -24,83 +33,86 @@
 </template>
 
 <script setup>
-import { isNotMobile } from "~/utils";
-import { ElTableColumn } from "element-plus";
+import { isNotMobile } from '~/utils'
+import { ElTableColumn } from 'element-plus'
 import 'element-plus/es/components/table-column/style/css'
 
 defineOptions({
-	inheritAttrs: false
-});
+	inheritAttrs: false,
+})
 
 const props = defineProps({
 	type: {
 		type: String,
-		default: "default"
+		default: 'default',
 	},
-	label: String,
-	className: String,
-	labelClassName: String,
-	property: String,
-	prop: String,
+	label: { type: String, default: undefined },
+	className: { type: String, default: undefined },
+	labelClassName: { type: String, default: undefined },
+	property: { type: String, default: undefined },
+	prop: { type: String, default: undefined },
 	width: {
 		type: [String, Number],
-		default: ""
+		default: '',
 	},
 	minWidth: {
 		type: [String, Number],
-		default: ""
+		default: '',
 	},
-	renderHeader: Function,
+	renderHeader: { type: Function, default: undefined },
 	sortable: {
 		type: [Boolean, String],
-		default: false
+		default: false,
 	},
-	sortMethod: Function,
-	sortBy: [String, Function, Array],
+	sortMethod: { type: Function, default: undefined },
+	sortBy: { type: [String, Function, Array], default: undefined },
 	resizable: {
 		type: Boolean,
-		default: true
+		default: true,
 	},
-	columnKey: String,
-	align: String,
-	headerAlign: String,
+	columnKey: { type: String, default: undefined },
+	align: { type: String, default: undefined },
+	headerAlign: { type: String, default: undefined },
 	showOverflowTooltip: {
 		type: [Boolean, Object],
-		default: void 0
+		default: void 0,
 	},
-	fixed: [Boolean, String],
-	formatter: Function,
-	selectable: Function,
+	fixed: { type: [Boolean, String], default: undefined },
+	formatter: { type: Function, default: undefined },
+	selectable: { type: Function, default: undefined },
 	reserveSelection: Boolean,
-	filterMethod: Function,
-	filteredValue: Array,
-	filters: Array,
-	filterPlacement: String,
+	filterMethod: { type: Function, default: undefined },
+	filteredValue: { type: Array, default: undefined },
+	filters: { type: Array, default: undefined },
+	filterPlacement: { type: String, default: undefined },
 	filterMultiple: {
 		type: Boolean,
-		default: true
+		default: true,
 	},
-	filterClassName: String,
-	index: [Number, Function],
+	filterClassName: { type: String, default: undefined },
+	index: { type: [Number, Function], default: undefined },
 	sortOrders: {
 		type: Array,
 		default: () => {
-			return ["ascending", "descending", null];
+			return ['ascending', 'descending', null]
 		},
 		validator: (val) => {
-			return val.every((order) => ["ascending", "descending", null].includes(order));
-		}
+			return val.every((order) =>
+				['ascending', 'descending', null].includes(order)
+			)
+		},
 	},
 	scope: {
 		type: Object,
-		default: () => ({ row: {} })
-	}
-});
+		default: () => ({ row: {} }),
+	},
+})
 </script>
 
-
 <style lang="scss">
-.el-input, .el-select, .el-date-editor {
+.el-input,
+.el-select,
+.el-date-editor {
 	@apply w-full;
 }
 </style>

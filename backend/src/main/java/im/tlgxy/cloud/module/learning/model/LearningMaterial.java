@@ -21,4 +21,18 @@ public class LearningMaterial {
     @JsonIgnore
     private String fingerprint;
     private Date indexedAt;
+    private Integer indexVersion;
+    private Integer coveredChars;
+    private Integer indexedPages;
+    private Integer totalPages;
+    private Boolean truncated;
+    private String indexNotice;
+    @JsonIgnore
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String embeddingJson;
+    @JsonIgnore
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String embeddingSignature;
+    private Integer semanticSegments;
+    private String semanticNotice;
 }

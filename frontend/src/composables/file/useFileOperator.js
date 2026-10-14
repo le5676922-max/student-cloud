@@ -1,344 +1,472 @@
+import { ref, watch } from 'vue'
+import { ElLoading, ElMessage, ElMessageBox } from 'element-plus'
 import {
-    batchDeleteReq,
-    newFolderReq,
-    renameFileReq, renameFolderReq,
-    moveFolderReq, moveFileReq,
-    copyFileReq, copyFolderReq
-} from "~/api/home/file-operator";
+	batchDeleteReq,
+	newFolderReq,
+	renameFileReq,
+	renameFolderReq,
+	moveFolderReq,
+	moveFileReq,
+	copyFileReq,
+	copyFolderReq,
+} from '~/api/home/file-operator'
+import useStorageConfigStore from '~/stores/storage-config'
+import useFileData from '~/composables/file/useFileData'
+import useRouterData from '~/composables/useRouterData'
+import useFileSelect from '~/composables/file/useFileSelect'
+import useFilePwd from '~/composables/file/useFilePwd'
+import useBatchOperatorResult from '~/composables/file/useBatchOperatorResult'
+import selectFolder from '~/components/file/selectFolder'
+import { uploadAccountIdentity } from './upload-lifecycle.mjs'
+import {
+	captureFileOperationContext,
+	fileOperationSelectionType,
+	isFileOperationContextCurrent,
+} from './file-operation-context.mjs'
 
-import useStorageConfigStore from "~/stores/storage-config";
-let storageConfigStore = useStorageConfigStore();
+const storageConfigStore = useStorageConfigStore()
+const { storageKey, currentPath } = useRouterData()
+const { selectRows } = useFileSelect()
+const { getPathPwd } = useFilePwd()
+const { open: openBatchOperatorResultDialog } = useBatchOperatorResult()
 
-import useFileData from "~/composables/file/useFileData";
-import useRouterData from "~/composables/useRouterData";
-let { storageKey, currentPath } = useRouterData();
+// Shared across toolbar, context menu, keyboard shortcuts and folder picker.
+export const operationBusy = ref(false)
+let activeOperation = null
 
-import useFileSelect from "~/composables/file/useFileSelect";
-let { selectRows, selectRow, selectFolders, selectFiles } = useFileSelect();
-
-import useFilePwd from "~/composables/file/useFilePwd";
-let { getPathPwd } = useFilePwd();
-
-import useBatchOperatorResult from "~/composables/file/useBatchOperatorResult";
-let { open:openBatchOperatorResultDialog } = useBatchOperatorResult();
-
-import { ElLoading } from "element-plus";
-
-import selectFolder from "~/components/file/selectFolder";
-
+const readContext = () => ({
+	storageKey: storageKey.value,
+	path: currentPath.value,
+	rootPath: storageConfigStore.user?.rootPath || '',
+	accountIdentity: uploadAccountIdentity(storageConfigStore.loginInfo),
+})
+const permissionNames = {
+	newFolder: '新建文件夹',
+	rename: '重命名',
+	move: '移动',
+	copy: '复制',
+	delete: '删除',
+}
+const hasPermission = (action, rows) => {
+	if (storageConfigStore.folderConfig?.permission?.[action] !== true) {
+		ElMessage.warning(`当前目录没有${permissionNames[action]}权限`)
+		return false
+	}
+	if (rows.some((row) => row.type === 'FOLDER')) {
+		const supportKey = {
+			rename: 'supportRenameFolder',
+			move: 'supportMoveFolder',
+			copy: 'supportCopyFolder',
+		}[action]
+		if (
+			supportKey &&
+			storageConfigStore.folderConfig?.metadata?.[supportKey] !== true
+		) {
+			ElMessage.warning(`当前存储源不支持${permissionNames[action]}文件夹！`)
+			return false
+		}
+	}
+	return true
+}
+const beginOperation = (action, rows = []) => {
+	if (operationBusy.value) {
+		ElMessage.warning('已有文件操作正在进行，请完成或取消后再试')
+		return null
+	}
+	if (!hasPermission(action, rows)) return null
+	let context
+	try {
+		context = captureFileOperationContext(readContext(), rows)
+	} catch (error) {
+		ElMessage.warning(error.message)
+		return null
+	}
+	const operation = { context, changed: false }
+	// Navigating away and back also invalidates a pending confirmation.
+	operation.stop = watch(
+		() => {
+			const current = readContext()
+			return [
+				current.storageKey,
+				current.path,
+				current.rootPath,
+				current.accountIdentity,
+			]
+		},
+		() => {
+			operation.changed = true
+		},
+		{ flush: 'sync' }
+	)
+	activeOperation = operation
+	operationBusy.value = true
+	return operation
+}
+const isCurrent = (operation) =>
+	activeOperation === operation &&
+	!operation.changed &&
+	isFileOperationContextCurrent(operation.context, readContext())
+const canContinue = (operation, action) => {
+	if (!isCurrent(operation)) {
+		ElMessage.warning('目录、存储源或账号已变化，已取消本次操作，请重新选择')
+		return false
+	}
+	return hasPermission(action, operation.context.rows)
+}
+const releaseOperation = (operation) => {
+	operation.stop()
+	if (activeOperation === operation) {
+		activeOperation = null
+		operationBusy.value = false
+	}
+}
+const runOperation = async (operation, task, propagateErrors = false) => {
+	try {
+		return await task()
+	} catch (error) {
+		if (propagateErrors) throw error
+		// HTTP presents request errors. DOM handlers and success-only callers
+		// must not leak cancellation or request rejections.
+		return false
+	} finally {
+		releaseOperation(operation)
+	}
+}
+const showBatchResult = async (operation, data, title) => {
+	if (!isCurrent(operation)) return
+	if (!data.some((item) => item.success === false)) {
+		ElMessage.success(`${title}成功`)
+		return
+	}
+	const confirmed = await ElMessageBox.confirm(
+		`部分文件${title}失败，是否查看详情？`,
+		'提示',
+		{
+			confirmButtonText: '确定',
+			cancelButtonText: '取消',
+			closeOnClickModal: false,
+			closeOnPressEscape: false,
+			type: 'warning',
+		}
+	).catch(() => false)
+	if (confirmed && isCurrent(operation)) openBatchOperatorResultDialog(data)
+}
 
 export default function useFileOperator() {
+	const { loadFile } = useFileData()
+	const refreshOriginal = async (operation) => {
+		if (isCurrent(operation)) await loadFile({ path: operation.context.path })
+	}
+	const downloadFileUseWindowOpenMode = (url) => window.open(url)
+	const batchDownloadFile = (row) => {
+		if (storageConfigStore.folderConfig.permission.download === false) return
+		if (!row?.name && !selectRows.value?.length) {
+			ElMessage.warning('请至少选择一个文件')
+			return
+		}
+		if (!row?.name && selectRows.value.length === 1) row = selectRows.value[0]
+		const performDownload = () => {
+			if (row?.name) downloadFileUseWindowOpenMode(row.url)
+		}
+		if (storageConfigStore.globalConfig.enableNormalDownloadConfirm) {
+			ElMessageBox.confirm(`是否确认下载文件「${row?.name}」？`, '提示', {
+				confirmButtonText: '确定',
+				cancelButtonText: '取消',
+				type: 'info',
+			})
+				.then(performDownload)
+				.catch(() => {})
+		} else performDownload()
+	}
 
-    const { loadFile } = useFileData();
-
-    /**
-     * 批量下载已选择的所有文件
-     * @param {Object} row 已选择的文件
-     */
-    const batchDownloadFile = (row) => {
-        if (storageConfigStore.folderConfig.permission.download === false) {
-            return;
-        }
-        if (!row?.name && (!selectRows.value || selectRows.value.length === 0)) {
-            ElMessage.warning("请至少选择一个文件");
-            return;
-        }
-
-        let confirmMsg;
-
-        if (row?.name) {
-            confirmMsg = `是否确认下载文件「${row.name}」？`;
-        } else if (selectRows.value.length === 1) {
-            confirmMsg = `是否确认下载文件「${selectRows.value[0].name}」？`;
-            row = selectRows.value[0];
-        }
-
-
-			function performDownload() {
-				// 单个文件下载, 直接下载
-				if (row?.name) {
-					console.log("进行指定文件下载, 文件:", row);
-					downloadFileUseWindowOpenMode(row.url);
-				}
+	const createFolderAt = async (
+		operation,
+		path,
+		{ stillOpen = () => true, refresh = true, onCreated } = {}
+	) => {
+		const result = await ElMessageBox.prompt(
+			`在「${path}」下创建文件夹，请输入要创建的文件夹名称`,
+			'提示',
+			{
+				confirmButtonText: '确定',
+				cancelButtonText: '取消',
+				draggable: true,
+				inputValidator(value) {
+					if (!value) return '文件夹名称不能为空'
+					if (value.includes('/'))
+						return '文件夹名称不能包含 / (不支持多级创建)'
+					return true
+				},
 			}
-			if (storageConfigStore.globalConfig.enableNormalDownloadConfirm) {
-				ElMessageBox.confirm(confirmMsg, '提示', {
+		).catch(() => null)
+		if (!result || !stillOpen() || !canContinue(operation, 'newFolder'))
+			return false
+		try {
+			await newFolderReq(
+				{ storageKey: operation.context.storageKey, path, name: result.value },
+				{ uploadContext: operation.context }
+			)
+			onCreated?.()
+			if (isCurrent(operation)) ElMessage.success('创建成功')
+		} finally {
+			if (refresh) await refreshOriginal(operation)
+		}
+	}
+	// Keep the public promise's success/failure contract; UI cancellation is benign.
+	const newFolder = (basePath) => {
+		const operation = beginOperation('newFolder')
+		if (!operation) return Promise.resolve(false)
+		const path =
+			typeof basePath === 'string' ? basePath : operation.context.path
+		const pending = runOperation(
+			operation,
+			() => createFolderAt(operation, path),
+			true
+		)
+		// A raw DOM caller may ignore the returned promise; awaiting callers still
+		// receive request failures and must never continue as though mkdir succeeded.
+		void pending.catch(() => {})
+		return pending
+	}
+	const rename = () => {
+		if (selectRows.value.length !== 1) {
+			ElMessage.warning('请先选中一个文件或文件夹！')
+			return
+		}
+		const operation = beginOperation('rename', selectRows.value)
+		if (!operation) return
+		const row = operation.context.rows[0]
+		void runOperation(operation, async () => {
+			const result = await ElMessageBox.prompt(
+				`将「${row.name}」修改为：`,
+				'提示',
+				{
 					confirmButtonText: '确定',
 					cancelButtonText: '取消',
-					type: 'info',
-					callback: (val) => {
-						let action = '';
-						if (val instanceof Object) {
-							action = val.action;
-						} else if (typeof val === 'string') {
-							action = val;
-						}
-
-						if (action === 'confirm') {
-							performDownload();
-						}
-					}
+					inputValue: row.name,
+					inputValidator: (value) => !!value,
+					inputErrorMessage: '名称不能为空。',
+				}
+			).catch(() => null)
+			if (!result || !canContinue(operation, 'rename')) return
+			const reqMethod = row.type === 'FILE' ? renameFileReq : renameFolderReq
+			const loading = ElLoading.service({
+				fullscreen: true,
+				text: '重命名中...',
+				background: 'rgba(255, 255, 255, 0.6)',
+			})
+			try {
+				await reqMethod({
+					storageKey: operation.context.storageKey,
+					path: row.path,
+					name: row.name,
+					newName: result.value,
 				})
-			} else {
-				performDownload();
+				if (isCurrent(operation)) ElMessage.success('重命名成功')
+			} finally {
+				loading.close()
+				await refreshOriginal(operation)
 			}
-    }
-
-    /**
-     * 使用 windows.open 模式下载文件
-     *
-     * @param url   下载文件 url
-     */
-    const downloadFileUseWindowOpenMode = (url) => {
-        window.open(url);
-    }
-
-    // 新建文件夹
-    const newFolder = (basePath) => new Promise((resolve, reject) => {
-        if (basePath === null || typeof basePath !== 'string') {
-            basePath = currentPath.value;
-        }
-        ElMessageBox.prompt(`在「${basePath}」下创建文件夹，请输入要创建的文件夹名称`, '提示', {
-            confirmButtonText: '确定',
-            cancelButtonText: '取消',
-            draggable: true,
-            inputValidator(val) {
-                if (!val) {
-                    return '文件夹名称不能为空';
-                }
-
-                if (val.includes("/")) {
-                    return '文件夹名称不能包含 / (不支持多级创建)';
-                }
-                return true;
-            },
-        }).then(({ value }) => {
-            let param = {
-                storageKey: storageKey.value,
-                path: basePath,
-                name: value
-            }
-            newFolderReq(param).then(() => {
-                ElMessage.success('创建成功');
-                resolve();
-            }).catch(() => {
-                reject();
-            }).finally(() => {
-                loadFile();
-            });
-        }).catch(() => {
-            reject();
-        });
-    });
-
-    // 重命名文件夹
-    const rename = () => {
-        let row = selectRow.value;
-        if (row === null) {
-            ElMessage.warning('请先选中一个文件或文件夹！');
-            return;
-        }
-        if (row.type === 'FOLDER' && !storageConfigStore.folderConfig.metadata.supportRenameFolder) {
-            ElMessage.warning('当前存储源不支持重命名文件夹！');
-            return;
-        }
-
-        ElMessageBox.prompt(`将「${row.name}」修改为：`, '提示', {
-            confirmButtonText: '确定',
-            cancelButtonText: '取消',
-            inputValue: row.name,
-            inputValidator(val) {
-                return !!val
-            },
-            inputErrorMessage: '模板名称不能为空.'
-        }).then(({value}) => {
-            let param = {
-                storageKey: storageKey.value,
-                path: row.path,
-                name: row.name,
-                newName: value,
-            }
-
-            let reqMethod;
-            if (row.type === 'FILE') {
-                reqMethod = renameFileReq;
-            } else if (row.type === 'FOLDER') {
-                reqMethod = renameFolderReq;
-            }
-
-            const renameLoadingInstance = ElLoading.service({
-                fullscreen: true,
-                text: '重命名中...',
-                background: 'rgba(255, 255, 255, 0.6)'
-            })
-
-            reqMethod(param).then(() => {
-                ElMessage.success('重命名成功');
-            }).finally(() => {
-                renameLoadingInstance.close();
-                loadFile();
-            });
-
-        });
-    }
-
-    // 复制至
-    const copyTo = () => {
-        if (selectFolders.value.length > 0 && !storageConfigStore.folderConfig.metadata.supportCopyFolder) {
-            ElMessage.warning('当前存储源不支持复制文件夹！');
-            return;
-        }
-        moveOrCopy('复制', selectRow.value?.type === 'FILE' ? copyFileReq : copyFolderReq);
-    }
-
-    // 移动至重命名
-    const moveTo = () => {
-        if (selectFolders.value.length > 0 && !storageConfigStore.folderConfig.metadata.supportMoveFolder) {
-            ElMessage.warning('当前存储源不支持移动文件夹！');
-            return;
-        }
-        moveOrCopy('移动', selectRow.value?.type === 'FILE' ? moveFileReq : moveFolderReq);
-    }
-
-    const moveOrCopy = (title, reqFun) => {
-        const nameList = selectRows.value.map(item => item.name);
-        selectFolder(title, storageKey.value, currentPath.value, ({ value:path, callback }) => {
-            if (path === currentPath.value) {
-                ElMessage.warning('你选择的目标文件夹与源文件夹相同！');
-                callback.stopLoading();
-                return;
-            }
-
-            let param = {
-                storageKey: storageKey.value,
-                path: currentPath.value,
-                nameList: nameList,
-                targetPath: path,
-                targetNameList: nameList,
-                srcPathPassword: getPathPwd(currentPath.value),
-                targetPathPassword: getPathPwd(path)
-            }
-
-            reqFun(param).then((res) => {
-                let data = res.data;
-                let hasFail = false;
-                for (let item of data) {
-                    if (item.success === false) {
-                        hasFail = true;
-                    }
-                }
-                if (hasFail) {
-                    ElMessageBox.confirm(`部分文件${title}失败，是否查看详情？`, '提示', {
-                        confirmButtonText: '确定',
-                        cancelButtonText: '取消',
-                        closeOnClickModal: false,
-                        closeOnPressEscape: false,
-                        type: 'warning'
-                    }).then(() => {
-                        openBatchOperatorResultDialog(data);
-                    });
-                } else {
-                    ElMessage.success(`${title}成功`);
-                }
-            }).finally(() => {
-                callback.stopLoading();
-                callback.closeDialog();
-                loadFile();
-            });
-        });
-    }
-
-    // 删除相关 start
-    const batchDelete = () => {
-        if (!storageConfigStore.permission.delete) {
-            return;
-        }
-
-        if (selectRows.value.length === 0) {
-            ElMessage.warning('请先至少选中一个文件或文件夹！');
-            return;
-        }
-
-        let deleteConfirmMsg = selectRows.value.length === 1 ? '是否确认删除 ' : '是否确认批量删除 ';
-
-        if (selectFolders.value.length > 0) {
-            deleteConfirmMsg += (' ' + selectFolders.value.length + ' 个文件夹');
-        }
-
-        if (selectFolders.value.length > 0 && selectFiles.value.length > 0) {
-            deleteConfirmMsg += '，';
-        }
-
-        if (selectFiles.value.length > 0) {
-            deleteConfirmMsg += (selectFiles.value.length + ' 个文件');
-        }
-
-        if (selectFolders.value.length > 0 && !storageConfigStore.folderConfig.metadata.supportDeleteNotEmptyFolder) {
-            deleteConfirmMsg += ('<span class="font-bold text-red-400">(不支持删除非空文件夹)</span>');
-        }
-
-        deleteConfirmMsg += "?"
-
-        ElMessageBox.confirm(deleteConfirmMsg, '提示', {
-            confirmButtonText: '确定',
-            cancelButtonText: '取消',
-            draggable: true,
-            dangerouslyUseHTMLString: true,
-            callback: action => {
-                if (action === 'confirm') {
-                    let param = {
-                        storageKey: storageKey.value,
-                        deleteItems: []
-                    };
-
-                    selectRows.value.forEach((item) => {
-                        param.deleteItems.push({
-                            path: item.path,
-                            name: item.name,
-                            type: item.type,
-                            password: getPathPwd(item.path)
-                        });
-                    })
-
-                    // 打开全屏 loading
-                    const loadingInstance = ElLoading.service({
-                        text: '删除中...',
-                        background: 'rgba(0, 0, 0, .3)'
-                    })
-
-                    batchDeleteReq(param).then((res) => {
-                        let data = res.data;
-                        let hasFail = false;
-                        for (let item of data) {
-                            if (item.success === false) {
-                                hasFail = true;
-                            }
-                        }
-                        if (hasFail) {
-                            ElMessageBox.confirm('部分文件删除失败，是否查看详情？', '提示', {
-                                confirmButtonText: '确定',
-                                cancelButtonText: '取消',
-                                closeOnClickModal: false,
-                                closeOnPressEscape: false,
-                                type: 'warning'
-                            }).then(() => {
-                                openBatchOperatorResultDialog(data);
-                            });
-                        } else {
-                            ElMessage.success("删除成功");
-                        }
-                    }).finally(() => {
-                        loadingInstance.close();
-                        loadFile();
-                    });
-                }
-            }
-        });
-    }
-    // 删除相关 end
-
-    return {
-        batchDownloadFile, rename, newFolder, moveTo, copyTo,
-        batchDelete
-    }
+		})
+	}
+	const moveOrCopy = (action) => {
+		const rows = selectRows.value
+		if (!rows.length) {
+			ElMessage.warning('请先至少选中一个文件或文件夹！')
+			return
+		}
+		const type = fileOperationSelectionType(rows)
+		if (!type) {
+			ElMessage.warning('请分别选择文件或文件夹进行移动、复制')
+			return
+		}
+		const operation = beginOperation(action, rows)
+		if (!operation) return
+		const title = permissionNames[action]
+		const reqMethod =
+			action === 'copy'
+				? type === 'FILE'
+					? copyFileReq
+					: copyFolderReq
+				: type === 'FILE'
+				? moveFileReq
+				: moveFolderReq
+		const nameList = operation.context.rows.map((row) => row.name)
+		void runOperation(
+			operation,
+			() =>
+				new Promise((resolve) => {
+					operation.pickerOpen = true
+					operation.requesting = false
+					operation.childBusy = false
+					operation.childChanged = false
+					let finishingCanceledPicker = false
+					const finishCanceledPicker = () => {
+						if (
+							operation.pickerOpen ||
+							operation.requesting ||
+							operation.childBusy ||
+							finishingCanceledPicker
+						)
+							return
+						finishingCanceledPicker = true
+						// Child mkdir refreshes only the picker while it is open. On
+						// closing, reconcile the main listing once if mkdir succeeded.
+						const refreshed = operation.childChanged
+							? refreshOriginal(operation)
+							: Promise.resolve()
+						void refreshed.then(
+							() => resolve(false),
+							() => resolve(false)
+						)
+					}
+					// This capability is passed only to this picker, never exposed by the
+					// public newFolder API. Child work cannot unlock its parent operation.
+					const createPickerFolder = (basePath) => {
+						if (
+							!operation.pickerOpen ||
+							operation.requesting ||
+							operation.childBusy
+						) {
+							ElMessage.warning('请先完成当前文件操作')
+							return Promise.resolve(false)
+						}
+						if (!canContinue(operation, 'newFolder'))
+							return Promise.resolve(false)
+						operation.childBusy = true
+						return createFolderAt(operation, basePath, {
+							stillOpen: () => operation.pickerOpen,
+							refresh: false,
+							onCreated: () => {
+								operation.childChanged = true
+							},
+						})
+							.then((result) =>
+								operation.pickerOpen && isCurrent(operation) ? result : false
+							)
+							.finally(() => {
+								operation.childBusy = false
+								finishCanceledPicker()
+							})
+					}
+					selectFolder(
+						title,
+						operation.context.storageKey,
+						operation.context.path,
+						({ value: targetPath, callback }) => {
+							if (!operation.pickerOpen || operation.requesting) return
+							if (!canContinue(operation, action)) {
+								operation.pickerOpen = false
+								callback.stopLoading()
+								callback.closeDialog()
+								finishCanceledPicker()
+								return
+							}
+							if (operation.childBusy) {
+								ElMessage.warning('请先完成新建文件夹操作')
+								callback.stopLoading()
+								return
+							}
+							if (targetPath === operation.context.path) {
+								ElMessage.warning('你选择的目标文件夹与源文件夹相同！')
+								callback.stopLoading()
+								return
+							}
+							operation.requesting = true
+							const submit = async () => {
+								try {
+									const response = await reqMethod({
+										storageKey: operation.context.storageKey,
+										path: operation.context.path,
+										nameList,
+										targetPath,
+										targetNameList: [...nameList],
+										srcPathPassword: getPathPwd(
+											operation.context.path,
+											false,
+											operation.context
+										),
+										targetPathPassword: getPathPwd(
+											targetPath,
+											false,
+											operation.context
+										),
+									})
+									await showBatchResult(operation, response.data, title)
+								} finally {
+									operation.pickerOpen = false
+									callback.stopLoading()
+									callback.closeDialog()
+									await refreshOriginal(operation)
+								}
+							}
+							void submit().then(resolve, () => resolve(false))
+						},
+						() => {
+							operation.pickerOpen = false
+							finishCanceledPicker()
+						},
+						createPickerFolder
+					)
+				})
+		)
+	}
+	const copyTo = () => moveOrCopy('copy')
+	const moveTo = () => moveOrCopy('move')
+	const batchDelete = () => {
+		if (!selectRows.value.length) {
+			ElMessage.warning('请先至少选中一个文件或文件夹！')
+			return
+		}
+		const operation = beginOperation('delete', selectRows.value)
+		if (!operation) return
+		const rows = operation.context.rows
+		const folders = rows.filter((row) => row.type === 'FOLDER').length
+		const files = rows.filter((row) => row.type === 'FILE').length
+		let message = rows.length === 1 ? '是否确认删除 ' : '是否确认批量删除 '
+		message += [folders && `${folders} 个文件夹`, files && `${files} 个文件`]
+			.filter(Boolean)
+			.join('，')
+		if (
+			folders &&
+			!storageConfigStore.folderConfig.metadata.supportDeleteNotEmptyFolder
+		)
+			message +=
+				'<span class="font-bold text-red-400">(不支持删除非空文件夹)</span>'
+		void runOperation(operation, async () => {
+			const confirmed = await ElMessageBox.confirm(`${message}?`, '提示', {
+				confirmButtonText: '确定',
+				cancelButtonText: '取消',
+				draggable: true,
+				dangerouslyUseHTMLString: true,
+			}).catch(() => false)
+			if (!confirmed || !canContinue(operation, 'delete')) return
+			const loading = ElLoading.service({
+				text: '删除中...',
+				background: 'rgba(0, 0, 0, .3)',
+			})
+			try {
+				const response = await batchDeleteReq({
+					storageKey: operation.context.storageKey,
+					deleteItems: rows.map((row) => ({
+						...row,
+						password: getPathPwd(row.path, false, operation.context),
+					})),
+				})
+				await showBatchResult(operation, response.data, '删除')
+			} finally {
+				loading.close()
+				await refreshOriginal(operation)
+			}
+		})
+	}
+	return {
+		operationBusy,
+		batchDownloadFile,
+		rename,
+		newFolder,
+		moveTo,
+		copyTo,
+		batchDelete,
+	}
 }

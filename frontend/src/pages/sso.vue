@@ -1,13 +1,13 @@
 <script setup>
-import { useRouter } from "vue-router";
+import { useRouter } from 'vue-router'
 
 // 获取 url 中的 token 参数
-const urlParams = new URLSearchParams(window.location.search);
-const token = urlParams.get('token');
+const urlParams = new URLSearchParams(window.location.search)
+const token = urlParams.get('token')
 if (token) {
-	window.localStorage.setItem("tongligong-student-cloud-token", token);
+	window.localStorage.setItem('tongligong-student-cloud-token', token)
 }
 
-let router = useRouter();
+let router = useRouter()
 router.push('/')
 </script>

@@ -5,7 +5,9 @@
 </template>
 
 <script>
-import { defineComponent, computed } from 'vue'
+import { defineComponent, computed, onMounted } from 'vue'
+
+let spriteReady
 
 export default defineComponent({
 	name: 'SvgIcon',
@@ -24,6 +26,13 @@ export default defineComponent({
 		},
 	},
 	setup(props) {
+		onMounted(() => {
+			if (spriteReady) return
+			spriteReady = import('virtual:svg-icons-register').catch((error) => {
+				spriteReady = undefined
+				console.warn('文件图标加载失败，可刷新页面重试', error)
+			})
+		})
 		const symbolId = computed(() => `#${props.prefix}-${props.name}`)
 		return { symbolId }
 	},

@@ -1,103 +1,108 @@
 <template>
-	<el-date-picker v-bind="$attrs"
-					v-model="dataRange"
-					v-if="isNotMobile"
-					type="daterange"
-					:defaultTime="defaultTime"
-					:value-format="valueFormat"
-					:range-separator="rangeSeparator"
-					:start-placeholder="startPlaceholder"
-					:end-placeholder="endPlaceholder" />
-	<div class="el-date-editor" v-else>
-		<el-date-picker class="el-range-input-plus is-left"
-						v-model="startDate"
-						:value-format="valueFormat"
-						:defaultTime="defaultTime[0]"
-						:editable="false"
-						:disabled-date="disableStartDate"
-						:placeholder="props.startPlaceholder" />
+	<el-date-picker
+		v-if="isNotMobile"
+		v-bind="$attrs"
+		v-model="dataRange"
+		type="daterange"
+		:default-time="defaultTime"
+		:value-format="valueFormat"
+		:range-separator="rangeSeparator"
+		:start-placeholder="startPlaceholder"
+		:end-placeholder="endPlaceholder"
+	/>
+	<div v-else class="el-date-editor">
+		<el-date-picker
+			v-model="startDate"
+			class="el-range-input-plus is-left"
+			:value-format="valueFormat"
+			:default-time="defaultTime[0]"
+			:editable="false"
+			:disabled-date="disableStartDate"
+			:placeholder="props.startPlaceholder"
+		/>
 		<span class="el-range-separator-plus">{{ props.rangeSeparator }}</span>
-		<el-date-picker class="el-range-input-plus is-right"
-						v-model="endDate"
-						:value-format="valueFormat"
-						:defaultTime="defaultTime[1]"
-						:editable="false"
-						:disabled-date="disableEndDate"
-						:placeholder="props.endPlaceholder" />
+		<el-date-picker
+			v-model="endDate"
+			class="el-range-input-plus is-right"
+			:value-format="valueFormat"
+			:default-time="defaultTime[1]"
+			:editable="false"
+			:disabled-date="disableEndDate"
+			:placeholder="props.endPlaceholder"
+		/>
 	</div>
 </template>
 
 <script setup>
-import { defaultTime as defaultRangeTime, isNotMobile } from "~/utils";
+import { defaultTime as defaultRangeTime, isNotMobile } from '~/utils'
 
 defineOptions({
-	inheritAttrs: false
-});
+	inheritAttrs: false,
+})
 
 const props = defineProps({
 	modelValue: {
 		type: Array,
-		default: () => []
+		default: () => [],
 	},
 	type: {
 		type: String,
-		default: 'date'
+		default: 'date',
 	},
 	rangeSeparator: {
 		type: String,
-		default: '-'
+		default: '-',
 	},
 	startPlaceholder: {
 		type: String,
-		default: '开始日期'
+		default: '开始日期',
 	},
 	endPlaceholder: {
 		type: String,
-		default: '结束日期'
+		default: '结束日期',
 	},
 	valueFormat: {
 		type: String,
-		default: 'YYYY-MM-DD HH:mm:ss'
+		default: 'YYYY-MM-DD HH:mm:ss',
 	},
 	defaultTime: {
 		type: Array,
-		default: () => [...defaultRangeTime]
-	}
-});
+		default: () => [...defaultRangeTime],
+	},
+})
 
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue'])
 const dataRange = computed({
 	get: () => props.modelValue || [],
 	set: (value) => {
-		emit("update:modelValue", value);
-	}
-});
+		emit('update:modelValue', value)
+	},
+})
 
 const startDate = computed({
 	get: () => props.modelValue?.[0],
-	set: (value) => emit('update:modelValue', [value, props.modelValue?.[1]])
-});
+	set: (value) => emit('update:modelValue', [value, props.modelValue?.[1]]),
+})
 const endDate = computed({
 	get: () => props.modelValue?.[1],
-	set: (value) => emit('update:modelValue', [props.modelValue?.[0], value])
-});
+	set: (value) => emit('update:modelValue', [props.modelValue?.[0], value]),
+})
 
 const disableStartDate = (time) => {
-	let endDate = props.modelValue?.[1];
+	let endDate = props.modelValue?.[1]
 	if (typeof endDate === 'string') {
-		endDate = new Date(endDate);
+		endDate = new Date(endDate)
 	}
-	return endDate ? time.getTime() > endDate.getTime() : false;
+	return endDate ? time.getTime() > endDate.getTime() : false
 }
 
 const disableEndDate = (time) => {
-	let startDate = props.modelValue?.[0];
+	let startDate = props.modelValue?.[0]
 	if (typeof startDate === 'string') {
-		startDate = new Date(startDate);
+		startDate = new Date(startDate)
 	}
-	return startDate ? time.getTime() < startDate.getTime() : false;
+	return startDate ? time.getTime() < startDate.getTime() : false
 }
-
 </script>
 
 <style lang="scss" scoped>

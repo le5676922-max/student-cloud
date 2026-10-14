@@ -1,7 +1,7 @@
-import axios from "~/http/request"
+import axios from '~/http/request'
 
-import useGlobalConfigStore from "~/stores/global-config";
-let globalConfigStore = useGlobalConfigStore();
+import useGlobalConfigStore from '~/stores/global-config'
+let globalConfigStore = useGlobalConfigStore()
 
 /**
  * 创建分享链接
@@ -15,11 +15,11 @@ let globalConfigStore = useGlobalConfigStore();
  * @param {string} [params.shareKey] - 自定义分享key（可选）
  */
 export const createShareLinkReq = (params) => {
-  return axios({
-    url: '/api/share/create',
-    method: 'POST',
-    data: params
-  })
+	return axios({
+		url: '/api/share/create',
+		method: 'POST',
+		data: params,
+	})
 }
 
 /**
@@ -27,12 +27,12 @@ export const createShareLinkReq = (params) => {
  * @param {string} shareKey - 分享链接key
  */
 export const getShareInfoReq = (shareKey) => {
-  // 关闭默认错误弹窗，由页面自行处理无效分享文案
-  return axios({
-    url: `/api/share/info/${shareKey}`,
-    method: 'GET',
-    config: { showDefaultMsg: false }
-  })
+	// 关闭默认错误弹窗，由页面自行处理无效分享文案
+	return axios({
+		url: `/api/share/info/${shareKey}`,
+		method: 'GET',
+		config: { showDefaultMsg: false },
+	})
 }
 
 /**
@@ -42,11 +42,11 @@ export const getShareInfoReq = (shareKey) => {
  * @param {string} params.password - 分享密码
  */
 export const verifySharePasswordReq = (params) => {
-  return axios({
-    url: '/api/share/verify',
-    method: 'POST',
-    data: params
-  })
+	return axios({
+		url: '/api/share/verify',
+		method: 'POST',
+		data: params,
+	})
 }
 
 /**
@@ -59,12 +59,12 @@ export const verifySharePasswordReq = (params) => {
  * @param {string} [params.orderDirection] - 排序方向（可选，默认为asc）
  */
 export const getShareFileListReq = (params) => {
-  return axios({
-    url: '/api/share/files',
-    method: 'POST',
-    data: params,
-    showDefaultMsg: false
-  })
+	return axios({
+		url: '/api/share/files',
+		method: 'POST',
+		data: params,
+		showDefaultMsg: false,
+	})
 }
 
 /**
@@ -74,23 +74,26 @@ export const getShareFileListReq = (params) => {
  * @param {string} [password] - 分享密码（可选）
  */
 export const getShareFileDownloadUrlReq = (shareKey, path, password) => {
-  const params = new URLSearchParams({
-    path,
-    ...(password && { password })
-  })
-  
-  return globalConfigStore.serverAddress + `/api/share/download/${shareKey}?${params.toString()}`
+	const params = new URLSearchParams({
+		path,
+		...(password && { password }),
+	})
+
+	return (
+		globalConfigStore.serverAddress +
+		`/api/share/download/${shareKey}?${params.toString()}`
+	)
 }
 
 /**
  * 获取用户分享列表
  */
 export const getUserShareListReq = (params = {}) => {
-  return axios({
-    url: '/api/share/list',
-    method: 'GET',
-    data: params
-  })
+	return axios({
+		url: '/api/share/list',
+		method: 'GET',
+		data: params,
+	})
 }
 
 /**
@@ -98,18 +101,18 @@ export const getUserShareListReq = (params = {}) => {
  * @param {string} shareKey - 分享链接key
  */
 export const deleteShareReq = (shareKey) => {
-  return axios({
-    url: `/api/share/${shareKey}`,
-    method: 'DELETE'
-  })
+	return axios({
+		url: `/api/share/${shareKey}`,
+		method: 'DELETE',
+	})
 }
 
 /**
  * 清理过期分享
  */
 export const deleteExpiredSharesReq = () => {
-  return axios({
-    url: '/api/share/expired',
-    method: 'DELETE'
-  })
+	return axios({
+		url: '/api/share/expired',
+		method: 'DELETE',
+	})
 }

@@ -31,31 +31,36 @@ defineOptions({ inheritAttrs: false })
 const props = defineProps({
 	src: {
 		type: String,
-		required: true
+		required: true,
 	},
 	showDownload: {
 		type: Boolean,
-		default: true
+		default: true,
 	},
 	filename: {
 		type: String,
-		default: 'qrcode.png'
+		default: 'qrcode.png',
 	},
 	alt: {
 		type: String,
-		default: ''
+		default: '',
 	},
 	imgFit: {
 		type: String,
-		default: 'contain'
-	}
+		default: 'contain',
+	},
 })
 
 const attrs = useAttrs()
 const downloading = ref(false)
 
 const handleKeydown = (event) => {
-	if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar' || event.key === 'Space') {
+	if (
+		event.key === 'Enter' ||
+		event.key === ' ' ||
+		event.key === 'Spacebar' ||
+		event.key === 'Space'
+	) {
 		event.preventDefault()
 		downloadAsPng()
 	}

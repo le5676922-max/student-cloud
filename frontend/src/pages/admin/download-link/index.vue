@@ -5,24 +5,37 @@
 				<div class="flex justify-between">
 					<span>短链管理</span>
 					<span @click="openSettingVisible">
-						<AdjustmentsHorizontalIcon class="h-5 w-5 text-blue-500 cursor-pointer" />
+						<AdjustmentsHorizontalIcon
+							class="h-5 w-5 text-blue-500 cursor-pointer"
+						/>
 					</span>
 				</div>
 			</template>
 		</admin-form-header>
 
-		<el-form inline
-				 class="z-admin-search-from"
-				 :size="globalConfigStore.adminSearch.size"
-				 label-width="80"
-				 ref="searchFormRef"
-				 :label-position="globalConfigStore.adminSearch.labelPosition"
-				 :model="searchParam">
+		<el-form
+			ref="searchFormRef"
+			inline
+			class="z-admin-search-from"
+			:size="globalConfigStore.adminSearch.size"
+			label-width="80"
+			:label-position="globalConfigStore.adminSearch.labelPosition"
+			:model="searchParam"
+		>
 			<el-row class="z-admin-search-from-row" :gutter="20">
 				<el-col :span="globalConfigStore.adminSearch.spanSize">
 					<el-form-item label="存储源" prop="storageId">
-						<el-select v-model="searchParam.storageId" placeholder="请选择存储源" clearable>
-							<el-option v-for="item in storageList" :key="item.id" :label="item.name" :value="item.id">
+						<el-select
+							v-model="searchParam.storageId"
+							placeholder="请选择存储源"
+							clearable
+						>
+							<el-option
+								v-for="item in storageList"
+								:key="item.id"
+								:label="item.name"
+								:value="item.id"
+							>
 								<div class="flex justify-between space-x-20">
 									<span>{{ item.name }}</span>
 									<span class="text-gray-400">{{ item.type.description }}</span>
@@ -56,7 +69,12 @@
 					</el-form-item>
 				</el-col>
 				<el-col :span="globalConfigStore.adminSearch.spanSize">
-					<el-button type="primary" :icon="MagnifyingGlassIcon" :loading="loading" @click="loadData">
+					<el-button
+						type="primary"
+						:icon="MagnifyingGlassIcon"
+						:loading="loading"
+						@click="loadData"
+					>
 						查询
 					</el-button>
 					<el-button :icon="ArrowPathIcon" @click="resetForm">重置</el-button>
@@ -65,22 +83,46 @@
 		</el-form>
 
 		<div class="z-admin-table-tools">
-			<el-button :size="globalConfigStore.adminTable.size" @click="batchDeleteLink" :icon="TrashIcon" type="danger">
+			<el-button
+				:size="globalConfigStore.adminTable.size"
+				:icon="TrashIcon"
+				type="danger"
+				@click="batchDeleteLink"
+			>
 				批量删除
 			</el-button>
-			<el-button :size="globalConfigStore.adminTable.size" @click="deleteExpireLink" :icon="TrashIcon" type="danger">
+			<el-button
+				:size="globalConfigStore.adminTable.size"
+				:icon="TrashIcon"
+				type="danger"
+				@click="deleteExpireLink"
+			>
 				批量删除过期短链
 			</el-button>
-			<el-button :size="globalConfigStore.adminTable.size" @click="batchExportLink" :icon="DocumentArrowDownIcon" type="primary">
+			<el-button
+				:size="globalConfigStore.adminTable.size"
+				:icon="DocumentArrowDownIcon"
+				type="primary"
+				@click="batchExportLink"
+			>
 				导出短链
 			</el-button>
 		</div>
 
-		<el-table border :data="pageData" v-loading="loading" :size="globalConfigStore.adminTable.size" ref="tableRef">
+		<el-table
+			ref="tableRef"
+			v-loading="loading"
+			border
+			:data="pageData"
+			:size="globalConfigStore.adminTable.size"
+		>
 			<el-table-column type="selection" width="55" />
 			<el-table-column width="120" label="存储源名称">
 				<template #default="scope">
-					<el-tooltip :content="scope.row.storageType?.description" placement="right">
+					<el-tooltip
+						:content="scope.row.storageType?.description"
+						placement="right"
+					>
 						<span>{{ scope.row.storageName }}</span>
 					</el-tooltip>
 				</template>
@@ -89,8 +131,14 @@
 				<template #default="scope">
 					<div class="space-x-2">
 						<span>{{ scope.row.shortKey }}</span>
-						<i-ic-baseline-content-copy @click="copyText(scope.row.shortLink)" class="inline cursor-pointer" />
-						<i-material-symbols-open-in-new @click="openLink(scope.row.shortLink)" class="inline cursor-pointer text-blue-500 text-sm" />
+						<i-ic-baseline-content-copy
+							class="inline cursor-pointer"
+							@click="copyText(scope.row.shortLink)"
+						/>
+						<i-material-symbols-open-in-new
+							class="inline cursor-pointer text-blue-500 text-sm"
+							@click="openLink(scope.row.shortLink)"
+						/>
 					</div>
 				</template>
 			</el-table-column>
@@ -98,14 +146,25 @@
 			<el-table-column width="180" prop="createDate" label="创建时间" />
 			<el-table-column width="180" prop="expireDate" label="过期时间">
 				<template #default="scope">
-					<div :class="dayjs(scope.row.expireDate).isBefore(dayjs().format('YYYY-MM-DD HH:mm')) ? 'text-red-500' : ''">
+					<div
+						:class="
+							dayjs(scope.row.expireDate).isBefore(
+								dayjs().format('YYYY-MM-DD HH:mm')
+							)
+								? 'text-red-500'
+								: ''
+						"
+					>
 						<span>{{ scope.row.expireDate }}</span>
 					</div>
 				</template>
 			</el-table-column>
 			<el-table-column width="60" label="操作">
 				<template #default="scope">
-					<el-popconfirm title="是否确认删除?" @confirm="deleteLink(scope.row.id)">
+					<el-popconfirm
+						title="是否确认删除?"
+						@confirm="deleteLink(scope.row.id)"
+					>
 						<template #reference>
 							<TrashIcon class="z-btn-danger" />
 						</template>
@@ -114,179 +173,204 @@
 			</el-table-column>
 		</el-table>
 
-		<el-pagination class="mt-3"
-					   :page-size="searchParam.limit" background
-					   :layout="globalConfigStore.adminTable.pager.layout"
-					   :size="globalConfigStore.adminTable.pager.size"
-					   :pager-count="globalConfigStore.adminTable.pager.pagerCount"
-					   @current-change="handleCurrentChange"
-					   @size-change="handleSizeChange"
-					   v-model:current-page="searchParam.page"
-					   :default-current-page="10"
-					   :page-sizes="[10, 50, 100, 200, 1000, 99999999]"
-					   :total="searchParam.total" />
+		<el-pagination
+			v-model:current-page="searchParam.page"
+			class="mt-3"
+			:page-size="searchParam.limit"
+			background
+			:layout="globalConfigStore.adminTable.pager.layout"
+			:size="globalConfigStore.adminTable.pager.size"
+			:pager-count="globalConfigStore.adminTable.pager.pagerCount"
+			:default-current-page="10"
+			:page-sizes="[10, 50, 100, 200, 1000, 99999999]"
+			:total="searchParam.total"
+			@current-change="handleCurrentChange"
+			@size-change="handleSizeChange"
+		/>
 
-		<el-dialog v-model="settingVisible" :destroy-on-close="true"
-				   title="直链设置"
-				   class="student-cloud-admin-down-link-dialog"
-				   draggable
-				   top="5vh"
-				   width="80%">
+		<el-dialog
+			v-model="settingVisible"
+			:destroy-on-close="true"
+			title="直链设置"
+			class="student-cloud-admin-down-link-dialog"
+			draggable
+			top="5vh"
+			width="80%"
+		>
 			<basic-setting />
 		</el-dialog>
 	</div>
 </template>
 
 <script setup>
-import { MagnifyingGlassIcon, ArrowPathIcon, TrashIcon, DocumentArrowDownIcon, AdjustmentsHorizontalIcon } from "@heroicons/vue/24/outline";
-import dayjs from "dayjs";
-import { toClipboard } from "@soerenmartius/vue3-clipboard";
-import { concatPath, dateValueFormat, defaultTime, shortcuts } from "~/utils";
+import {
+	MagnifyingGlassIcon,
+	ArrowPathIcon,
+	TrashIcon,
+	DocumentArrowDownIcon,
+	AdjustmentsHorizontalIcon,
+} from '@heroicons/vue/24/outline'
+import dayjs from 'dayjs'
+import { toClipboard } from '@soerenmartius/vue3-clipboard'
+import { dateValueFormat, defaultTime, shortcuts } from '~/utils'
 
-import BasicSetting from "~/pages/admin/download-link/basic-setting.vue";
+import BasicSetting from '~/pages/admin/download-link/basic-setting.vue'
 
-import { loadStorageListReq } from "~/api/admin/admin-storage";
-import { batchDeleteShortLinkReq, deleteExpireLinkReq, deleteShortLinkReq, exportShortLinkListReq, getShortLinkListReq } from "~/api/admin/admin-short-link";
+import { loadStorageListReq } from '~/api/admin/admin-storage'
+import {
+	batchDeleteShortLinkReq,
+	deleteExpireLinkReq,
+	deleteShortLinkReq,
+	exportShortLinkListReq,
+	getShortLinkListReq,
+} from '~/api/admin/admin-short-link'
 
-import useGlobalConfigStore from "~/stores/global-config";
-let globalConfigStore = useGlobalConfigStore();
+import useGlobalConfigStore from '~/stores/global-config'
+let globalConfigStore = useGlobalConfigStore()
 
-const settingVisible = ref(false);
+const settingVisible = ref(false)
 const openSettingVisible = () => {
-	settingVisible.value = true;
-};
+	settingVisible.value = true
+}
 
 const searchParam = ref({
 	storageId: null,
 	page: 1,
 	limit: 10,
-	key: "",
-	url: "",
+	key: '',
+	url: '',
 	searchDate: [],
-	total: 0
-});
+	total: 0,
+})
 
-const searchFormRef = ref();
+const searchFormRef = ref()
 const resetForm = () => {
-	searchFormRef.value.resetFields();
-};
+	searchFormRef.value.resetFields()
+}
 
-const storageList = ref();
+const storageList = ref()
 const loadSourceList = () => {
 	loadStorageListReq().then((response) => {
-		storageList.value = response.data;
-	});
-};
+		storageList.value = response.data
+	})
+}
 
-const pageData = ref();
-const loading = ref(false);
+const pageData = ref()
+const loading = ref(false)
 const loadData = () => {
-	loading.value = true;
-	getShortLinkListReq(searchParam.value).then(res => {
-		pageData.value = res.data;
-		searchParam.value.total = res.dataCount;
-	}).finally(() => {
-		loading.value = false;
-	});
-};
+	loading.value = true
+	getShortLinkListReq(searchParam.value)
+		.then((res) => {
+			pageData.value = res.data
+			searchParam.value.total = res.dataCount
+		})
+		.finally(() => {
+			loading.value = false
+		})
+}
 
 onMounted(() => {
-	loadData();
-	loadSourceList();
-});
+	loadData()
+	loadSourceList()
+})
 
 const handleSizeChange = (val) => {
-	searchParam.value.limit = val;
-	searchParam.value.page = 1;
-	loadData();
-};
+	searchParam.value.limit = val
+	searchParam.value.page = 1
+	loadData()
+}
 
 const handleCurrentChange = (val) => {
-	searchParam.value.page = val;
-	loadData();
-};
+	searchParam.value.page = val
+	loadData()
+}
 
 const deleteLink = (id) => {
-	deleteShortLinkReq(id).then(res => {
-		ElMessage.success("删除成功");
-		loadData();
-	});
-};
+	deleteShortLinkReq(id).then(() => {
+		ElMessage.success('删除成功')
+		loadData()
+	})
+}
 
-const tableRef = ref();
+const tableRef = ref()
 const batchDeleteLink = () => {
-	let selectionRows = tableRef.value.getSelectionRows();
+	let selectionRows = tableRef.value.getSelectionRows()
 	if (selectionRows.length === 0) {
-		ElMessage.warning("请至少选择一条数据");
-		return;
+		ElMessage.warning('请至少选择一条数据')
+		return
 	}
 
-	ElMessageBox.confirm("是否确认删除？", "提示", {
-		type: "warning"
+	ElMessageBox.confirm('是否确认删除？', '提示', {
+		type: 'warning',
 	}).then(() => {
-		let ids = selectionRows.map(item => item.id);
-		batchDeleteShortLinkReq({ ids: ids }).then(res => {
-			ElMessage.success("删除成功");
-			loadData();
-		});
-	});
-};
+		let ids = selectionRows.map((item) => item.id)
+		batchDeleteShortLinkReq({ ids: ids }).then(() => {
+			ElMessage.success('删除成功')
+			loadData()
+		})
+	})
+}
 
 const deleteExpireLink = () => {
-	ElMessageBox.confirm("是否确认删除过期短链并级联删除其下载日志？", "提示", {
-		type: "warning"
+	ElMessageBox.confirm('是否确认删除过期短链并级联删除其下载日志？', '提示', {
+		type: 'warning',
 	}).then(() => {
-		deleteExpireLinkReq().then(res => {
-			ElMessage.success(`成功删除 ${res.data} 条.`);
-			loadData();
-		});
-	});
-};
+		deleteExpireLinkReq().then((res) => {
+			ElMessage.success(`成功删除 ${res.data} 条.`)
+			loadData()
+		})
+	})
+}
 
 const batchExportLink = () => {
 	const loading = ElLoading.service({
 		fullscreen: true,
 		lock: true,
-		text: "下载中...",
-		background: "rgba(0, 0, 0, 0.5)"
-	});
-	exportShortLinkListReq(searchParam.value).then((res) => {
-		const { data, headers } = res;
-		const fileName = `学生云盘 短链导出 - ${dayjs().format("YYYY-MM-DD HH:mm:ss")}.xlsx`;
-		// 此处当返回json文件时需要先对data进行JSON.stringify处理，其他类型文件不用做处理
-		//const blob = new Blob([JSON.stringify(data)], ...)
-		const blob = new Blob([data], { type: headers["content-type"] });
-		let dom = document.createElement("a");
-		let url = window.URL.createObjectURL(blob);
-		dom.href = url;
-		dom.download = decodeURI(fileName);
-		dom.style.display = "none";
-		document.body.appendChild(dom);
-		dom.click();
-		dom.parentNode.removeChild(dom);
-		window.URL.revokeObjectURL(url);
-	}).catch(() => {
-		ElMessage.error("下载失败.");
-	}).finally(() => {
-		loading.close();
-	});
-};
+		text: '下载中...',
+		background: 'rgba(0, 0, 0, 0.5)',
+	})
+	exportShortLinkListReq(searchParam.value)
+		.then((res) => {
+			const { data, headers } = res
+			const fileName = `学生云盘 短链导出 - ${dayjs().format(
+				'YYYY-MM-DD HH:mm:ss'
+			)}.xlsx`
+			// 此处当返回json文件时需要先对data进行JSON.stringify处理，其他类型文件不用做处理
+			//const blob = new Blob([JSON.stringify(data)], ...)
+			const blob = new Blob([data], { type: headers['content-type'] })
+			let dom = document.createElement('a')
+			let url = window.URL.createObjectURL(blob)
+			dom.href = url
+			dom.download = decodeURI(fileName)
+			dom.style.display = 'none'
+			document.body.appendChild(dom)
+			dom.click()
+			dom.parentNode.removeChild(dom)
+			window.URL.revokeObjectURL(url)
+		})
+		.catch(() => {
+			ElMessage.error('下载失败.')
+		})
+		.finally(() => {
+			loading.close()
+		})
+}
 
 /**
  *  复制直链
  */
 let copyText = (shortLink) => {
 	toClipboard(shortLink).then(() => {
-		ElMessage.success("复制成功");
-	});
-};
+		ElMessage.success('复制成功')
+	})
+}
 
 /**
  * 打开短链
  */
 let openLink = (shortLink) => {
-	window.open(shortLink);
-};
+	window.open(shortLink)
+}
 </script>
 
 <style scoped lang="scss">

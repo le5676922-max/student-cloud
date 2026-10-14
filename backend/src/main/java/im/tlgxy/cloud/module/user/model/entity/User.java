@@ -9,6 +9,7 @@ import lombok.Data;
 
 import java.io.Serializable;
 import java.util.Date;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -39,6 +40,17 @@ public class User implements Serializable {
      */
     @TableField(value = "`username`")
     private String username;
+
+    /** Globally unique, server-generated login identifier; never updated. */
+    @TableField(value = "account_id", fill = FieldFill.INSERT, updateStrategy = FieldStrategy.NEVER)
+    private String accountId;
+
+    @TableField(value = "email")
+    private String email;
+
+    public void setEmail(String email) {
+        this.email = email == null || email.isBlank() ? null : email.trim().toLowerCase(Locale.ROOT);
+    }
 
     /**
      * 用户昵称，用于显示
@@ -107,6 +119,7 @@ public class User implements Serializable {
     private Integer tenantId;
 
     @TableField(value = "`role`")
+    @Schema(title = "用户角色", type = "string", implementation = String.class, allowableValues = {"ADMIN", "TENANT_ADMIN", "USER"})
     private UserRoleEnum role;
 
 }

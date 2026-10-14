@@ -4,8 +4,6 @@ import com.github.xiaoymin.knife4j.annotations.ApiOperationSupport;
 import com.github.xiaoymin.knife4j.annotations.ApiSort;
 import im.tlgxy.cloud.core.config.TlgxyCloudProperties;
 import im.tlgxy.cloud.core.util.AjaxJson;
-import im.tlgxy.cloud.core.util.StringUtils;
-import im.tlgxy.cloud.core.util.TlgxyCloudAuthUtil;
 import im.tlgxy.cloud.module.config.model.dto.SystemConfigDTO;
 import im.tlgxy.cloud.module.config.model.result.FrontSiteConfigResult;
 import im.tlgxy.cloud.module.config.service.SystemConfigService;
@@ -15,7 +13,6 @@ import im.tlgxy.cloud.module.storage.model.request.base.FileListConfigRequest;
 import im.tlgxy.cloud.module.storage.model.result.StorageSourceConfigResult;
 import im.tlgxy.cloud.module.storage.service.StorageSourceService;
 import im.tlgxy.cloud.module.storage.service.base.AbstractBaseFileService;
-import im.tlgxy.cloud.module.user.model.constant.UserConstant;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
@@ -24,7 +21,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Objects;
 
 /**
  * 面向前台（用户端）的站点基础模块接口。
@@ -62,8 +58,7 @@ public class SiteController {
     /**
      * 获取前台站点全局设置。
      * <p>
-     * 返回数据包含页面布局、列表尺寸、公告、配置信息，以及调试模式标志和访客模式判断。
-     * 如果当前是访客用户且配置了访客首页，则 guest 字段为 true。
+     * 返回数据包含页面布局、列表尺寸、公告、配置信息，以及调试模式标志。
      *
      * @return 包含前台站点配置结果的 AjaxJson 响应
      */
@@ -79,12 +74,6 @@ public class SiteController {
 
         // 设置调试模式标志
         frontSiteConfigResult.setDebugMode(tlgxyCloudProperties.isDebug());
-        // 判断当前用户是否为访客
-        boolean guestUser = Objects.equals(TlgxyCloudAuthUtil.getCurrentUserId(), UserConstant.ANONYMOUS_ID);
-        // 判断是否配置了访客首页内容
-        boolean guestIndexNotBlank = StringUtils.isNotBlank(systemConfig.getGuestIndexHtml());
-        // 如果是访客且配置了访客首页，则标记为访客模式
-        frontSiteConfigResult.setGuest(guestUser && guestIndexNotBlank);
         return AjaxJson.getSuccessData(frontSiteConfigResult);
     }
 

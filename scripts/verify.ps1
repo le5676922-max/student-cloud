@@ -46,10 +46,9 @@ try {
     if (-not $SkipBuild) {
         Invoke-CheckedStep 'Frontend production build' { pnpm run build }
     }
-    # Historical formatting/lint debt is deliberately not hidden or auto-fixed.
-    if ($IncludeLint) {
-        Invoke-CheckedStep 'Full frontend lint (known historical findings)' { pnpm run lint }
-    }
+    # Lint is now part of every verification, not an optional historical-debt check.
+    Invoke-CheckedStep 'Full frontend lint' { pnpm run lint }
+    Invoke-CheckedStep 'Frontend production dependency audit' { pnpm audit --prod }
 } finally {
     Pop-Location
 }

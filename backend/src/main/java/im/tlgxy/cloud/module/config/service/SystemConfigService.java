@@ -91,7 +91,8 @@ public class SystemConfigService {
     /**
      * 加载配置时需要忽略的字段列表
      */
-    public static final List<String> ignoreFieldList = Arrays.asList("domain");
+    public static final List<String> ignoreFieldList = Arrays.asList(
+            "domain", "guestIndexHtml", "webdavAllowAnonymous", "allowPathLinkAnonAccess");
 
     /**
      * 获取系统配置 DTO。

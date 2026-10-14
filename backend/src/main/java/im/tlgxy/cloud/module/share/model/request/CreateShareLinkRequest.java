@@ -5,9 +5,11 @@ import im.tlgxy.cloud.module.share.model.enums.ShareTypeEnum;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import java.util.Date;
 import java.util.List;
 
@@ -45,12 +47,14 @@ public class CreateShareLinkRequest {
      */
     @Schema(title = "分享条目列表", requiredMode = Schema.RequiredMode.REQUIRED)
     @NotEmpty(message = "分享条目不能为空")
-    private List<ShareEntryDTO> shareEntries;
+    @Valid
+    private List<@NotNull(message = "分享条目不能为 null") ShareEntryDTO> shareEntries;
 
     /**
      * 分享密码（可选），设置后访问者需要输入密码才能查看分享内容
      */
-    @Schema(title = "分享密码（可选）", example = "123456")
+    @Schema(title = "分享密码（可选，最多 8 个字符）", example = "123456")
+    @Size(max = 8, message = "分享密码最多 8 个字符")
     private String password;
 
     /**

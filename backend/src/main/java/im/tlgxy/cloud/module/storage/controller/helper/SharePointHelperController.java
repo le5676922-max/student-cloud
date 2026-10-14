@@ -60,11 +60,7 @@ public class SharePointHelperController {
         // 请求接口
         HttpRequest getRequest = HttpUtil.createGet(requestUrl);
         getRequest.form("search", " ");
-        HttpResponse execute = getRequest.addHeaders(headers).execute();
-        String body = execute.body();
-        if (execute.getStatus() != HttpStatus.OK.value()) {
-            throw new APIHttpRequestBizException(ErrorCode.BIZ_AUTO_GET_SHARE_POINT_SITES_ERROR, requestUrl, execute.getStatus(), body);
-        }
+        String body = executeGraphRequest(getRequest.addHeaders(headers), requestUrl);
 
         // 解析前缀
         JSONObject rootObject = JSONObject.parseObject(body);
@@ -101,11 +97,7 @@ public class SharePointHelperController {
 
         // 请求接口
         HttpRequest getRequest = HttpUtil.createGet(requestUrl);
-        HttpResponse execute = getRequest.addHeaders(headers).execute();
-        String body = execute.body();
-        if (execute.getStatus() != HttpStatus.OK.value()) {
-            throw new APIHttpRequestBizException(ErrorCode.BIZ_AUTO_GET_SHARE_POINT_SITES_ERROR, requestUrl, execute.getStatus(), body);
-        }
+        String body = executeGraphRequest(getRequest.addHeaders(headers), requestUrl);
 
         // 解析前缀
         JSONObject rootObject = JSONObject.parseObject(body);
@@ -142,11 +134,7 @@ public class SharePointHelperController {
 
         // 请求接口
         HttpRequest getRequest = HttpUtil.createGet(requestUrl);
-        HttpResponse execute = getRequest.addHeaders(headers).execute();
-        String body = execute.body();
-        if (execute.getStatus() != HttpStatus.OK.value()) {
-            throw new BizException(body);
-        }
+        String body = executeGraphRequest(getRequest.addHeaders(headers), requestUrl);
 
         // 解析前缀
         JSONObject jsonObject = JSONObject.parseObject(body);
@@ -177,11 +165,7 @@ public class SharePointHelperController {
         if (sharePointInfoRequest.getDomainPrefix() == null || sharePointInfoRequest.getDomainType() == null) {
             String requestUrl = getSiteRootUrlByType(sharePointInfoRequest.getType());
             HttpRequest getRequest = HttpUtil.createGet(requestUrl);
-            HttpResponse execute = getRequest.addHeaders(authorizationHeaders).execute();
-            String body = execute.body();
-            if (execute.getStatus() != HttpStatus.OK.value()) {
-                throw new BizException(body);
-            }
+            String body = executeGraphRequest(getRequest.addHeaders(authorizationHeaders), requestUrl);
             JSONObject jsonObject = JSONObject.parseObject(body);
             String hostname = jsonObject.getJSONObject("siteCollection").getString("hostname");
             String domainPrefix = StringUtils.subBefore(hostname, ".sharepoint", false);
@@ -201,17 +185,25 @@ public class SharePointHelperController {
                 sharePointInfoRequest.getSiteType(),
                 sharePointInfoRequest.getSiteName());
         HttpRequest getRequest = HttpUtil.createGet(requestUrl);
-        HttpResponse execute = getRequest.addHeaders(authorizationHeaders).execute();
-        String body = execute.body();
+        String body = executeGraphRequest(getRequest.addHeaders(authorizationHeaders), requestUrl);
 
         // 解析数据
-        if (execute.getStatus() != HttpStatus.OK.value()) {
-            throw new BizException(body);
-        }
         JSONObject jsonObject = JSONObject.parseObject(body);
         return AjaxJson.getSuccessData(jsonObject.getString("id"));
     }
 
+
+    private String executeGraphRequest(HttpRequest request, String requestUrl) {
+        // Only the fixed Graph hosts above are contacted; do not forward bearer tokens across redirects.
+        try (HttpResponse response = request.timeout(10000).setFollowRedirects(false).execute()) {
+            String body = response.body();
+            if (response.getStatus() != HttpStatus.OK.value()) {
+                throw new APIHttpRequestBizException(ErrorCode.BIZ_AUTO_GET_SHARE_POINT_SITES_ERROR,
+                        requestUrl, response.getStatus(), body);
+            }
+            return body;
+        }
+    }
 
     /**
      * 根据类型获取 API 地址

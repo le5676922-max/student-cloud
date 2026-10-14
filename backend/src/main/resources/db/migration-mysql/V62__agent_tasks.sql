@@ -1,0 +1,11 @@
+CREATE TABLE ai_task (
+    id VARCHAR(36) PRIMARY KEY,
+    owner_user_id INT NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    steps_json MEDIUMTEXT NOT NULL,
+    results_json MEDIUMTEXT NOT NULL,
+    created_at BIGINT NOT NULL,
+    expires_at BIGINT NOT NULL,
+    INDEX idx_ai_task_owner_created (owner_user_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

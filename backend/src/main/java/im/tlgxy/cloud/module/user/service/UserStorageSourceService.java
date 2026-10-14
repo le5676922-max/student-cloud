@@ -8,6 +8,7 @@ import im.tlgxy.cloud.module.user.event.UserCopyEvent;
 import im.tlgxy.cloud.module.user.manager.UserManager;
 import im.tlgxy.cloud.module.user.mapper.UserStorageSourceMapper;
 import im.tlgxy.cloud.module.user.model.entity.UserStorageSource;
+import im.tlgxy.cloud.module.user.model.constant.UserConstant;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.framework.AopContext;
@@ -53,6 +54,9 @@ public class UserStorageSourceService {
             unless = "#result == null",
             condition = "#userId != null && #storageId != null")
     public UserStorageSource getByUserIdAndStorageId(Integer userId, Integer storageId) {
+        if (UserConstant.ANONYMOUS_ID.equals(userId)) {
+            return null;
+        }
         return userStorageSourceMapper.getByUserIdAndStorageId(userId, storageId);
     }
 
@@ -118,7 +122,8 @@ public class UserStorageSourceService {
 
     private HashMap<String, Boolean> buildPermissionMap(UserStorageSource userStorageSource) {
         HashMap<String, Boolean> map = new HashMap<>();
-        Set<String> permissions = userStorageSource != null ? userStorageSource.getPermissions() : null;
+        Set<String> permissions = userStorageSource != null && Boolean.TRUE.equals(userStorageSource.getEnable())
+                ? userStorageSource.getPermissions() : null;
         for (FileOperatorTypeEnum operatorTypeEnum : FileOperatorTypeEnum.values()) {
             map.put(operatorTypeEnum.getValue(), permissions != null && permissions.contains(operatorTypeEnum.getValue()));
         }

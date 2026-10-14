@@ -14,6 +14,10 @@ import org.springframework.stereotype.Service;
 
 import java.nio.file.*;
 import java.io.IOException;
+import java.io.InputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Objects;
 
 /** Never follows download URLs or accepts server-side paths. Every read rechecks live grants. */
@@ -27,6 +31,44 @@ public class LearningFileReader {
     private final PasswordConfigService passwords;
 
     public byte[] read(String storageKey, String requestedPath) {
+        Path file = resolveAccessibleFile(storageKey, requestedPath);
+        try (var stream = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
+            byte[] bytes = stream.readNBytes(MAX_BYTES + 1);
+            if (bytes.length > MAX_BYTES) throw new BizException("资料不能超过 5 MB");
+            return bytes;
+        } catch (IOException e) {
+            throw unavailable();
+        }
+    }
+
+    /** Recheck live permissions and hash the whole file without allocating a 5 MB byte array. */
+    public String fingerprint(String storageKey, String requestedPath) {
+        Path file = resolveAccessibleFile(storageKey, requestedPath);
+        try (var stream = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
+            return fingerprint(stream);
+        } catch (IOException e) {
+            throw unavailable();
+        }
+    }
+
+    static String fingerprint(InputStream stream) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[8192];
+            int total = 0;
+            int count;
+            while ((count = stream.read(buffer, 0, Math.min(buffer.length, MAX_BYTES + 1 - total))) != -1) {
+                total += count;
+                if (total > MAX_BYTES) throw new BizException("资料不能超过 5 MB");
+                digest.update(buffer, 0, count);
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private Path resolveAccessibleFile(String storageKey, String requestedPath) {
         String path = normalizePath(requestedPath);
         Integer userId = TlgxyCloudAuthUtil.getCurrentUserId();
         var source = storages.findAllEnableOrderByOrderNum(userId).stream()
@@ -66,11 +108,7 @@ public class LearningFileReader {
             if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) || Files.size(file) > MAX_BYTES) {
                 throw new BizException("资料必须为不超过 5 MB 的普通文件");
             }
-            try (var stream = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
-                byte[] bytes = stream.readNBytes(MAX_BYTES + 1);
-                if (bytes.length > MAX_BYTES) throw new BizException("资料不能超过 5 MB");
-                return bytes;
-            }
+            return file;
         } catch (BizException e) {
             throw e;
         } catch (Exception e) {

@@ -7,6 +7,7 @@ import im.tlgxy.cloud.module.tenant.model.entity.Tenant;
 import im.tlgxy.cloud.module.tenant.model.request.SaveTenantRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -16,6 +17,7 @@ public class TenantService {
 
     private final TenantMapper tenantMapper;
     private final TenantSecurityService tenantSecurityService;
+    private final WorkspaceStorageProvisioningService workspaceStorage;
 
     public List<Tenant> listAll() {
         tenantSecurityService.requireSystemAdmin();
@@ -23,6 +25,7 @@ public class TenantService {
                 .orderByAsc(Tenant::getId));
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public Tenant save(SaveTenantRequest request) {
         tenantSecurityService.requireSystemAdmin();
         Long duplicateCount = tenantMapper.selectCount(Wrappers.<Tenant>lambdaQuery()
@@ -40,6 +43,7 @@ public class TenantService {
         tenant.setEnable(request.getEnable() == null || request.getEnable());
         if (tenant.getId() == null) {
             tenantMapper.insert(tenant);
+            if (Boolean.TRUE.equals(tenant.getEnable())) workspaceStorage.provisionNewWorkspace(tenant.getId());
         } else {
             tenantMapper.updateById(tenant);
         }

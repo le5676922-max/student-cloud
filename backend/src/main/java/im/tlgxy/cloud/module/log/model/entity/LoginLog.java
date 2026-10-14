@@ -10,7 +10,7 @@ import java.util.Date;
  * 登录日志实体类
  * <p>
  * 对应数据库表 login_log，记录用户的每一次登录尝试。
- * 包括登录用户名、密码（用于记录失败的尝试）、登录时间、IP、User-Agent、Referer 以及登录结果。
+ * 包括登录用户名、登录时间、IP、User-Agent、Referer 以及登录结果；不保存密码。
  * </p>
  *
  * @author zhaojun
@@ -29,7 +29,7 @@ public class LoginLog implements Serializable {
     @TableField(value = "username")
     private String username;
 
-    /** 登录密码（记录用户输入的密码，用于审计） */
+    /** 历史兼容字段，仅保存脱敏占位符 */
     @TableField(value = "`password`")
     private String password;
 

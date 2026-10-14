@@ -9,7 +9,12 @@
 			<template #header>
 				<div class="dialog-title">
 					<span>我的分享</span>
-					<el-tag v-if="status.firstLoadCompleted && !status.loading" size="small" type="info">{{ total }}</el-tag>
+					<el-tag
+						v-if="status.firstLoadCompleted && !status.loading"
+						size="small"
+						type="info"
+						>{{ total }}</el-tag
+					>
 				</div>
 			</template>
 
@@ -27,55 +32,53 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from "vue";
-import ShareListTable from "~/components/share/ShareListTable.vue";
+import { computed, reactive, ref } from 'vue'
+import ShareListTable from '~/components/share/ShareListTable.vue'
 
 const props = defineProps({
 	visible: {
 		type: Boolean,
-		default: false
+		default: false,
 	},
 	storageList: {
 		type: Array,
-		default: () => []
+		default: () => [],
 	},
 	activeStorageKey: {
 		type: String,
-		default: ""
-	}
-});
-const storageOptions = computed(() => props.storageList || []);
+		default: '',
+	},
+})
+const storageOptions = computed(() => props.storageList || [])
 
-const shareTableRef = ref(null);
-const emit = defineEmits(["update:visible"]);
+const shareTableRef = ref(null)
+const emit = defineEmits(['update:visible'])
 const visibleProxy = computed({
 	get: () => props.visible,
-	set: (value) => emit("update:visible", value)
-});
-
+	set: (value) => emit('update:visible', value),
+})
 
 const status = reactive({
 	loading: false,
-	firstLoadCompleted: false
-});
+	firstLoadCompleted: false,
+})
 const handleStatusChange = (value) => {
-	status.loading = Boolean(value?.loading);
-	status.firstLoadCompleted = Boolean(value?.firstLoadCompleted);
-};
+	status.loading = Boolean(value?.loading)
+	status.firstLoadCompleted = Boolean(value?.firstLoadCompleted)
+}
 
-const total = ref(0);
+const total = ref(0)
 const handleTotalChange = (value) => {
-	total.value = Number(value ?? 0);
-};
+	total.value = Number(value ?? 0)
+}
 
 defineExpose({
 	refreshShares: () => shareTableRef.value?.fetchShares(),
-	resetShares: () => shareTableRef.value?.resetFilters()
-});
+	resetShares: () => shareTableRef.value?.resetFilters(),
+})
 </script>
 
 <style scoped lang="scss">
-
 .student-cloud-my-share-dialog-wrapper {
 	text-align: initial; // 避免受到 dialog 外层样式影响
 

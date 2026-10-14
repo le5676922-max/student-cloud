@@ -38,6 +38,13 @@ New-Item -ItemType Directory -Path $localDataPath -Force | Out-Null
 
 $previousDataPath = $env:TLGXY_CLOUD_LOCAL_DATA
 $env:TLGXY_CLOUD_LOCAL_DATA = $localDataPath.Replace('\', '/')
+# A desktop terminal may predate configure-deepseek.ps1. Refresh the key saved by
+# that script so an old inherited key cannot silently override the new one.
+$savedDeepSeekKey = [Environment]::GetEnvironmentVariable('DEEPSEEK_API_KEY', 'User')
+if (-not [string]::IsNullOrWhiteSpace($savedDeepSeekKey)) {
+    $env:DEEPSEEK_API_KEY = $savedDeepSeekKey
+}
+Remove-Variable savedDeepSeekKey
 $javaArguments = @('-jar', $jarPath, '--spring.profiles.active=local', "--server.port=$Port")
 if ($DisableAi) {
     $javaArguments += '--tongligong-student-cloud.ai.enabled=false'

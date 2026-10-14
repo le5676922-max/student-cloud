@@ -3,12 +3,10 @@
 </template>
 
 <script setup>
-import BasicSetting from "~/pages/admin/download-link/basic-setting.vue";
+import BasicSetting from '~/pages/admin/download-link/basic-setting.vue'
 </script>
 
-<style scoped>
-
-</style>
+<style scoped></style>
 
 <route lang="yaml">
 meta:

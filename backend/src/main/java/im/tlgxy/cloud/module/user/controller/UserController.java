@@ -25,6 +25,7 @@ import im.tlgxy.cloud.module.user.model.result.CheckLoginResult;
 import im.tlgxy.cloud.module.user.model.result.LoginResult;
 import im.tlgxy.cloud.module.user.model.result.LoginVerifyImgResult;
 import im.tlgxy.cloud.module.user.service.UserService;
+import im.tlgxy.cloud.module.user.utils.PasswordCredentialFingerprint;
 import im.tlgxy.cloud.module.user.service.DynamicLoginEntryService;
 import im.tlgxy.cloud.module.user.service.login.ImgVerifyCodeService;
 import im.tlgxy.cloud.module.user.service.login.LoginService;
@@ -162,13 +163,25 @@ public class UserController {
     @Operation(summary = "登录")
     @ApiLimit(timeout = 60, maxCount = 10)
     public AjaxJson<LoginResult> doLogin(@Valid @RequestBody UserLoginRequest userLoginRequest) {
+        User user = userService.getByLoginIdentifier(userLoginRequest.getUsername());
+        if (user == null) {
+            throw new BizException(ErrorCode.BIZ_LOGIN_ERROR);
+        }
+        // All existing verifiers must see the real username, including administrator 2FA.
+        userLoginRequest.setUsername(user.getUsername());
+        userLoginRequest.setResolvedUserId(user.getId());
         // 进行登录验证，如果验证失败，会抛出异常
         loginService.verify(userLoginRequest);
 
         // 获取用户的上下文信息, 并登录
-        User user = userService.getByUsername(userLoginRequest.getUsername());
+        user = userService.requireLoginUser(user.getId());
+        if (!PasswordCredentialFingerprint.matches(userLoginRequest.getVerifiedCredentialFingerprint(), user)) {
+            throw new BizException(ErrorCode.BIZ_LOGIN_ERROR);
+        }
         Integer userId = user.getId();
         StpUtil.login(userId);
+        StpUtil.getTokenSession().set(PasswordCredentialFingerprint.SESSION_KEY,
+                userLoginRequest.getVerifiedCredentialFingerprint());
 
         // 返回登录结果
         LoginResult loginResult = new LoginResult(StpUtil.getTokenInfo().getTokenValue(), user);
@@ -217,7 +230,8 @@ public class UserController {
         }
 
         // 判断是否是管理员, 并且开启了二次验证
-        boolean isAdmin = userService.isAdmin(username);
+        User user = userService.getByLoginIdentifier(username);
+        boolean isAdmin = user != null && userService.isAdmin(user.getId());
         boolean enableTwoFactorAuth = BooleanUtils.isTrue(systemConfig.getAdminTwoFactorVerify());
         boolean loginVerifySecretNotBlank = StringUtils.isNotBlank(systemConfig.getLoginVerifySecret());
         if (isAdmin && enableTwoFactorAuth && loginVerifySecretNotBlank) {
@@ -261,13 +275,14 @@ public class UserController {
         CheckLoginResult checkLoginResult = new CheckLoginResult();
         checkLoginResult.setIsLogin(StpUtil.isLogin());
         checkLoginResult.setIsAdmin(false);
-        checkLoginResult.setRole(im.tlgxy.cloud.module.user.model.enums.UserRoleEnum.GUEST);
         if (checkLoginResult.getIsLogin()) {
             checkLoginResult.setIsAdmin(StpUtil.hasRole("admin"));
             User currentUser = TlgxyCloudAuthUtil.getCurrentUser();
             if (currentUser != null) {
                 checkLoginResult.setNickname(currentUser.getNickname());
                 checkLoginResult.setUsername(currentUser.getUsername());
+                checkLoginResult.setAccountId(currentUser.getAccountId());
+                checkLoginResult.setEmail(currentUser.getEmail());
                 checkLoginResult.setRole(currentUser.getRole());
                 checkLoginResult.setTenantId(currentUser.getTenantId());
             }

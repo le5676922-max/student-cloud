@@ -55,11 +55,83 @@ jobs:
           java-version: '21'
           cache: maven
           cache-dependency-path: backend/pom.xml
-      - run: mvn -B -f backend/pom.xml -Dtest=CloudWorkflowTest test
+      # 每套测试独占数据库，避免互相清理表；仅存在于本次 CI service。
+      - name: Create isolated registration, overview and resumable databases
+        run: >-
+          docker exec --env MYSQL_PWD=ephemeral-ci-password ${{ job.services.mysql.id }}
+          mysql --user=root --execute="CREATE DATABASE student_cloud_role_test_registration_ci CHARACTER SET utf8mb4;
+          CREATE DATABASE student_cloud_role_test_overview_ci CHARACTER SET utf8mb4;
+          CREATE DATABASE student_cloud_role_test_resumable_ci CHARACTER SET utf8mb4;"
+      - run: mvn -B -f backend/pom.xml -Dtest=CloudWorkflowTest,RegistrationWorkflowTest,GlobalOverviewWorkflowTest,ResumableUploadWorkflowTest test
         env:
           CLOUD_TEST_MYSQL_URL: jdbc:mysql://127.0.0.1:3306/student_cloud_role_test_ci?characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
           CLOUD_TEST_MYSQL_USER: root
           CLOUD_TEST_MYSQL_PASSWORD: ephemeral-ci-password
+          CLOUD_REGISTRATION_TEST_MYSQL_URL: jdbc:mysql://127.0.0.1:3306/student_cloud_role_test_registration_ci?characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+          CLOUD_REGISTRATION_TEST_MYSQL_USER: root
+          CLOUD_REGISTRATION_TEST_MYSQL_PASSWORD: ephemeral-ci-password
+          CLOUD_OVERVIEW_TEST_MYSQL_URL: jdbc:mysql://127.0.0.1:3306/student_cloud_role_test_overview_ci?characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+          CLOUD_OVERVIEW_TEST_MYSQL_USER: root
+          CLOUD_OVERVIEW_TEST_MYSQL_PASSWORD: ephemeral-ci-password
+          CLOUD_RESUMABLE_TEST_MYSQL_URL: jdbc:mysql://127.0.0.1:3306/student_cloud_role_test_resumable_ci?characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+          CLOUD_RESUMABLE_TEST_MYSQL_USER: root
+          CLOUD_RESUMABLE_TEST_MYSQL_PASSWORD: ephemeral-ci-password
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mysql-test-results
+          path: backend/target/surefire-reports/
+          retention-days: 7
+
+  redis:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      # 只映射隔离 CI Redis，测试限定 loopback + 高端口 + DB15 + 随机 key。
+      redis:
+        image: redis:7-alpine
+        ports: ['16379:6379']
+        options: --health-cmd="redis-cli ping" --health-interval=5s --health-timeout=3s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - run: mvn -B -f backend/pom.xml -Dtest=RedisStorageMetadataIntegrationTest,RedisRateLimiterIntegrationTest -Dstudent.cloud.redis.integration=true -Dstudent.cloud.redis.port=16379 test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: redis-test-results
+          path: backend/target/surefire-reports/
+          retention-days: 7
+
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      # 这些凭据仅用于此临时 CI Compose，不使用 GitHub/服务器/用户凭据。
+      APP_ORIGIN: http://127.0.0.1:18880
+      WEB_BIND_ADDRESS: 127.0.0.1
+      WEB_HTTP_PORT: '18880'
+      MYSQL_ROOT_PASSWORD: isolated-ci-root-only
+      STUDENT_CLOUD_DB_PASSWORD: isolated-ci-app-only
+      STUDENT_CLOUD_REDIS_PASSWORD: isolated-ci-cache-only
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose without printing resolved secrets
+        run: docker compose --env-file docker/.env.production.example -f docker/compose.production.yml config --quiet
+      - name: Build public multi-stage images and start disposable stack
+        run: docker compose --env-file docker/.env.production.example -f docker/compose.production.yml up --build --detach --wait --wait-timeout 300
+      - name: Validate SPA, protected APIs and private probe routing
+        run: node scripts/deployment-smoke.mjs http://127.0.0.1:18880
+      - name: Validate Nginx configuration
+        run: docker compose --env-file docker/.env.production.example -f docker/compose.production.yml exec -T frontend nginx -t
+      - name: Destroy only the isolated CI Compose stack
+        if: always()
+        run: docker compose --env-file docker/.env.production.example -f docker/compose.production.yml down --volumes
 
   frontend:
     runs-on: ubuntu-24.04
@@ -78,5 +150,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
       - run: pnpm run test:unit
-      - run: pnpm exec eslint src/pages/learning.vue src/api/home/learning.js --max-warnings 0
+      - run: pnpm run lint
+      - run: pnpm audit --prod
       - run: pnpm run build

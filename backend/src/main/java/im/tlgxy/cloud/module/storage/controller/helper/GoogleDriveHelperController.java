@@ -41,9 +41,10 @@ public class GoogleDriveHelperController {
 		HttpRequest httpRequest = HttpUtil.createGet("https://www.googleapis.com/drive/v3/drives");
 		httpRequest.header("Authorization", "Bearer " + accessToken);
 		
-		HttpResponse httpResponse = httpRequest.execute();
-		
-		String body = httpResponse.body();
+		String body;
+		try (HttpResponse httpResponse = httpRequest.timeout(10000).setFollowRedirects(false).execute()) {
+			body = httpResponse.body();
+		}
 		JSONObject jsonObject = JSON.parseObject(body);
 		JSONArray drives = jsonObject.getJSONArray("drives");
 		

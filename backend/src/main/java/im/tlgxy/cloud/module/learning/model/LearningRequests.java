@@ -10,4 +10,6 @@ public final class LearningRequests {
                            @NotBlank @Size(max = 100) String storageKey,
                            @NotBlank @Size(max = 500) String path,
                            @NotNull @Size(max = 200) String tags) { }
+    public record Relink(@NotBlank @Size(max = 100) String storageKey,
+                         @NotBlank @Size(max = 500) String path) { }
 }

@@ -27,13 +27,31 @@ public class AiAgentProperties {
     /** OpenAI 兼容接口的基础地址，默认使用 DeepSeek 官方 API。 */
     private String baseUrl = "https://api.deepseek.com";
 
-    /** 聊天模型名称，默认使用支持工具调用的 DeepSeek V4 Flash。 */
-    private String model = "deepseek-v4-flash";
+    /** 聊天模型名称，使用 DeepSeek 官方的 Flash 模型别名。 */
+    private String model = "deepseek-flash";
+
+    /** DeepSeek 模型的深度思考开关；默认关闭以降低交互延迟。 */
+    private boolean thinkingEnabled = false;
+
+    /** 限制单次模型输出，避免意外的长回答和费用。 */
+    @Min(128)
+    @Max(8192)
+    private int maxTokens = 2048;
 
     /** 单次请求超时时间。 */
     @Min(5)
     @Max(120)
     private int timeoutSeconds = 45;
+
+    /** 整轮对话预算，包括模型轮次、工具执行与流式读取。 */
+    @Min(10)
+    @Max(180)
+    private int chatTimeoutSeconds = 90;
+
+    /** 单实例最大同时处理对话数；超过立即拒绝，不排入无界队列。 */
+    @Min(1)
+    @Max(32)
+    private int maxConcurrentChats = 8;
 
     /** 发送给模型的最大历史消息数。 */
     @Min(0)

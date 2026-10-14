@@ -140,6 +140,8 @@ public enum ErrorCode {
     /** 获取分享文件信息失败 */
     BIZ_SHARE_FILE_INFO_ERROR("41039", "获取文件信息失败"),
 
+    BIZ_DIRECTORY_CHANGED("41040", "目录内容或查询条件已变化，请刷新后重新翻页"),
+
     // 第二位为 2 时，是登录错误
     /** 未登录或未授权，用户需要先登录才能访问 */
     BIZ_UNAUTHORIZED("42000", "未登录或未授权"),

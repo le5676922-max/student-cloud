@@ -37,8 +37,7 @@ public class Open115HelperController {
                 .form("code_challenge", codeChallenge)
                 .form("code_challenge_method", "md5");
 
-        HttpResponse execute = httpRequest.execute();
-        String body = execute.body();
+        String body = executeHelperRequest(httpRequest);
 
         JSONObject jsonObject = JSON.parseObject(body);
         if (jsonObject.getInteger("state") == 0) {
@@ -62,9 +61,7 @@ public class Open115HelperController {
                 .form("time", open115AuthDeviceCodeResult.getTime())
                 .form("sign", open115AuthDeviceCodeResult.getSign());
 
-        httpRequest.setReadTimeout(0);
-        HttpResponse execute = httpRequest.execute();
-        String body = execute.body();
+        String body = executeHelperRequest(httpRequest);
 
         JSONObject jsonObject = JSON.parseObject(body);
         if (jsonObject.getInteger("state") == 0) {
@@ -84,7 +81,7 @@ public class Open115HelperController {
         HttpRequest deviceCodeToTokenHttpRequest = HttpUtil.createPost("https://passportapi.115.com/open/deviceCodeToToken")
                 .form("uid", open115AuthDeviceCodeResult.getUid())
                 .form("code_verifier", open115AuthDeviceCodeResult.getCodeVerifier());
-        String deviceCodeToTokenBody = deviceCodeToTokenHttpRequest.execute().body();
+        String deviceCodeToTokenBody = executeHelperRequest(deviceCodeToTokenHttpRequest);
         JSONObject deviceCodeToTokenJsonObject = JSON.parseObject(deviceCodeToTokenBody).getJSONObject("data");
         String accessToken = deviceCodeToTokenJsonObject.getString("access_token");
         String refreshToken = deviceCodeToTokenJsonObject.getString("refresh_token");
@@ -94,5 +91,13 @@ public class Open115HelperController {
         Integer expiredAt = expiresIn + (int) (System.currentTimeMillis() / 1000);
 
         return AjaxJson.getSuccessData(Open115GetStatusResult.success(accessToken, refreshToken, expiredAt));
+    }
+
+    private String executeHelperRequest(HttpRequest request) {
+        // Polling may take longer than a normal API call, but never reserve a servlet thread forever.
+        try (HttpResponse response = request.setConnectionTimeout(3000).setReadTimeout(25000)
+                .setFollowRedirects(false).execute()) {
+            return response.body();
+        }
     }
 }

@@ -97,9 +97,9 @@ public class PasswordConfigService {
             passwordConfigMapper.insert(passwordConfig);
 
             if (log.isDebugEnabled()) {
-                log.debug("新增过滤规则, 存储源 ID: {}, 表达式: {}, 描述: {}, 密码: {}",
+                log.debug("新增过滤规则, 存储源 ID: {}, 表达式: {}, 描述: {}",
                         passwordConfig.getStorageId(), passwordConfig.getExpression(),
-                        passwordConfig.getDescription(), passwordConfig.getPassword());
+                        passwordConfig.getDescription());
             }
         });
     }
@@ -175,7 +175,7 @@ public class PasswordConfigService {
         boolean isIgnorePassword = userStorageSourceService.hasCurrentUserStorageOperatorPermission(storageId, FileOperatorTypeEnum.IGNORE_PASSWORD);
         if (isIgnorePassword) {
             if (log.isDebugEnabled()) {
-                log.debug("权限配置忽略密码校验, 请求路径: {}, 存储源 ID: {}, 输入密码: {}", path, storageId, inputPassword);
+                log.debug("权限配置忽略密码校验, 请求路径: {}, 存储源 ID: {}", path, storageId);
             }
             return VerifyResultDTO.success();
         }
@@ -186,7 +186,7 @@ public class PasswordConfigService {
         // 如果规则列表为空, 则表示不需要密码过滤, 直接返回成功
         if (CollectionUtils.isEmpty(passwordConfigList)) {
             if (log.isDebugEnabled()) {
-                log.debug("密码规则列表为空, 请求路径: {}, 存储源 ID: {}, 输入密码: {}", path, storageId, inputPassword);
+                log.debug("密码规则列表为空, 请求路径: {}, 存储源 ID: {}", path, storageId);
             }
             return VerifyResultDTO.success();
         }
@@ -209,7 +209,7 @@ public class PasswordConfigService {
                 boolean match = PatternMatcherUtils.testCompatibilityGlobPattern(expression, path);
 
                 if (log.isDebugEnabled()) {
-                    log.debug("密码规则测试表达式: {}, 请求路径: {}, 匹配结果: {}, 预期密码: {}, 输入密码; {}", expression, path, match, expectPassword, inputPassword);
+                    log.debug("密码规则测试表达式: {}, 请求路径: {}, 匹配结果: {}", expression, path, match);
                 }
 
                 // 如果匹配则进行密码校验
@@ -218,8 +218,8 @@ public class PasswordConfigService {
                     if (StringUtils.isEmpty(inputPassword)) {
                         if (log.isDebugEnabled()) {
                             log.debug("密码规则匹配, 但未输入密码；" +
-                                            "表达式: {}, 请求路径: {}, 存储源 ID: {}, 预期密码：{}, 输入密码: {}",
-                                    expression, path, storageId, expectPassword, inputPassword);
+                                            "表达式: {}, 请求路径: {}, 存储源 ID: {}",
+                                    expression, path, storageId);
                         }
                         return VerifyResultDTO.fail(ErrorCode.BIZ_STORAGE_SOURCE_FOLDER_PASSWORD_REQUIRED);
                     }
@@ -228,8 +228,8 @@ public class PasswordConfigService {
                     if (matchPassword(expectPassword, inputPassword)) {
                         if (log.isDebugEnabled()) {
                             log.debug("密码规则匹配, 密码校验通过；" +
-                                            "表达式: {}, 请求路径: {}, 存储源 ID: {}, 预期密码：{}, 输入密码: {}",
-                                    expression, path, storageId, expectPassword, inputPassword);
+                                            "表达式: {}, 请求路径: {}, 存储源 ID: {}",
+                                    expression, path, storageId);
                         }
                         return VerifyResultDTO.success(expression);
                     }
@@ -237,14 +237,16 @@ public class PasswordConfigService {
                     // 密码错误
                     if (log.isDebugEnabled()) {
                         log.debug("密码规则匹配, 但输入密码与预期密码不同；" +
-                                        "表达式: {}, 请求路径: {}, 存储源 ID: {}, 预期密码：{}, 输入密码: {}",
-                                expression, path, storageId, expectPassword, inputPassword);
+                                        "表达式: {}, 请求路径: {}, 存储源 ID: {}",
+                                expression, path, storageId);
                     }
                     return VerifyResultDTO.fail(ErrorCode.BIZ_STORAGE_SOURCE_FOLDER_PASSWORD_ERROR);
                 }
             } catch (Exception e) {
-                log.error("密码规则匹配出现异常，表达式: {}, 请求路径: {}, 存储源 ID: {}, 预期密码：{}, 输入密码: {}, 解析错误, 跳过此规则.",
-                        expression, path, storageId, expectPassword, inputPassword, e);
+                log.error("密码规则匹配出现异常，存储源 ID: {}, 异常类型: {}, 拒绝访问，请检查规则配置.",
+                        storageId, e.getClass().getSimpleName());
+                // A malformed protection rule must not silently turn a protected directory public.
+                return VerifyResultDTO.fail(ErrorCode.BIZ_STORAGE_SOURCE_FOLDER_PASSWORD_ERROR);
             }
         }
 

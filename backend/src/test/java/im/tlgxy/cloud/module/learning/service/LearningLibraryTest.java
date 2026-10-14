@@ -51,9 +51,12 @@ class LearningLibraryTest {
     @Test void boundedUtf8ExtractionRejectsInvalidInput() {
         String text = extractor.extractLearningText("资料内容".getBytes(StandardCharsets.UTF_8), "note.MD");
         assertEquals("资料内容", text);
-        String truncated = extractor.extractLearningText("a".repeat(13000).getBytes(StandardCharsets.UTF_8), "note.txt");
-        assertEquals(12000, truncated.length());
-        assertTrue(truncated.contains("已截断"));
+        String longText = extractor.extractLearningText("a".repeat(13000).getBytes(StandardCharsets.UTF_8), "note.txt");
+        assertEquals(13000, longText.length());
+        var truncated = extractor.extractLearningContent("a".repeat(250000).getBytes(StandardCharsets.UTF_8), "note.txt");
+        assertEquals(240000, truncated.coveredChars());
+        assertTrue(truncated.truncated());
+        assertTrue(truncated.indexNotice().contains("拆分"));
         assertThrows(BizException.class, () -> extractor.extractLearningText(new byte[]{(byte) 0xff}, "note.txt"));
         assertThrows(BizException.class, () -> extractor.extractLearningText(new byte[0], "note.txt"));
         assertThrows(BizException.class, () -> extractor.extractLearningText(new byte[LearningFileReader.MAX_BYTES + 1], "note.txt"));

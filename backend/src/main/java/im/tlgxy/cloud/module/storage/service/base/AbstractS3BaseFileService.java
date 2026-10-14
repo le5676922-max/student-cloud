@@ -16,6 +16,7 @@ import im.tlgxy.cloud.module.storage.model.enums.FileTypeEnum;
 import im.tlgxy.cloud.module.storage.model.param.S3BaseParam;
 import im.tlgxy.cloud.module.storage.model.result.FileItemResult;
 import im.tlgxy.cloud.module.storage.service.impl.S3ServiceImpl;
+import im.tlgxy.cloud.module.storage.service.DirectoryMetadataProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.BooleanUtils;
 import org.springframework.http.HttpRange;
@@ -66,7 +67,7 @@ import java.util.function.Consumer;
  * @author zhaojun
  */
 @Slf4j
-public abstract class AbstractS3BaseFileService<P extends S3BaseParam> extends AbstractProxyTransferService<P> {
+public abstract class AbstractS3BaseFileService<P extends S3BaseParam> extends AbstractProxyTransferService<P> implements DirectoryMetadataProvider {
 
     /**
      * S3 客户端实例，用于与 S3 兼容存储服务进行交互。
@@ -201,9 +202,76 @@ public abstract class AbstractS3BaseFileService<P extends S3BaseParam> extends A
      * @return 指定目录下的文件和文件夹列表
      */
     public List<FileItemResult> s3FileList(String path) {
+        String userRoot = getCurrentUserBasePath();
+        List<FileItemResult> files = directoryMetadata(path, userRoot);
+        hydrateDirectoryPage(files, userRoot);
+        return files;
+    }
+
+    @Override
+    public void hydrateDirectoryPage(List<FileItemResult> files, String userRoot) {
+        for (FileItemResult file : files) {
+            if (file.getType() == FileTypeEnum.FILE) {
+                file.setUrl(getDownloadUrl(StringUtils.concat(userRoot, file.getPath(), file.getName())));
+            }
+        }
+    }
+
+    @Override public boolean supportsNativePagination() { return true; }
+
+    @Override
+    public DirectoryMetadataProvider.NativePage nativeDirectoryPage(String path, String userRoot, int pageSize, String providerToken) {
+        if (pageSize < 1 || pageSize > 200 || providerToken != null && providerToken.length() > 8192) {
+            throw new BizException(ErrorCode.BIZ_BAD_REQUEST);
+        }
+        String prefix = StringUtils.concatTrimStartSlashes(param.getBasePath(), userRoot, path, StringUtils.SLASH);
+        ListObjectsV2Request request = ListObjectsV2Request.builder().bucket(param.getBucketName()).prefix(prefix)
+                .delimiter(StringUtils.SLASH).maxKeys(pageSize).continuationToken(providerToken)
+                .overrideConfiguration(builder -> builder.apiCallTimeout(Duration.ofSeconds(10)))
+                .build();
+        // Deliberately not a paginator: a large bucket must not be fully enumerated for its first page.
+        ListObjectsV2Response response = s3ClientNew.listObjectsV2(request);
+        if (response == null || response.contents().size() + response.commonPrefixes().size() > pageSize) {
+            throw new BizException("存储源分页响应异常，请刷新或切换普通浏览");
+        }
+        List<FileItemResult> files = new ArrayList<>();
+        for (S3Object object : response.contents()) {
+            String key = object.key();
+            if (key == null || !key.startsWith(prefix)) throw new BizException("存储源返回了目录之外的文件");
+            String name = key.substring(prefix.length());
+            if (name.isEmpty()) continue; // Folder placeholder counts towards MaxKeys but is not an item.
+            if (!safeImmediateName(name)) throw new BizException("存储源返回了异常文件名");
+            FileItemResult item = new FileItemResult();
+            item.setName(name); item.setPath(path); item.setSize(object.size()); item.setType(FileTypeEnum.FILE);
+            item.setTime(object.lastModified() == null ? null : Date.from(object.lastModified()));
+            files.add(item);
+        }
+        for (CommonPrefix common : response.commonPrefixes()) {
+            String key = common.prefix();
+            if (key == null || !key.startsWith(prefix) || !key.endsWith("/")) throw new BizException("存储源返回了异常目录");
+            String name = key.substring(prefix.length(), key.length() - 1);
+            if (name.isEmpty()) continue;
+            if (!safeImmediateName(name)) throw new BizException("存储源返回了异常目录名");
+            FileItemResult item = new FileItemResult();
+            item.setName(name); item.setPath(path); item.setType(FileTypeEnum.FOLDER); files.add(item);
+        }
+        String next = Boolean.TRUE.equals(response.isTruncated()) ? response.nextContinuationToken() : null;
+        if (Boolean.TRUE.equals(response.isTruncated()) && (next == null || next.isBlank() || next.length() > 8192)) {
+            throw new BizException("存储源分页游标异常，请刷新或切换普通浏览");
+        }
+        return new DirectoryMetadataProvider.NativePage(files, next);
+    }
+
+    private static boolean safeImmediateName(String name) {
+        return !name.equals(".") && !name.equals("..") && name.indexOf('/') < 0 && name.indexOf('\\') < 0
+                && name.chars().noneMatch(character -> character < 32 || character == 127);
+    }
+
+    @Override
+    public List<FileItemResult> directoryMetadata(String path, String userRoot) {
         String bucketName = param.getBucketName();
         // 拼接完整路径前缀：basePath + 用户根目录 + 路径 + "/"
-        String fullPath = StringUtils.concatTrimStartSlashes(param.getBasePath(), getCurrentUserBasePath(), path, StringUtils.SLASH);
+        String fullPath = StringUtils.concatTrimStartSlashes(param.getBasePath(), userRoot, path, StringUtils.SLASH);
 
         List<FileItemResult> fileItemList = new ArrayList<>();
 
@@ -218,41 +286,30 @@ public abstract class AbstractS3BaseFileService<P extends S3BaseParam> extends A
         ListObjectsV2Iterable listObjectsV2Iterable = s3ClientNew.listObjectsV2Paginator(listObjectsV2Request);
 
         // 处理文件对象（contents）
-        for (S3Object s : listObjectsV2Iterable.contents()) {
-            FileItemResult fileItemResult = new FileItemResult();
-            // 跳过目录本身（key 等于前缀路径的情况）
-            if (s.key().equals(fullPath)) {
-                continue;
+        // Walk each response once; separate contents()/commonPrefixes() iterators would list twice.
+        for (ListObjectsV2Response response : listObjectsV2Iterable) {
+            for (S3Object s : response.contents()) {
+                // 跳过目录本身（key 等于前缀路径的情况）
+                if (s.key().equals(fullPath)) continue;
+                FileItemResult fileItemResult = new FileItemResult();
+                fileItemResult.setName(s.key().substring(fullPath.length()));
+                fileItemResult.setSize(s.size());
+                fileItemResult.setTime(Date.from(s.lastModified()));
+                fileItemResult.setType(FileTypeEnum.FILE);
+                fileItemResult.setPath(path);
+                // URLs are generated after authorization, and only for the requested page.
+                fileItemList.add(fileItemResult);
             }
-            // 从完整 key 中提取文件名（去掉前缀路径）
-            fileItemResult.setName(s.key().substring(fullPath.length()));
-            fileItemResult.setSize(s.size());
-            fileItemResult.setTime(Date.from(s.lastModified()));
-            fileItemResult.setType(FileTypeEnum.FILE);
-            fileItemResult.setPath(path);
-
-            // 设置下载地址
-            String fullPathAndName = StringUtils.concat(getCurrentUserBasePath(), path, fileItemResult.getName());
-            fileItemResult.setUrl(getDownloadUrl(fullPathAndName));
-
-            fileItemList.add(fileItemResult);
-        }
-
-        // 处理文件夹/公共前缀（commonPrefixes）
-        for (CommonPrefix commonPrefix : listObjectsV2Iterable.commonPrefixes()) {
-            String commonPrefixStr = commonPrefix.prefix();
-            FileItemResult fileItemResult = new FileItemResult();
-            // 从公共前缀中提取文件夹名称（去掉前缀路径和末尾的 "/"）
-            fileItemResult.setName(commonPrefixStr.substring(fullPath.length(), commonPrefixStr.length() - 1));
-            String name = fileItemResult.getName();
-            // 过滤掉空名称或斜杠的情况
-            if (StringUtils.isEmpty(name) || StringUtils.equals(name, StringUtils.SLASH)) {
-                continue;
+            for (CommonPrefix commonPrefix : response.commonPrefixes()) {
+                String commonPrefixStr = commonPrefix.prefix();
+                FileItemResult fileItemResult = new FileItemResult();
+                fileItemResult.setName(commonPrefixStr.substring(fullPath.length(), commonPrefixStr.length() - 1));
+                String name = fileItemResult.getName();
+                if (StringUtils.isEmpty(name) || StringUtils.equals(name, StringUtils.SLASH)) continue;
+                fileItemResult.setType(FileTypeEnum.FOLDER);
+                fileItemResult.setPath(path);
+                fileItemList.add(fileItemResult);
             }
-
-            fileItemResult.setType(FileTypeEnum.FOLDER);
-            fileItemResult.setPath(path);
-            fileItemList.add(fileItemResult);
         }
 
         return fileItemList;
@@ -530,26 +587,8 @@ public abstract class AbstractS3BaseFileService<P extends S3BaseParam> extends A
      *
      * @throws CorsBizException 如果设置 CORS 规则失败
      */
-    protected void setUploadCors() {
-        try {
-            // 从存储源参数中解析 CORS 规则配置
-            List<TlgxyCloudCORSRule> studentCloudCORSRuleList = JSON.parseArray(param.getCorsConfigList(), TlgxyCloudCORSRule.class);
-            if (studentCloudCORSRuleList == null || studentCloudCORSRuleList.isEmpty()) {
-                return;
-            }
-            // 将 TlgxyCloud CORS 规则转换为 S3 CORS 规则
-            Set<CORSRule> s3CORSRuleList = TlgxyCloudCORSRule.toCORSRule(studentCloudCORSRuleList);
-            CORSConfiguration corsConfiguration = CORSConfiguration.builder().corsRules(s3CORSRuleList).build();
-
-            // 将 CORS 配置应用到 S3 存储桶
-            s3ClientNew.putBucketCors(PutBucketCorsRequest.builder()
-                    .bucket(param.getBucketName())
-                    .corsConfiguration(corsConfiguration)
-                    .build());
-        } catch (Exception e) {
-            throw new CorsBizException("设置跨域失败, 请检查配置是否正确. 错误信息: " + e.getMessage(), e);
-        }
-    }
+    // Deliberately no init-time CORS setter. The standalone, authorized operation uses
+    // a bounded client, saved connection parameters and explicit confirmation instead.
 
 
     /**

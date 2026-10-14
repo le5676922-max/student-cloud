@@ -5,11 +5,20 @@ import com.github.xiaoymin.knife4j.annotations.ApiSort;
 import im.tlgxy.cloud.core.exception.ErrorCode;
 import im.tlgxy.cloud.core.exception.core.ErrorPageBizException;
 import im.tlgxy.cloud.core.util.ProxyDownloadUrlUtils;
+import im.tlgxy.cloud.core.util.ShareDownloadTokenUtils;
+import im.tlgxy.cloud.core.exception.core.BizException;
+import im.tlgxy.cloud.core.exception.status.ForbiddenAccessException;
+import im.tlgxy.cloud.core.exception.status.NotFoundAccessException;
+import im.tlgxy.cloud.module.share.service.ShareLinkFileService;
 import im.tlgxy.cloud.core.util.StringUtils;
 import im.tlgxy.cloud.core.util.SpringMvcUtils;
 import im.tlgxy.cloud.module.storage.context.StorageSourceContext;
+import im.tlgxy.cloud.module.storage.mapper.StorageSourceMapper;
+import im.tlgxy.cloud.module.storage.model.entity.StorageSource;
 import im.tlgxy.cloud.module.storage.service.base.AbstractBaseFileService;
 import im.tlgxy.cloud.module.storage.service.base.AbstractProxyTransferService;
+import im.tlgxy.cloud.module.tenant.mapper.TenantMapper;
+import im.tlgxy.cloud.module.tenant.model.entity.Tenant;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -36,6 +45,15 @@ import java.beans.Beans;
 @Controller
 public class ProxyDownloadController {
 
+    @jakarta.annotation.Resource
+    private StorageSourceMapper storageSourceMapper;
+
+    @jakarta.annotation.Resource
+    private TenantMapper tenantMapper;
+
+    @jakarta.annotation.Resource
+    private ShareLinkFileService shareLinkFileService;
+
     @GetMapping("/pd/{storageKey}/**")
     @ApiOperationSupport(order = 1)
     @Operation(summary = "下载本地存储源的文件", description ="因第三方存储源都有下载地址，本接口提供本地存储的下载地址的处理, 返回文件流进行下载.")
@@ -51,6 +69,18 @@ public class ProxyDownloadController {
 
         if (StringUtils.isNotEmpty(filename) && filename.contains(StringUtils.SLASH)) {
             throw new ErrorPageBizException(ErrorCode.BIZ_INVALID_FILE_NAME);
+        }
+
+        // 有效签名不应绕过停用状态；直接读取数据库，而非可能仍存活的存储服务缓存。
+        // 此检查不依赖登录态，正常的匿名分享/签名下载仍可使用原有下载链接。
+        StorageSource storageSource = storageSourceMapper.findByStorageKey(storageKey);
+        if (storageSource == null || !Boolean.TRUE.equals(storageSource.getEnable())
+                || storageSource.getTenantId() == null) {
+            throw new NotFoundAccessException(ErrorCode.BIZ_STORAGE_NOT_FOUND);
+        }
+        Tenant tenant = tenantMapper.selectById(storageSource.getTenantId());
+        if (tenant == null || !Boolean.TRUE.equals(tenant.getEnable())) {
+            throw new NotFoundAccessException(ErrorCode.BIZ_STORAGE_NOT_FOUND);
         }
 
         AbstractBaseFileService<?> storageServiceByKey = StorageSourceContext.getByStorageKey(storageKey);
@@ -69,7 +99,17 @@ public class ProxyDownloadController {
         Integer storageId = proxyDownloadService.getStorageId();
         boolean valid = ProxyDownloadUrlUtils.validSignatureExpired(storageId, filePath, signature);
         if (!valid) {
-            throw new ErrorPageBizException(ErrorCode.BIZ_INVALID_SIGNATURE);
+            throw new ForbiddenAccessException(ErrorCode.BIZ_INVALID_SIGNATURE);
+        }
+
+        if (ShareDownloadTokenUtils.isShareSignature(signature)) {
+            ShareDownloadTokenUtils.Ticket ticket = ShareDownloadTokenUtils.validate(storageId, filePath, signature);
+            if (ticket == null) throw new ForbiddenAccessException(ErrorCode.BIZ_INVALID_SIGNATURE);
+            try {
+                shareLinkFileService.validateSharedProxyDownload(ticket.shareKey(), storageKey, filePath);
+            } catch (BizException denied) {
+                throw new ForbiddenAccessException(ErrorCode.BIZ_STORAGE_SOURCE_ILLEGAL_OPERATION);
+            }
         }
 
         return proxyDownloadService.downloadToStream(filePath);

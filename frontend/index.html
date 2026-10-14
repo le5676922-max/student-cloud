@@ -1,13 +1,48 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=student-cloud-1" />
-    <title>学生云盘</title>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<link
+			rel="icon"
+			type="image/svg+xml"
+			href="/favicon.svg?v=student-cloud-1"
+		/>
+		<title>学生云盘</title>
+		<style>
+			#startup-status {
+				min-height: 90vh;
+				display: grid;
+				place-content: center;
+				padding: 24px;
+				background: #f8f9f5;
+				color: #24473c;
+				font: 15px/1.7 system-ui, sans-serif;
+				text-align: center;
+			}
+			#startup-status h1 {
+				font-size: 22px;
+				margin: 0 0 8px;
+			}
+			#startup-status p {
+				margin: 0 0 12px;
+				color: #67776d;
+			}
+			#startup-status a {
+				color: #277566;
+				text-underline-offset: 3px;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="app">
+			<section id="startup-status" role="status" aria-live="polite">
+				<h1>学生云盘</h1>
+				<p>正在加载站点配置，请稍候…</p>
+				<a href="">等待较久？重新加载</a>
+				<noscript>请启用浏览器 JavaScript 后使用云盘。</noscript>
+			</section>
+		</div>
+		<script type="module" src="/src/main.ts"></script>
+	</body>
 </html>

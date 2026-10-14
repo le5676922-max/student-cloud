@@ -2,6 +2,7 @@ package im.tlgxy.cloud.module.user.model.response;
 
 import im.tlgxy.cloud.module.user.model.dto.UserStorageSourceDetailDTO;
 import im.tlgxy.cloud.module.user.model.enums.UserRoleEnum;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 import lombok.Data;
 
@@ -63,6 +64,7 @@ public class UserDetailResponse {
 
     private Integer tenantId;
 
+    @Schema(title = "用户角色", type = "string", implementation = String.class, allowableValues = {"ADMIN", "TENANT_ADMIN", "USER"})
     private UserRoleEnum role;
 
 }

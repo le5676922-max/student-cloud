@@ -1,33 +1,33 @@
-import axios from "~/http/request";
-import axiosOrigin from 'axios';
+import axios from '~/http/request'
+import axiosOrigin from 'axios'
 
 export const listReq = () => {
 	return axios({
-		url: "/admin/sso/providers",
-		method: "get"
+		url: '/admin/sso/providers',
+		method: 'get',
 	})
 }
 
 export const saveOrUpdateReq = (data) => {
 	return axios({
-		url: "/admin/sso/provider",
-		method: "post",
-		data
+		url: '/admin/sso/provider',
+		method: 'post',
+		data,
 	})
 }
 
 export const deleteReq = (provider) => {
 	return axios({
-		url: "/admin/sso/provider/" + provider,
-		method: "delete"
+		url: '/admin/sso/provider/' + provider,
+		method: 'delete',
 	})
 }
 
 export const checkProviderDuplicateReq = (data) => {
 	return axios({
 		url: `/admin/sso/provider/checkDuplicate`,
-		method: "get",
-		data
+		method: 'get',
+		data,
 	})
 }
 

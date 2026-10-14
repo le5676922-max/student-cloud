@@ -1,5 +1,6 @@
 # Local runtime state and user data
 .codex-run/
+.codexrun/
 .codex-tmp/
 .agent-test/
 .pet-work/
@@ -26,6 +27,9 @@ student-cloud-files/
 *.secret
 *.secrets
 secrets.env
+docker/.env.production
+backend/data/upload-staging/
+data/upload-staging/
 application-local-secrets.properties
 **/application-local-secrets.properties
 
@@ -37,6 +41,12 @@ lint-results.json
 three-role-lint-results.json
 stats.html
 **/surefire-reports/
+
+# One-off local dependency audits (keep source tests and lockfiles)
+/frontend/audit-*.json
+/frontend/lint-fixes-*.json
+/frontend/lint-round*.json
+/frontend/outdated-fixes-*.json
 
 # Editors and OS
 .idea/

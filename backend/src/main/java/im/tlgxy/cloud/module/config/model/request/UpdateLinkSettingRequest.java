@@ -76,12 +76,6 @@ public class UpdateLinkSettingRequest {
 	private Boolean showPathLink;
 
 	/**
-	 * 是否允许匿名用户直接通过路径直链访问文件
-	 */
-	@Schema(title = "是否允许路径直链可直接访问", example = "true", requiredMode = Schema.RequiredMode.REQUIRED)
-	private Boolean allowPathLinkAnonAccess;
-
-	/**
 	 * 直链下载限速（单位：秒），在此时间内限制下载
 	 */
 	@Schema(title = "限制直链下载秒数", example = "_blank")

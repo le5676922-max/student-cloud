@@ -1,5 +1,5 @@
 import { oneDark } from '@codemirror/theme-one-dark'
 
 export default {
-  oneDark
+	oneDark,
 } as Record<string, any>

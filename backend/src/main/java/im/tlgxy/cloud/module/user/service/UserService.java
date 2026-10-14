@@ -8,10 +8,13 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import im.tlgxy.cloud.core.cache.TlgxyCloudCacheManager;
 import im.tlgxy.cloud.core.exception.ErrorCode;
 import im.tlgxy.cloud.core.exception.core.BizException;
+import im.tlgxy.cloud.core.util.RequestActorUserSnapshot;
 import im.tlgxy.cloud.core.util.StringUtils;
 import im.tlgxy.cloud.module.storage.model.enums.FileOperatorTypeEnum;
 import im.tlgxy.cloud.module.storage.mapper.StorageSourceMapper;
 import im.tlgxy.cloud.module.storage.model.entity.StorageSource;
+import im.tlgxy.cloud.module.tenant.mapper.WorkspaceJoinRequestMapper;
+import im.tlgxy.cloud.module.tenant.model.entity.WorkspaceJoinRequest;
 import im.tlgxy.cloud.module.tenant.service.TenantSecurityService;
 import im.tlgxy.cloud.module.tenant.service.TenantService;
 import im.tlgxy.cloud.module.user.event.UserCopyEvent;
@@ -34,10 +37,12 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.util.Pair;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
+import java.util.regex.Pattern;
 
 import static im.tlgxy.cloud.module.user.service.UserService.USER_CACHE_KEY;
 
@@ -47,6 +52,8 @@ import static im.tlgxy.cloud.module.user.service.UserService.USER_CACHE_KEY;
 public class UserService {
 
     public static final String USER_CACHE_KEY = "user";
+
+    private static final Pattern ACCOUNT_ID_USERNAME = Pattern.compile("(?i)SC[0-9A-F]{12,16}");
 
     @Resource
     private UserMapper userMapper;
@@ -68,6 +75,9 @@ public class UserService {
 
     @Resource
     private StorageSourceMapper storageSourceMapper;
+
+    @Resource
+    private WorkspaceJoinRequestMapper workspaceJoinRequestMapper;
 
     /**
      * 根据用户 ID 获取用户
@@ -104,6 +114,23 @@ public class UserService {
         return userService.getById(userId);
     }
 
+    /** Resolve all supported login aliases together, rejecting cross-account collisions. */
+    public User getByLoginIdentifier(String identifier) {
+        if (StringUtils.isBlank(identifier)) {
+            return null;
+        }
+        String trimmed = identifier.trim();
+        List<User> matches = userMapper.selectList(Wrappers.<User>lambdaQuery()
+                .eq(User::getUsername, trimmed)
+                .or().eq(User::getAccountId, trimmed)
+                .or().eq(User::getEmail, trimmed.toLowerCase(Locale.ROOT))
+                .last("LIMIT 2"));
+        if (matches.size() > 1) {
+            throw new BizException(ErrorCode.BIZ_LOGIN_ERROR);
+        }
+        return matches.isEmpty() ? null : matches.getFirst();
+    }
+
 
     /**
      * 根据用户 ID 获取用户详细信息，包含用户的基本信息和用户与存储策略的关联关系.
@@ -115,6 +142,7 @@ public class UserService {
      */
     public UserDetailResponse getUserDetailById(Integer userId) {
         User user = tenantSecurityService.requireManageUser(userId);
+        requireNotRetiredAccount(user);
         return userManager.assembleUserDetail(user);
     }
 
@@ -142,6 +170,8 @@ public class UserService {
         tenantSecurityService.requireSystemAdmin();
         // ID 0 is a permission template, not an additional account or role.
         queryWrapper.ne(User::getId, UserConstant.NEW_USER_TEMPLATE_ID);
+        queryWrapper.ne(User::getId, UserConstant.ANONYMOUS_ID)
+                .in(User::getRole, UserRoleEnum.ADMIN, UserRoleEnum.TENANT_ADMIN, UserRoleEnum.USER);
 
         List<User> users = userMapper.selectList(queryWrapper);
 
@@ -167,9 +197,15 @@ public class UserService {
     @Transactional(rollbackFor = Exception.class)
     public User saveOrUpdate(SaveUserRequest saveUserRequest) {
         tenantSecurityService.requireSystemAdmin();
+        if (saveUserRequest.getRole() != null && !saveUserRequest.getRole().isLoginRole()) {
+            throw new BizException("角色只允许 ADMIN、TENANT_ADMIN、USER");
+        }
         User existing = saveUserRequest.getId() == null
                 ? null
                 : tenantSecurityService.requireManageUser(saveUserRequest.getId());
+        if (existing != null) {
+            requireNotRetiredAccount(existing);
+        }
 
         if (existing != null && Objects.equals(existing.getId(), UserConstant.ADMIN_ID)
                 && (Boolean.FALSE.equals(saveUserRequest.getEnable())
@@ -179,28 +215,40 @@ public class UserService {
         if (existing == null && StringUtils.isBlank(saveUserRequest.getPassword())) {
             throw new BizException("新用户密码不能为空");
         }
+        if (existing != null && Boolean.TRUE.equals(saveUserRequest.getEnable())) {
+            requireApprovedWorkspaceMembership(existing.getId());
+        }
 
-        boolean userNameIsDuplicate = checkDuplicateUsername(saveUserRequest.getId(), saveUserRequest.getUsername());
+        String username = validateManualUsername(saveUserRequest.getUsername(), existing);
+        boolean userNameIsDuplicate = checkDuplicateUsername(saveUserRequest.getId(), username);
         if (userNameIsDuplicate) {
             throw new BizException(ErrorCode.BIZ_USER_EXIST);
         }
 
         User user = new User();
         user.setId(saveUserRequest.getId());
-        user.setUsername(saveUserRequest.getUsername());
+        user.setUsername(username);
         user.setNickname(saveUserRequest.getNickname());
         user.setEnable(saveUserRequest.getEnable());
         user.setDefaultPermissions(saveUserRequest.getDefaultPermissions());
 
-        UserRoleEnum role = existing == null ? UserRoleEnum.USER : existing.getRole();
-        if (saveUserRequest.getRole() != null && saveUserRequest.getRole() != role) {
-            throw new BizException("用户角色不可变更：新账号只能为普通用户，系统管理员和访客为内置账号");
+        UserRoleEnum role = existing == null ?
+                Optional.ofNullable(saveUserRequest.getRole()).orElse(UserRoleEnum.USER) : existing.getRole();
+        if (existing != null && saveUserRequest.getRole() != null && saveUserRequest.getRole() != role) {
+            if (existing.getId() <= UserConstant.ANONYMOUS_ID
+                    || !Set.of(UserRoleEnum.USER, UserRoleEnum.TENANT_ADMIN).contains(role)
+                    || !Set.of(UserRoleEnum.USER, UserRoleEnum.TENANT_ADMIN).contains(saveUserRequest.getRole())) {
+                throw new BizException("内置账号角色不可变更");
+            }
+            role = saveUserRequest.getRole();
+        }
+        if (existing == null && !Set.of(UserRoleEnum.USER, UserRoleEnum.TENANT_ADMIN).contains(role)) {
+            throw new BizException("新账号只能创建为普通用户或工作空间管理员");
         }
         boolean nonLoginAccount = existing != null
-                && (Objects.equals(existing.getId(), UserConstant.NEW_USER_TEMPLATE_ID)
-                || role == UserRoleEnum.GUEST);
+                && Objects.equals(existing.getId(), UserConstant.NEW_USER_TEMPLATE_ID);
         if (nonLoginAccount && StringUtils.isNotBlank(saveUserRequest.getPassword())) {
-            throw new BizException("访客和新用户权限模板不能设置登录密码");
+            throw new BizException("新用户权限模板不能设置登录密码");
         }
         Integer tenantId = role == UserRoleEnum.ADMIN ? null
                 : nonLoginAccount ? existing.getTenantId()
@@ -224,7 +272,11 @@ public class UserService {
 
         List<UserStorageSource> storageAccessList = sanitizeStorageAccess(
                 saveUserRequest.getUserStorageSourceList(), tenantId, role == UserRoleEnum.ADMIN);
-        userManager.saveUserInfo(user, storageAccessList);
+        try {
+            userManager.saveUserInfo(user, storageAccessList);
+        } catch (DuplicateKeyException exception) {
+            throw new BizException(ErrorCode.BIZ_USER_EXIST);
+        }
         if (user.getId() != null) {
             studentCloudCacheManager.clearUserEnableStorageSourceCache(user.getId());
         }
@@ -245,8 +297,12 @@ public class UserService {
     @Transactional(rollbackFor = Exception.class)
     public void updateUserEnable(Integer id, boolean enable) {
         User target = tenantSecurityService.requireManageUser(id);
+        requireNotRetiredAccount(target);
         if (target.getRole() == UserRoleEnum.ADMIN) {
             throw new BizException("系统管理员不能被停用");
+        }
+        if (enable) {
+            requireApprovedWorkspaceMembership(id);
         }
         User user = new User();
         user.setId(id);
@@ -273,6 +329,10 @@ public class UserService {
             throw new BizException("系统异常，管理员用户不存在，请检测数据库或重建数据库。");
         }
 
+        username = validateManualUsername(username, user);
+        if (checkDuplicateUsername(user.getId(), username)) {
+            throw new BizException(ErrorCode.BIZ_USER_EXIST);
+        }
         user.setUsername(username);
         passwordEncryptAndSet(password, user);
 
@@ -286,7 +346,11 @@ public class UserService {
         user.setDefaultPermissions(defaultPermissions);
         user.setRole(UserRoleEnum.ADMIN);
         user.setTenantId(null);
-        return userMapper.updateById(user) == 1;
+        try {
+            return userMapper.updateById(user) == 1;
+        } catch (DuplicateKeyException exception) {
+            throw new BizException(ErrorCode.BIZ_USER_EXIST);
+        }
     }
 
 
@@ -322,7 +386,7 @@ public class UserService {
 
 
     /**
-     * 根据 ID 删除用户，无法删除内置的管理员和访客，删除是会自动删除用户与存储策略的关联关系.
+     * 根据 ID 删除用户，无法删除内置记录，删除时会自动删除用户与存储策略的关联关系.
      *
      * @param   id
      *          要删除调用用户 ID
@@ -353,32 +417,60 @@ public class UserService {
      * @return  是否是管理员
      */
     public boolean isAdmin(Integer id) {
-        User user = id == null ? null : userMapper.selectById(id);
-        return user != null && Boolean.TRUE.equals(user.getEnable())
+        User user = id == null ? null : RequestActorUserSnapshot.load(id, () -> userMapper.selectById(id));
+        return user != null && !Objects.equals(id, UserConstant.ANONYMOUS_ID)
+                && !Objects.equals(id, UserConstant.NEW_USER_TEMPLATE_ID) && Boolean.TRUE.equals(user.getEnable())
                 && user.getRole() != null && user.getRole().isAdmin();
     }
 
-    /** Guest and permission-template records never establish login sessions. */
+    /** Only account roles can establish login sessions; templates remain internal. */
     public User requireLoginUser(Integer id) {
-        User user = requireActiveUser(id);
-        if (Objects.equals(id, UserConstant.NEW_USER_TEMPLATE_ID)
-                || Objects.equals(id, UserConstant.ANONYMOUS_ID)
-                || (user.getRole() != UserRoleEnum.ADMIN && user.getRole() != UserRoleEnum.USER)) {
-            throw new BizException("访客和新用户权限模板不能登录");
+        try {
+            User user = requireActiveUser(id);
+            if (Objects.equals(id, UserConstant.NEW_USER_TEMPLATE_ID)
+                    || user.getRole() == null || !user.getRole().isLoginRole()) {
+                throw new BizException("请使用已启用的用户账号登录");
+            }
+            requireApprovedWorkspaceMembership(id);
+            return user;
+        } catch (RuntimeException validationFailure) {
+            RequestActorUserSnapshot.invalidate(id);
+            throw validationFailure;
         }
-        return user;
+    }
+
+    private void requireApprovedWorkspaceMembership(Integer userId) {
+        long unapproved = workspaceJoinRequestMapper.selectCount(Wrappers.<WorkspaceJoinRequest>lambdaQuery()
+                .eq(WorkspaceJoinRequest::getUserId, userId)
+                .ne(WorkspaceJoinRequest::getStatus, "APPROVED"));
+        if (unapproved > 0) {
+            throw new BizException("加入申请尚未通过工作空间管理员审批");
+        }
     }
 
     /** Check fresh account and workspace state, including already established sessions. */
     public User requireActiveUser(Integer id) {
-        User user = id == null ? null : userMapper.selectById(id);
-        if (user == null || !Boolean.TRUE.equals(user.getEnable())) {
-            throw new BizException("当前账号不存在或已被停用");
+        try {
+            User user = id == null ? null : RequestActorUserSnapshot.load(id, () -> userMapper.selectById(id));
+            if (user == null || !Boolean.TRUE.equals(user.getEnable())) {
+                throw new BizException("当前账号不存在或已被停用");
+            }
+            requireNotRetiredAccount(user);
+            if (user.getRole() != UserRoleEnum.ADMIN) {
+                tenantService.getEnabledById(user.getTenantId());
+            }
+            return user;
+        } catch (RuntimeException validationFailure) {
+            RequestActorUserSnapshot.invalidate(id);
+            throw validationFailure;
         }
-        if (user.getRole() != UserRoleEnum.ADMIN) {
-            tenantService.getEnabledById(user.getTenantId());
+    }
+
+    private void requireNotRetiredAccount(User user) {
+        if (Objects.equals(user.getId(), UserConstant.ANONYMOUS_ID)
+                || user.getRole() == null || !user.getRole().isLoginRole()) {
+            throw new BizException("该历史账号已停用");
         }
-        return user;
     }
 
 
@@ -408,7 +500,33 @@ public class UserService {
      * @return  是否重复
      */
     public boolean checkDuplicateUsername(Integer ignoreUserId, String username) {
-        return userMapper.countByUsername(username, ignoreUserId) > 0;
+        if (StringUtils.isBlank(username)) {
+            return false;
+        }
+        String trimmed = username.trim();
+        return userMapper.selectCount(Wrappers.<User>lambdaQuery()
+                .ne(ignoreUserId != null, User::getId, ignoreUserId)
+                .and(aliases -> aliases.eq(User::getUsername, trimmed)
+                        .or().eq(User::getAccountId, trimmed)
+                        .or().eq(User::getEmail, trimmed.toLowerCase(Locale.ROOT)))) > 0;
+    }
+
+    /** Manual usernames must leave the generated account-ID and email namespaces available. */
+    public static boolean isReservedManualUsername(String username) {
+        return username != null && (username.contains("@") || ACCOUNT_ID_USERNAME.matcher(username).matches());
+    }
+
+    private static String validateManualUsername(String requestedUsername, User existing) {
+        String username = requestedUsername == null && existing != null
+                ? existing.getUsername() : requestedUsername == null ? null : requestedUsername.trim();
+        if (StringUtils.isBlank(username)) {
+            throw new BizException("用户名不能为空");
+        }
+        if ((existing == null || !Objects.equals(username, existing.getUsername()))
+                && isReservedManualUsername(username)) {
+            throw new BizException("用户名不能使用邮箱或系统账号ID格式");
+        }
+        return username;
     }
 
     /**
@@ -420,10 +538,18 @@ public class UserService {
     @CacheEvict(allEntries = true)
     public void resetAdminLoginInfo(ResetAdminUserNameAndPasswordRequest requestObj) {
         User user = userMapper.selectById(UserConstant.ADMIN_ID);
-        user.setUsername(requestObj.getUsername());
+        String username = validateManualUsername(requestObj.getUsername(), user);
+        if (checkDuplicateUsername(user.getId(), username)) {
+            throw new BizException(ErrorCode.BIZ_USER_EXIST);
+        }
+        user.setUsername(username);
         user.setPassword(SecureUtil.md5(requestObj.getPassword()));
         passwordEncryptAndSet(requestObj.getPassword(), user);
-        userMapper.updateById(user);
+        try {
+            userMapper.updateById(user);
+        } catch (DuplicateKeyException exception) {
+            throw new BizException(ErrorCode.BIZ_USER_EXIST);
+        }
 
     }
 
@@ -446,7 +572,8 @@ public class UserService {
     @Transactional(rollbackFor = Exception.class)
     public Integer registerFromTemplate(String username) {
         User template = requireActiveUser(UserConstant.NEW_USER_TEMPLATE_ID);
-        if (StringUtils.isBlank(username) || checkDuplicateUsername(null, username)) {
+        username = validateManualUsername(username, null);
+        if (checkDuplicateUsername(null, username)) {
             throw new BizException("用户名为空或已存在");
         }
         User user = new User();
@@ -456,7 +583,11 @@ public class UserService {
         user.setRole(UserRoleEnum.USER);
         user.setTenantId(template.getTenantId());
         user.setDefaultPermissions(template.getDefaultPermissions());
-        userMapper.insert(user);
+        try {
+            userMapper.insert(user);
+        } catch (DuplicateKeyException exception) {
+            throw new BizException(ErrorCode.BIZ_USER_EXIST);
+        }
         applicationEventPublisher.publishEvent(new UserCopyEvent(UserConstant.NEW_USER_TEMPLATE_ID, user.getId()));
         return user.getId();
     }
@@ -464,8 +595,8 @@ public class UserService {
     @Transactional(rollbackFor = Exception.class)
     public Integer copy(CopyUserRequest copyUserRequest) {
         // 检查目标用户名是否已存在
-        String toUsername = copyUserRequest.getToUsername();
-        boolean existUser = ((UserService)AopContext.currentProxy()).getByUsername(toUsername) != null;
+        String toUsername = validateManualUsername(copyUserRequest.getToUsername(), null);
+        boolean existUser = checkDuplicateUsername(null, toUsername);
         if (existUser) {
             throw new BizException(ErrorCode.BIZ_USER_EXIST);
         }
@@ -473,6 +604,7 @@ public class UserService {
         // 检查复制源是否存在
         Integer fromUserId = copyUserRequest.getFromId();
         User user = tenantSecurityService.requireManageUser(fromUserId);
+        requireNotRetiredAccount(user);
 
         if (user.getId() <= UserConstant.ANONYMOUS_ID || user.getRole() == UserRoleEnum.ADMIN) {
             throw new BizException("内置账号不能被复制");
@@ -481,14 +613,20 @@ public class UserService {
         User newUser = new User();
         BeanUtils.copyProperties(user, newUser);
         newUser.setId(null);
+        newUser.setAccountId(null);
+        newUser.setEmail(null);
         newUser.setCreateTime(null);
         newUser.setUsername(null);
-        newUser.setUsername(copyUserRequest.getToUsername());
+        newUser.setUsername(toUsername);
         newUser.setNickname(copyUserRequest.getToNickname());
         if (StringUtils.isNotEmpty(copyUserRequest.getToPassword())) {
             passwordEncryptAndSet(copyUserRequest.getToPassword(), newUser);
         }
-        userMapper.insert(newUser);
+        try {
+            userMapper.insert(newUser);
+        } catch (DuplicateKeyException exception) {
+            throw new BizException(ErrorCode.BIZ_USER_EXIST);
+        }
 
         Integer newUserId = newUser.getId();
         log.info("复制用户成功，源 [id: {}, username: {}, nickname: {}], 复制后 [id: {}, username: {}, nickname: {}]",

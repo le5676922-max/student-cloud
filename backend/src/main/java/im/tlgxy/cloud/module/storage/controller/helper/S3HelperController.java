@@ -1,10 +1,9 @@
 package im.tlgxy.cloud.module.storage.controller.helper;
 
 import com.github.xiaoymin.knife4j.annotations.ApiOperationSupport;
-import im.tlgxy.cloud.core.exception.core.SystemException;
+import im.tlgxy.cloud.core.exception.core.BizException;
 import im.tlgxy.cloud.core.util.AjaxJson;
 import im.tlgxy.cloud.core.util.StringUtils;
-import im.tlgxy.cloud.core.util.UrlUtils;
 import im.tlgxy.cloud.module.storage.model.dto.TlgxyCloudCORSRule;
 import im.tlgxy.cloud.module.storage.model.request.GetS3BucketListRequest;
 import im.tlgxy.cloud.module.storage.model.request.GetS3CorsListRequest;
@@ -12,21 +11,18 @@ import im.tlgxy.cloud.module.storage.model.result.S3BucketNameResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.Bucket;
 import software.amazon.awssdk.services.s3.model.CORSRule;
 import software.amazon.awssdk.services.s3.model.GetBucketCorsResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
-import java.net.URI;
 import java.sql.Date;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -40,7 +36,11 @@ import java.util.List;
 @Tag(name = "S3 工具辅助模块")
 @Controller
 @RequestMapping("/s3")
+@RequiredArgsConstructor
 public class S3HelperController {
+
+	private final S3HelperEndpointPolicy endpointPolicy;
+	private final S3HelperClientFactory clientFactory;
 
 	@PostMapping("/getBuckets")
 	@ResponseBody
@@ -50,44 +50,16 @@ public class S3HelperController {
 		List<S3BucketNameResult> bucketNameList = new ArrayList<>();
 		String accessKey = getS3BucketListRequest.getAccessKey();
 		String secretKey = getS3BucketListRequest.getSecretKey();
-		String endPoint = getS3BucketListRequest.getEndPoint();
-		if (!UrlUtils.hasScheme(endPoint)) {
-			endPoint = "http://" + endPoint;
-		}
-		String region = getS3BucketListRequest.getRegion();
-
-		if (StringUtils.isEmpty(region) && StringUtils.contains(endPoint, StringUtils.DOT)) {
-			region = endPoint.split("\\.")[1];
-		}
-
-		if (StringUtils.isEmpty(region)) {
-			region = "us-east-1";
-		}
+		var endpoint = endpointPolicy.validate(getS3BucketListRequest.getEndPoint());
+		String region = resolveRegion(getS3BucketListRequest.getRegion(), endpoint.uri().getHost());
 
 		List<Bucket> buckets;
-		S3Client s3Client = null;
-		try {
-			Region oss = Region.of(region);
-			URI endpointOverride = URI.create(endPoint);
-			StaticCredentialsProvider credentialsProvider = StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey));
-
-			s3Client = S3Client.builder()
-					.region(oss)
-					.endpointOverride(endpointOverride)
-					.credentialsProvider(credentialsProvider)
-					.build();
+		try (S3Client s3Client = clientFactory.create(endpoint, region, accessKey, secretKey)) {
 			buckets = s3Client.listBuckets().buckets();
 		} catch (Exception e) {
-			e.printStackTrace();
-			throw new SystemException("S3 工具辅助模块获取 Bucket 列表失败", e);
-		} finally {
-			if (s3Client != null) {
-				try {
-					s3Client.close();
-				} catch (Exception e) {
-					// ignore
-				}
-			}
+			// Upstream authentication/connectivity failures are recoverable configuration errors.
+			// Do not include SDK messages (which can contain endpoints or signed headers).
+			throw new BizException("获取 S3 存储桶失败，请检查端点、区域和访问凭据");
 		}
 
 		for (Bucket bucket : buckets) {
@@ -105,32 +77,14 @@ public class S3HelperController {
 	public AjaxJson<List<TlgxyCloudCORSRule>> getCorsConfig(@Valid @RequestBody GetS3CorsListRequest getS3CorsListRequest) {
 		String accessKey = getS3CorsListRequest.getAccessKey();
 		String secretKey = getS3CorsListRequest.getSecretKey();
-		String endPoint = getS3CorsListRequest.getEndPoint();
-		if (!UrlUtils.hasScheme(endPoint)) {
-			endPoint = "http://" + endPoint;
-		}
-		String region = getS3CorsListRequest.getRegion();
+		var endpoint = endpointPolicy.validate(getS3CorsListRequest.getEndPoint());
+		String region = resolveRegion(getS3CorsListRequest.getRegion(), endpoint.uri().getHost());
 		String bucketName = getS3CorsListRequest.getBucketName();
-
-		if (StringUtils.isEmpty(region) && StringUtils.contains(endPoint, StringUtils.DOT)) {
-			region = endPoint.split("\\.")[1];
+		if (StringUtils.isBlank(bucketName) || !bucketName.matches("[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}")) {
+			throw new BizException("请填写有效的存储桶名称");
 		}
 
-		if (StringUtils.isEmpty(region)) {
-			region = "us-east-1";
-		}
-
-		S3Client s3Client = null;
-		try {
-			Region oss = Region.of(region);
-			URI endpointOverride = URI.create(endPoint);
-			StaticCredentialsProvider credentialsProvider = StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey));
-
-			s3Client = S3Client.builder()
-					.region(oss)
-					.endpointOverride(endpointOverride)
-					.credentialsProvider(credentialsProvider)
-					.build();
+		try (S3Client s3Client = clientFactory.create(endpoint, region, accessKey, secretKey)) {
 			GetBucketCorsResponse getBucketCorsResponse = s3Client.getBucketCors(builder -> builder.bucket(bucketName));
 			List<CORSRule> rules = getBucketCorsResponse.corsRules();
 			List<TlgxyCloudCORSRule> rulesList = TlgxyCloudCORSRule.fromCORSRule(rules);
@@ -139,20 +93,24 @@ public class S3HelperController {
 			if (s3Exception.statusCode() == 404) {
 				return AjaxJson.getSuccessData(Collections.emptyList());
 			} else {
-				throw new SystemException("获取跨域设置失败: " + s3Exception.getMessage(), s3Exception);
+				throw new BizException("获取 S3 跨域设置失败，请检查访问凭据和存储桶权限");
 			}
 		} catch (Exception e) {
-			throw new SystemException("自动获取跨域设置失败: " + e.getMessage(), e);
-		} finally {
-			if (s3Client != null) {
-				try {
-					s3Client.close();
-				} catch (Exception e) {
-					// ignore
-				}
-			}
+			throw new BizException("获取 S3 跨域设置失败，请检查端点、区域和访问凭据");
 		}
 
+	}
+
+	private String resolveRegion(String suppliedRegion, String host) {
+		if (StringUtils.isNotBlank(suppliedRegion)) {
+			if (!suppliedRegion.matches("[a-zA-Z0-9-]{1,64}")) {
+				throw new BizException("S3 区域格式不正确");
+			}
+			return suppliedRegion;
+		}
+		// Infer known AWS endpoint regions only; arbitrary custom domains are not regions.
+		if (host.matches("s3\\.[a-z0-9-]+\\.amazonaws\\.com(\\.cn)?")) return host.split("\\.")[1];
+		return "us-east-1";
 	}
 
 }

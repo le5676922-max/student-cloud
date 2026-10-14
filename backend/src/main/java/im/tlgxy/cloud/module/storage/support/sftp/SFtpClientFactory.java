@@ -34,9 +34,8 @@ import java.nio.charset.StandardCharsets;
  * </ul>
  * </p>
  * <p>
- * 注意：该类在静态初始化块中设置了 JSch 库的 {@code StrictHostKeyChecking} 为 "no"，
- * 即跳过 SSH 主机密钥的严格校验。这是为了方便连接那些首次连接或主机密钥未在 known_hosts
- * 中记录的服务器，但在生产环境中应当注意这种方式可能存在中间人攻击的风险。
+ * 每个会话严格校验管理员通过可信渠道核实的 SHA256 主机指纹。
+ * 不自动接受首次主机密钥，不修改 JSch 全局校验设置。
  * </p>
  *
  * @see SFtpClientPool SFTP 客户端对象池
@@ -81,18 +80,7 @@ public class SFtpClientFactory extends BasePooledObjectFactory<Sftp> {
      * SFTP 连接使用的字符编码.
      */
     private final Charset charset;
-
-    /**
-     * 静态初始化块，配置 JSch（Java Secure Channel）库的全局参数.
-     * <p>
-     * 将 {@code StrictHostKeyChecking} 设置为 "no"，表示不进行严格的主机密钥检查。
-     * 这意味着客户端会接受任何主机密钥，即使它不在 known_hosts 文件中。
-     * 这在自托管或内网环境中可以简化连接配置，但在公网环境中应注意安全性。
-     * </p>
-     */
-    static {
-        JSch.setConfig("StrictHostKeyChecking", "no");
-    }
+    private final PinnedHostKeyRepository hostKeys;
 
     /**
      * 构造函数，初始化 SFTP 客户端工厂所需的全部连接参数.
@@ -106,6 +94,10 @@ public class SFtpClientFactory extends BasePooledObjectFactory<Sftp> {
      * @param charset    字符编码
      */
     public SFtpClientFactory(String host, int port, String username, String password, String privateKey, String passphrase, Charset charset) {
+        this(host, port, username, password, privateKey, passphrase, charset, null);
+    }
+
+    public SFtpClientFactory(String host, int port, String username, String password, String privateKey, String passphrase, Charset charset, String hostKeyFingerprint) {
         this.host = host;
         this.port = port;
         this.username = username;
@@ -113,6 +105,7 @@ public class SFtpClientFactory extends BasePooledObjectFactory<Sftp> {
         this.privateKey = privateKey;
         this.passphrase = passphrase;
         this.charset = charset;
+        this.hostKeys = new PinnedHostKeyRepository(host, port, hostKeyFingerprint);
     }
 
     /**
@@ -139,7 +132,9 @@ public class SFtpClientFactory extends BasePooledObjectFactory<Sftp> {
     public Sftp create() throws Exception {
         // 创建 JSch 实例并建立 SSH 会话
         JSch jsch = new JSch();
+        jsch.setHostKeyRepository(hostKeys);
         Session session = jsch.getSession(username, host, port);
+        session.setConfig("StrictHostKeyChecking", "yes");
         // 设置会话连接超时时间
         session.setTimeout(StorageSourceConnectionProperties.DEFAULT_CONNECTION_TIMEOUT_MILLIS);
 
@@ -159,9 +154,17 @@ public class SFtpClientFactory extends BasePooledObjectFactory<Sftp> {
         }
 
         // 基于已认证的 SSH 会话创建 SFTP 客户端
-        Sftp sftp = new Sftp(session, charset, StorageSourceConnectionProperties.DEFAULT_CONNECTION_TIMEOUT_MILLIS);
-        log.debug("Creating object: {}", sftp);
-        return sftp;
+        try {
+            // Explicit bounded SSH connection; the Hutool Session constructor keeps our verified session.
+            session.connect(StorageSourceConnectionProperties.DEFAULT_CONNECTION_TIMEOUT_MILLIS);
+            Sftp sftp = new Sftp(session, charset, StorageSourceConnectionProperties.DEFAULT_CONNECTION_TIMEOUT_MILLIS);
+            log.debug("Creating verified SFTP connection");
+            return sftp;
+        } catch (Exception failure) {
+            session.disconnect();
+            // Do not expose provider error text, private keys, password or hostname to browser/logs.
+            throw new im.tlgxy.cloud.core.exception.core.BizException("SFTP 连接未通过，请核实可信主机指纹、凭据和网络；不会自动忽略主机校验");
+        }
     }
 
     /**

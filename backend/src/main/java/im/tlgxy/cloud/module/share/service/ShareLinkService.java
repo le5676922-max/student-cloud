@@ -253,7 +253,8 @@ public class ShareLinkService {
         List<ShareEntryDTO> normalizedEntries = request.getShareEntries().stream()
                 .map(entry -> {
                     ShareEntryDTO dto = new ShareEntryDTO();
-                    String name = entry.getName() == null ? null : entry.getName().trim();
+                    // Whitespace can be part of a real filename; never silently share a different item.
+                    String name = entry.getName();
                     dto.setName(name);
                     dto.setType(entry.getType());
                     return dto;

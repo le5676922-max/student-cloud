@@ -1,12 +1,11 @@
-
 // 获取下载日志列表
-import axios from "~/http/request";
+import axios from '~/http/request'
 
 export const getDownloadLogListReq = (data) => {
 	return axios({
-		url: "/admin/download/log/list",
-		method: "get",
-		data
+		url: '/admin/download/log/list',
+		method: 'get',
+		data,
 	})
 }
 
@@ -14,7 +13,7 @@ export const getDownloadLogListReq = (data) => {
 export const deleteDownloadLogReq = (id) => {
 	return axios({
 		url: `/admin/download/log/delete/${id}`,
-		method: "delete"
+		method: 'delete',
 	})
 }
 
@@ -22,8 +21,8 @@ export const deleteDownloadLogReq = (id) => {
 export const batchDeleteDownloadLogReq = (data) => {
 	return axios({
 		url: `/admin/download/log/delete/batch`,
-		method: "post",
-		data
+		method: 'post',
+		data,
 	})
 }
 
@@ -31,7 +30,7 @@ export const batchDeleteDownloadLogReq = (data) => {
 export const batchDeleteDownloadLogReqByQueryReq = (data) => {
 	return axios({
 		url: `/admin/download/log/delete/batch/query`,
-		method: "post",
-		data
+		method: 'post',
+		data,
 	})
 }

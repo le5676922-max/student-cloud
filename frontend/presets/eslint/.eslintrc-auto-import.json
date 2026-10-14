@@ -464,6 +464,13 @@
     "PANEL_RIGHT_OFFSET": true,
     "clampPanelSize": true,
     "restorePanelSize": true,
-    "calculateUploadProgress": true
+    "calculateUploadProgress": true,
+    "captureUploadTarget": true,
+    "uploadAccountIdentity": true,
+    "uploadCancellationError": true,
+    "captureFileOperationContext": true,
+    "fileOperationSelectionType": true,
+    "isFileOperationContextCurrent": true,
+    "operationBusy": true
   }
 }

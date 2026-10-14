@@ -1,0 +1,26 @@
+# HTTPS 覆盖配置：保持业务 routes/proxy 不变，只调整 TLS 入口。
+map "$request_method:$http_accept" $admin_navigation {
+    default 0;
+    ~*^(GET|HEAD):.*text/html 1;
+}
+log_format cloud '$remote_addr [$time_local] "$request_method $uri" $status $body_bytes_sent $request_time';
+# 与 HTTP 配置相同的分片缓冲容量限制，避免切到 HTTPS 后失去保护。
+limit_conn_zone $server_name zone=chunk_buffers_global:1m;
+limit_conn_zone $binary_remote_addr zone=chunk_buffers_ip:1m;
+upstream cloud_backend { server backend:8080; keepalive 16; }
+server {
+    listen 8080;
+    server_name _;
+    location = /healthz { access_log off; return 200 'UP'; }
+    location / { return 308 https://$host$request_uri; }
+}
+server {
+    listen 8443 ssl;
+    server_name _;
+    ssl_certificate /etc/nginx/certs/fullchain.pem;
+    ssl_certificate_key /etc/nginx/certs/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    include /etc/nginx/student-cloud/routes.conf;
+}

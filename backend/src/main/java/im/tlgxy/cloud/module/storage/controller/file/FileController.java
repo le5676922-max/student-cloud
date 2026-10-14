@@ -21,6 +21,13 @@ import im.tlgxy.cloud.module.storage.model.result.FileInfoResult;
 import im.tlgxy.cloud.module.storage.model.result.FileItemResult;
 import im.tlgxy.cloud.module.storage.model.result.StorageSourceResult;
 import im.tlgxy.cloud.module.storage.service.StorageSourceService;
+import im.tlgxy.cloud.module.storage.service.DirectoryPageService;
+import im.tlgxy.cloud.module.storage.service.DirectoryAccessGuard;
+import im.tlgxy.cloud.module.storage.service.DirectoryMetadataCache;
+import im.tlgxy.cloud.module.storage.service.DirectoryMetadataProvider;
+import im.tlgxy.cloud.module.storage.service.NativeDirectoryCursorService;
+import im.tlgxy.cloud.core.cache.ratelimit.ApiRateLimiter;
+import im.tlgxy.cloud.module.storage.model.enums.FileTypeEnum;
 import im.tlgxy.cloud.module.storage.service.base.AbstractBaseFileService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,6 +37,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 文件列表接口控制器。
@@ -55,6 +63,11 @@ public class FileController {
 	 */
 	@Resource
 	private StorageSourceService storageSourceService;
+
+    @Resource private DirectoryMetadataCache directoryMetadataCache;
+    @Resource private DirectoryAccessGuard directoryAccessGuard;
+    @Resource private NativeDirectoryCursorService nativeDirectoryCursors;
+    @Resource private ApiRateLimiter apiRateLimiter;
 
 	/**
 	 * 文件处理责任链，对文件列表进行权限校验、密码校验、隐藏过滤和排序等处理。
@@ -121,7 +134,24 @@ public class FileController {
 
 		// 获取存储源文件服务实例并查询文件列表
 		AbstractBaseFileService<?> fileService = StorageSourceContext.getByStorageId(storageId);
-		List<FileItemResult> fileItemList = fileService.fileList(fileListRequest.getPath());
+        int userId = TlgxyCloudAuthUtil.getCurrentUserId();
+        if (fileListRequest.isNativePagination()) return nativeList(fileListRequest, storageId, fileService, userId);
+        DirectoryMetadataProvider provider = fileListRequest.getPageSize() != null
+                && fileService instanceof DirectoryMetadataProvider metadata ? metadata : null;
+        DirectoryAccessGuard.Grant grant = provider == null ? null
+                : directoryAccessGuard.require(userId, storageId, fileService.getCurrentUserBasePath());
+        List<FileItemResult> fileItemList;
+        if (provider == null) {
+            fileItemList = fileService.fileList(fileListRequest.getPath());
+        } else {
+            String root = grant.root();
+            fileItemList = directoryMetadataCache.list(fileService, userId, root, fileListRequest.getPath(),
+                    fileListRequest.isRefreshMetadata(), () -> provider.directoryMetadata(fileListRequest.getPath(), root));
+            // Internal marker preserves the existing permission chain and cursor's URL-availability hash.
+            // It is removed/replaced below and is never returned to the client or stored in the cache.
+            fileItemList.stream().filter(file -> file.getType() == FileTypeEnum.FILE && grant.canReadFile())
+                    .forEach(file -> file.setUrl("directory-page-pending"));
+        }
 
 		// 构建文件处理上下文并执行责任链处理（权限校验、密码校验、隐藏过滤、排序等）
 		FileContext fileContext = FileContext.builder()
@@ -133,8 +163,52 @@ public class FileController {
 		fileChain.execute(fileContext);
 
 		// 返回处理后的文件列表和密码路径表达式（供前端判断子目录的密码保护范围）
-		return AjaxJson.getSuccessData(new FileInfoResult(fileContext.getFileItemList(), fileContext.getPasswordPattern()));
+        FileInfoResult page = DirectoryPageService.page(fileContext.getFileItemList(), fileContext.getPasswordPattern(),
+                fileListRequest, userId, grant == null ? fileService.getCurrentUserBasePath() : grant.root());
+        if (provider != null) {
+            page.setNativePaginationAvailable(provider.supportsNativePagination());
+            DirectoryAccessGuard.Grant latest = directoryAccessGuard.require(userId, storageId, fileService.getCurrentUserBasePath());
+            if (!Objects.equals(grant, latest)) throw new BizException(ErrorCode.BIZ_DIRECTORY_CHANGED);
+            List<FileItemResult> readable = page.getFiles().stream()
+                    .filter(file -> file.getType() == FileTypeEnum.FILE && "directory-page-pending".equals(file.getUrl())).toList();
+            provider.hydrateDirectoryPage(readable, grant.root());
+        }
+        return AjaxJson.getSuccessData(page);
 	}
+
+    private AjaxJson<FileInfoResult> nativeList(FileListRequest request, int storageId,
+                                               AbstractBaseFileService<?> fileService, int actor) throws Exception {
+        NativeDirectoryCursorService.validate(request);
+        if (!(fileService instanceof DirectoryMetadataProvider provider) || !provider.supportsNativePagination()) {
+            throw new BizException("此存储源暂不支持快速分页，请切换普通浏览");
+        }
+        var grant = directoryAccessGuard.require(actor, storageId, fileService.getCurrentUserBasePath());
+        if (!apiRateLimiter.allow("native-directory-list", Integer.toString(actor), 120, 60_000)) {
+            throw new BizException(ErrorCode.BIZ_ACCESS_TOO_FREQUENT);
+        }
+        // Verify path/password before any provider request, then run the same chain on the returned page.
+        FileContext context = FileContext.builder().storageId(storageId).fileListRequest(request)
+                .fileItemList(List.of()).fileService(fileService).build();
+        fileChain.execute(context);
+        long generation = directoryMetadataCache.generation();
+        var position = nativeDirectoryCursors.resolve(request, fileService, actor, grant.root(), generation);
+        var remotePage = provider.nativeDirectoryPage(request.getPath(), grant.root(), request.getPageSize(), position.providerToken());
+        List<FileItemResult> files = new java.util.ArrayList<>(remotePage.files());
+        files.stream().filter(file -> file.getType() == FileTypeEnum.FILE && grant.canReadFile())
+                .forEach(file -> file.setUrl("directory-page-pending"));
+        context.setFileItemList(files);
+        fileChain.execute(context); // Current hidden/download rules, never a cached grant.
+        var latest = directoryAccessGuard.require(actor, storageId, fileService.getCurrentUserBasePath());
+        if (!Objects.equals(grant, latest) || directoryMetadataCache.generation() != generation) {
+            throw new BizException(ErrorCode.BIZ_DIRECTORY_CHANGED);
+        }
+        List<FileItemResult> readable = context.getFileItemList().stream()
+                .filter(file -> file.getType() == FileTypeEnum.FILE && "directory-page-pending".equals(file.getUrl())).toList();
+        provider.hydrateDirectoryPage(readable, grant.root());
+        FileInfoResult page = nativeDirectoryCursors.complete(position, request, fileService, actor, grant.root(),
+                directoryMetadataCache.generation(), context.getFileItemList(), context.getPasswordPattern(), remotePage.nextProviderToken());
+        return AjaxJson.getSuccessData(page);
+    }
 
 	/**
 	 * 获取单个文件的详细信息。

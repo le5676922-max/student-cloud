@@ -1,0 +1,7 @@
+# 与 compose.production.yml 一起使用，证书由服务器管理员签发/续期。
+services:
+  frontend:
+    ports: ["${WEB_BIND_ADDRESS:-0.0.0.0}:443:8443"]
+    volumes:
+      - ../frontend/nginx/https.conf.example:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro

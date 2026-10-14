@@ -7,6 +7,7 @@ import im.tlgxy.cloud.module.user.model.request.UserLoginRequest;
 import im.tlgxy.cloud.module.user.service.UserService;
 import im.tlgxy.cloud.module.user.service.login.verify.LoginVerifyService;
 import im.tlgxy.cloud.module.user.utils.PasswordVerifyUtils;
+import im.tlgxy.cloud.module.user.utils.PasswordCredentialFingerprint;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
@@ -24,7 +25,9 @@ public class PasswordVerifyService implements LoginVerifyService {
 
     @Override
     public void verify(UserLoginRequest userLoginRequest) {
-        User dbUser = userService.getByUsername(userLoginRequest.getUsername());
+        User dbUser = userLoginRequest.getResolvedUserId() == null
+                ? userService.getByUsername(userLoginRequest.getUsername())
+                : userService.requireLoginUser(userLoginRequest.getResolvedUserId());
         if (dbUser == null) {
             throw new BizException(ErrorCode.BIZ_LOGIN_ERROR);
         }
@@ -37,6 +40,7 @@ public class PasswordVerifyService implements LoginVerifyService {
             throw new BizException(ErrorCode.BIZ_LOGIN_ERROR);
         }
         userService.requireLoginUser(dbUser.getId());
+        userLoginRequest.setVerifiedCredentialFingerprint(PasswordCredentialFingerprint.of(dbUser));
     }
 
 }

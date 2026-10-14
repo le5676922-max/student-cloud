@@ -2,8 +2,8 @@ package im.tlgxy.cloud.core.filter;
 
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.extra.servlet.JakartaServletUtil;
+import cn.dev33.satoken.stp.StpUtil;
 import im.tlgxy.cloud.core.constant.MdcConstant;
-import im.tlgxy.cloud.core.util.TlgxyCloudAuthUtil;
 import jakarta.servlet.*;
 import jakarta.servlet.annotation.WebFilter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -49,14 +49,14 @@ public class MDCFilter implements Filter {
 		HttpServletRequest httpServletRequest = (HttpServletRequest) request;
 		HttpServletResponse httpServletResponse = (HttpServletResponse) response;
 
-		// 生成唯一的 TraceId 并写入 MDC，用于全链路日志追踪
-		MDC.put(MdcConstant.TRACE_ID, IdUtil.fastUUID());
-		// 获取客户端真实 IP 地址并写入 MDC
-		MDC.put(MdcConstant.IP, JakartaServletUtil.getClientIP(httpServletRequest));
-		// 获取当前登录用户 ID 并写入 MDC
-		MDC.put(MdcConstant.USER, TlgxyCloudAuthUtil.getCurrentUserId().toString());
-
 		try {
+            // Diagnostic identity is optional: public login/install requests have no session.
+            // Business authorization is enforced later by the MVC interceptor, not the logger.
+            MDC.put(MdcConstant.TRACE_ID, IdUtil.fastUUID());
+            MDC.put(MdcConstant.IP, JakartaServletUtil.getClientIP(httpServletRequest));
+            Object sessionUser = StpUtil.getLoginIdDefaultNull();
+            if (sessionUser == null) MDC.remove(MdcConstant.USER);
+            else MDC.put(MdcConstant.USER, sessionUser.toString());
 			// 继续执行后续过滤器和业务逻辑
 			filterChain.doFilter(httpServletRequest, httpServletResponse);
 		} finally {

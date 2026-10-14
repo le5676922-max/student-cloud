@@ -1,0 +1,39 @@
+# 仅用于存储源展示元数据缓存，不替代 MySQL，也不存放登录会话。
+# 在项目根目录运行：docker compose -f docker/compose.cache.yml up -d
+# 仅发布到本机；如果后端也使用 Docker，请加入相同网络并通过服务名连接，勿开放公网端口。
+name: student-cloud-cache
+
+services:
+  redis-cache:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${STUDENT_CLOUD_REDIS_LOCAL_PORT:-16379}:6379"
+    # 这是可丢弃缓存；tmpfs 覆盖镜像 /data，避免自动生成持久化匿名卷。
+    # 重建容器后从 MySQL 重新加载，不会丢失业务数据。
+    tmpfs:
+      - "/data:size=16m"
+    # 缓存容量与容器内存分开限制，给 Redis 自身保留内存余量。
+    mem_limit: 192m
+    cpus: 1.0
+    command:
+      - redis-server
+      - --maxmemory
+      - 96mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    # 日志滚动避免缓存服务日志无限占用磁盘。
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

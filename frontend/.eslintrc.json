@@ -14,6 +14,16 @@
 		}
 	},
 	"plugins": ["prettier"],
+	"overrides": [
+		{
+			"files": ["*.ts", "*.vue"],
+			"plugins": ["@typescript-eslint"],
+			"rules": {
+				"no-unused-vars": "off",
+				"@typescript-eslint/no-unused-vars": "error"
+			}
+		}
+	],
 	"extends": [
 		"eslint:recommended", // 内置规则
 		"plugin:vue/vue3-recommended", // 支持 vue sfc

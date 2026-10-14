@@ -11,6 +11,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CorsFilterTest {
 
@@ -40,6 +41,25 @@ class CorsFilterTest {
         filter.doFilter(request, response, chain);
 
         assertEquals(403, response.getStatus());
+        assertNull(chain.getRequest());
+    }
+
+    @Test
+    void permitsResumableUploadHeadersOnlyForConfiguredOrigin() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("OPTIONS", "/api/uploads/resumable/test/chunks/0");
+        request.addHeader("Origin", "http://127.0.0.1:5173");
+        request.addHeader("Access-Control-Request-Method", "PUT");
+        request.addHeader("Access-Control-Request-Headers", "X-Upload-Directory-Password,X-Upload-Chunk-SHA256");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertEquals(200, response.getStatus());
+        assertEquals("http://127.0.0.1:5173", response.getHeader("Access-Control-Allow-Origin"));
+        assertTrue(response.getHeader("Access-Control-Allow-Headers").contains("X-Upload-Directory-Password"));
+        assertTrue(response.getHeader("Access-Control-Allow-Headers").contains("X-Upload-Chunk-SHA256"));
+        assertTrue(response.getHeader("Access-Control-Allow-Methods").contains("PUT"));
         assertNull(chain.getRequest());
     }
 

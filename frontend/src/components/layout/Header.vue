@@ -1,464 +1,798 @@
 <template>
-    <div class="student-cloud-header">
-        <div class="student-cloud-header-breadcrumb box animate__animated animate__fadeIn flex flex-1">
-            <header-logo></header-logo>
-            <Breadcrumb class="h-12" :items="breadcrumbData" @breadcrumb-click="clickBreadcrumb">
-            </Breadcrumb>
-        </div>
+	<div class="student-cloud-header">
+		<div class="student-cloud-header-breadcrumb box flex flex-1">
+			<header-logo></header-logo>
+			<Breadcrumb
+				class="h-12"
+				:items="breadcrumbData"
+				@breadcrumb-click="clickBreadcrumb"
+			>
+			</Breadcrumb>
+		</div>
 
-        <div class="student-cloud-header-right box animate__animated animate__fadeIn">
-            <!-- 功能区 -->
-            <div class="student-cloud-header-btn" v-if="isNotMobile">
-                <!-- debug 模式 -->
-                <template v-if="storageConfigStore.globalConfig.debugMode">
-                    <el-tooltip placement="bottom">
-                        <template #content>
-                            此功能为 DEBUG 模式下重置管理员密码功能, 使用完后请关闭 DEBUG 模式并重启服务.
-                        </template>
-                        <el-button size="default" @click="openResetAdminPwdDialog" type="danger">
-                            重置管理员密码
-                        </el-button>
-                    </el-tooltip>
-                </template>
+		<div class="student-cloud-header-right box">
+			<!-- 功能区 -->
+			<div v-if="isNotMobile" class="student-cloud-header-btn">
+				<!-- debug 模式 -->
+				<template v-if="storageConfigStore.globalConfig.debugMode">
+					<el-tooltip placement="bottom">
+						<template #content>
+							此功能为 DEBUG 模式下重置管理员密码功能, 使用完后请关闭 DEBUG
+							模式并重启服务.
+						</template>
+						<el-button
+							size="default"
+							type="danger"
+							@click="openResetAdminPwdDialog"
+						>
+							重置管理员密码
+						</el-button>
+					</el-tooltip>
+				</template>
 
-                <!-- 如果已登录，则显示 <el-dropdown> 下拉框，下拉中显示注销和修改密码 -->
-                <el-dropdown v-if="storageConfigStore.loginInfo.isLogin" trigger="click">
-                    <i-mdi-account-circle-outline class="w-6 h-6 text-gray-500 hover:text-blue-500" />
-                    <template #dropdown>
-                        <el-dropdown-menu class="font-medium">
-                            <el-dropdown-item>
-                                <span class="text-gray-500 text-center mx-auto">{{ storageConfigStore.loginInfo.username }}{{ storageConfigStore.loginInfo.nickname ? "(" + storageConfigStore.loginInfo.nickname + ")" : "" }}</span>
-                            </el-dropdown-item>
-                            <el-dropdown-item @click="toAdmin" v-if="storageConfigStore.loginInfo.isAdmin">
-                                <i-mdi-account-settings-variant class="mr-3" />
-                                前往后台
-                            </el-dropdown-item>
-                            <el-dropdown-item @click="openUpdatePwdDialog">
-                                <i-mdi-lock class="mr-3" />
-                                修改密码
-                            </el-dropdown-item>
-                            <el-dropdown-item @click="logout">
-                                <i-mdi-logout class="mr-3" />
-                                注销
-                            </el-dropdown-item>
-                        </el-dropdown-menu>
-                    </template>
-                </el-dropdown>
+				<!-- 如果已登录，则显示 <el-dropdown> 下拉框，下拉中显示注销和修改密码 -->
+				<el-dropdown
+					v-if="storageConfigStore.loginInfo.isLogin"
+					trigger="click"
+					popper-class="student-cloud-header-dropdown"
+				>
+					<button
+						type="button"
+						class="header-account-button"
+						aria-label="账户菜单"
+						aria-haspopup="menu"
+					>
+						<span class="header-account-avatar" aria-hidden="true">{{
+							accountInitial
+						}}</span>
+						<span class="header-account-name">{{ accountDisplayName }}</span>
+						<ChevronDownIcon
+							class="header-account-chevron"
+							aria-hidden="true"
+						/>
+					</button>
+					<template #dropdown>
+						<el-dropdown-menu class="font-medium">
+							<el-dropdown-item>
+								<span class="text-gray-500 text-center mx-auto"
+									>{{ storageConfigStore.loginInfo.username
+									}}{{
+										storageConfigStore.loginInfo.nickname
+											? '(' + storageConfigStore.loginInfo.nickname + ')'
+											: ''
+									}}</span
+								>
+							</el-dropdown-item>
+							<el-dropdown-item
+								v-if="storageConfigStore.loginInfo.isAdmin"
+								@click="toAdmin"
+							>
+								<i-mdi-account-settings-variant class="mr-3" />
+								前往后台
+							</el-dropdown-item>
+							<el-dropdown-item
+								v-if="storageConfigStore.loginInfo.role === 'TENANT_ADMIN'"
+								@click="router.push('/workspace-admin')"
+								>工作空间管理</el-dropdown-item
+							>
+							<el-dropdown-item @click="openUpdatePwdDialog">
+								<i-mdi-lock class="mr-3" />
+								修改密码
+							</el-dropdown-item>
+							<el-dropdown-item @click="logout">
+								<i-mdi-logout class="mr-3" />
+								注销
+							</el-dropdown-item>
+						</el-dropdown-menu>
+					</template>
+				</el-dropdown>
 
-                <!-- 登录账号 -->
-                <el-tooltip placement="bottom" v-else-if="storageConfigStore.globalConfig.showLogin">
-                    <template #content>
-                        登录账号
-                    </template>
-                    <div @click="toLoginView">
-                        <i-mdi-login-variant class="w-5 h-6 text-gray-500 hover:text-blue-500" />
-                    </div>
-                </el-tooltip>
+				<!-- 登录账号 -->
+				<el-tooltip
+					v-else-if="storageConfigStore.globalConfig.showLogin"
+					placement="bottom"
+				>
+					<template #content> 登录账号 </template>
+					<button
+						type="button"
+						class="header-icon-button"
+						aria-label="登录账号"
+						@click="toLoginView"
+					>
+						<i-mdi-login-variant aria-hidden="true" />
+					</button>
+				</el-tooltip>
 
-                <el-tooltip v-if="storageConfigStore.loginInfo.isLogin" placement="bottom">
-                    <template #content>
-                        我的分享
-                    </template>
-                    <div @click="openMyShare">
-                        <i-mdi-share-variant class="w-6 h-6 text-gray-500 hover:text-blue-500" />
-                    </div>
-                </el-tooltip>
+				<el-tooltip
+					v-if="storageConfigStore.loginInfo.isLogin"
+					placement="bottom"
+				>
+					<template #content> 我的分享 </template>
+					<button
+						type="button"
+						class="header-icon-button"
+						aria-label="我的分享"
+						@click="openMyShare"
+					>
+						<i-mdi-share-variant aria-hidden="true" />
+					</button>
+				</el-tooltip>
 
-                <!-- 上传 -->
-                <el-button v-if="storageConfigStore.loginInfo.isLogin" text @click="router.push('/learning')">课程资料</el-button>
-                <el-dropdown v-if="route.params.storageKey && (storageConfigStore.permission.upload || storageConfigStore.permission.newFolder)"
-                             trigger="click"
-                             popper-class="student-cloud-header-dropdown">
-                    <div v-show="route.params.storageKey">
-                        <el-badge :value="uploadProgressInfoStatistics.totalUploadingAndWaiting"
-                                  :hidden="uploadProgressInfoStatistics.totalUploadingAndWaiting === 0"
-                                  :max="99"
-                                  class="!block">
-                            <CloudArrowUpIcon class="w-6 h-6 text-gray-500 hover:text-blue-500"></CloudArrowUpIcon>
-                        </el-badge>
-                    </div>
-                    <template #dropdown>
-                        <el-dropdown-menu class="font-medium">
-                            <el-dropdown-item v-if="storageConfigStore.permission.newFolder" @click="newFolder">
-                                <i-lucide-folder-plus class="mr-3" />
-                                新建文件夹
-                            </el-dropdown-item>
+				<!-- 上传 -->
+				<el-button
+					v-if="storageConfigStore.loginInfo.isLogin && isSharePage"
+					text
+					@click="router.push('/learning')"
+					>课程资料</el-button
+				>
+				<el-dropdown
+					v-if="
+						route.params.storageKey &&
+						(storageConfigStore.permission.upload ||
+							storageConfigStore.permission.newFolder)
+					"
+					trigger="click"
+					popper-class="student-cloud-header-dropdown"
+				>
+					<button
+						v-show="route.params.storageKey"
+						type="button"
+						class="header-icon-button"
+						aria-label="上传与新建菜单"
+						aria-haspopup="menu"
+					>
+						<el-badge
+							:value="uploadProgressInfoStatistics.totalUploadingAndWaiting"
+							:hidden="
+								uploadProgressInfoStatistics.totalUploadingAndWaiting === 0
+							"
+							:max="99"
+							class="!block"
+						>
+							<CloudArrowUpIcon aria-hidden="true" />
+						</el-badge>
+					</button>
+					<template #dropdown>
+						<el-dropdown-menu class="font-medium">
+							<el-dropdown-item
+								v-if="storageConfigStore.permission.newFolder"
+								@click="newFolder"
+							>
+								<i-lucide-folder-plus class="mr-3" />
+								新建文件夹
+							</el-dropdown-item>
 
-                            <el-dropdown-item v-if="storageConfigStore.permission.upload" @click="openUploadDialog"
-                                              :divided="storageConfigStore.permission.upload && storageConfigStore.permission.newFolder">
-                                <i-ci-file-upload class="mr-3" />
-                                上传文件
-                            </el-dropdown-item>
+							<el-dropdown-item
+								v-if="storageConfigStore.permission.upload"
+								:divided="
+									storageConfigStore.permission.upload &&
+									storageConfigStore.permission.newFolder
+								"
+								@click="openUploadDialog"
+							>
+								<i-ci-file-upload class="mr-3" />
+								上传文件
+							</el-dropdown-item>
 
-                            <el-dropdown-item v-if="storageConfigStore.permission.uploadFolder"
-                                              @click="openUploadFolderDialog">
-                                <i-ci-folder-upload class="mr-3" />
-                                上传文件夹
-                            </el-dropdown-item>
+							<el-dropdown-item
+								v-if="storageConfigStore.permission.uploadFolder"
+								@click="openUploadFolderDialog"
+							>
+								<i-ci-folder-upload class="mr-3" />
+								上传文件夹
+							</el-dropdown-item>
+						</el-dropdown-menu>
+					</template>
+				</el-dropdown>
 
-                        </el-dropdown-menu>
-                    </template>
-                </el-dropdown>
+				<!-- 画廊模式切换 -->
+				<button
+					v-show="route.params.storageKey"
+					type="button"
+					class="header-icon-button"
+					:class="{ 'is-active': fileDataStore.imgMode }"
+					aria-label="画廊模式"
+					:aria-pressed="fileDataStore.imgMode"
+					@click="fileDataStore.imgMode = !fileDataStore.imgMode"
+				>
+					<i-solar-gallery-wide-linear aria-hidden="true" />
+				</button>
 
-                <!-- 画廊模式切换 -->
-                <div v-show="route.params.storageKey" @click="fileDataStore.imgMode = !fileDataStore.imgMode">
-                    <i-solar-gallery-wide-linear v-if="fileDataStore.imgMode" class="w-5 h-6 text-blue-400" />
-                    <i-solar-gallery-wide-linear v-else class="w-5 h-6" />
-                </div>
+				<!-- 设置按钮 -->
+				<button
+					type="button"
+					class="header-icon-button"
+					aria-label="显示设置"
+					@click="openSettingVisible"
+				>
+					<Cog8ToothIcon aria-hidden="true" />
+				</button>
+			</div>
 
-                <!-- 设置按钮 -->
-                <div @click="openSettingVisible">
-                    <Cog8ToothIcon class="w-6 h-6"></Cog8ToothIcon>
-                </div>
+			<!-- 存储源选择（分享页不显示） -->
+			<div
+				v-if="isNotMobile && !isSharePage"
+				class="student-cloud-header-storage-select"
+			>
+				<el-select
+					v-model="currentStorageKey"
+					size="default"
+					placeholder="请选择存储源"
+					aria-label="切换云盘"
+				>
+					<el-option
+						v-for="item in storageList"
+						:key="item.key"
+						:label="item.name"
+						:value="item.key"
+					>
+					</el-option>
+				</el-select>
+			</div>
+		</div>
 
-            </div>
-
-            <!-- 存储源选择（分享页不显示） -->
-            <div class="student-cloud-header-storage-select" v-if="isNotMobile && !isSharePage">
-                <el-select size="default" v-model="currentStorageKey" placeholder="请选择存储源">
-                    <el-option v-for="item in storageList"
-                               :key="item.key"
-                               :label="item.name"
-                               :value="item.key">
-                    </el-option>
-                </el-select>
-            </div>
-        </div>
-
-        <div v-if="isMobile">
-            <el-dropdown trigger="click">
-                <Bars3Icon class="block h-12 w-8" aria-hidden="true" />
-                <template #dropdown>
-                    <el-dropdown-menu>
-                        <el-dropdown-item v-if="storageConfigStore.globalConfig.debugMode"
-                                          @click="openResetAdminPwdDialog">
-                            <i-mdi-key class="w-4 h-4 mr-2 text-gray-500" name="key" />
-                            重置管理员密码
-                        </el-dropdown-item>
-						<el-dropdown-item v-if="route.params.storageKey && storageConfigStore.permission.newFolder" @click="newFolder">
-							<i-lucide-folder-plus class="w-4 h-4 mr-2 text-gray-500" name="add-folder" />
+		<div v-if="isMobile" class="header-mobile-menu">
+			<el-dropdown trigger="click" popper-class="student-cloud-header-dropdown">
+				<button
+					type="button"
+					class="header-icon-button"
+					aria-label="打开文件菜单"
+					aria-haspopup="menu"
+				>
+					<Bars3Icon aria-hidden="true" />
+				</button>
+				<template #dropdown>
+					<el-dropdown-menu>
+						<el-dropdown-item
+							v-if="storageConfigStore.globalConfig.debugMode"
+							@click="openResetAdminPwdDialog"
+						>
+							<i-mdi-key class="w-4 h-4 mr-2 text-gray-500" name="key" />
+							重置管理员密码
+						</el-dropdown-item>
+						<el-dropdown-item
+							v-if="
+								route.params.storageKey &&
+								storageConfigStore.permission.newFolder
+							"
+							@click="newFolder"
+						>
+							<i-lucide-folder-plus
+								class="w-4 h-4 mr-2 text-gray-500"
+								name="add-folder"
+							/>
 							新建文件夹
 						</el-dropdown-item>
-						<el-dropdown-item v-if="route.params.storageKey && storageConfigStore.permission.upload" @click="openUploadDialog">
-							<i-ci-file-upload class="w-4 h-4 mr-2 text-gray-500" name="upload" />
+						<el-dropdown-item
+							v-if="
+								route.params.storageKey && storageConfigStore.permission.upload
+							"
+							@click="openUploadDialog"
+						>
+							<i-ci-file-upload
+								class="w-4 h-4 mr-2 text-gray-500"
+								name="upload"
+							/>
 							上传文件
 						</el-dropdown-item>
-						<el-dropdown-item v-if="route.params.storageKey && storageConfigStore.permission.uploadFolder"
-										  @click="openUploadFolderDialog">
-							<i-ci-folder-upload class="w-4 h-4 mr-2 text-gray-500" name="upload-folder" />
+						<el-dropdown-item
+							v-if="
+								route.params.storageKey &&
+								storageConfigStore.permission.uploadFolder
+							"
+							@click="openUploadFolderDialog"
+						>
+							<i-ci-folder-upload
+								class="w-4 h-4 mr-2 text-gray-500"
+								name="upload-folder"
+							/>
 							上传文件夹
 						</el-dropdown-item>
-						<el-dropdown-item v-if="route.params.storageKey && !fileDataStore.imgMode" @click="fileDataStore.imgMode = true">
-							<i-ri-image-line class="w-4 h-4 mr-2 text-gray-500" name="image" />
+						<el-dropdown-item
+							v-if="route.params.storageKey && !fileDataStore.imgMode"
+							@click="fileDataStore.imgMode = true"
+						>
+							<i-ri-image-line
+								class="w-4 h-4 mr-2 text-gray-500"
+								name="image"
+							/>
 							打开画廊模式
 						</el-dropdown-item>
-						<el-dropdown-item v-else-if="route.params.storageKey && fileDataStore.imgMode" @click="fileDataStore.imgMode = false">
-							<i-ri-image-line class="w-4 h-4 mr-2 text-blue-500" name="image" />
+						<el-dropdown-item
+							v-else-if="route.params.storageKey && fileDataStore.imgMode"
+							@click="fileDataStore.imgMode = false"
+						>
+							<i-ri-image-line
+								class="w-4 h-4 mr-2 text-blue-500"
+								name="image"
+							/>
 							关闭画廊模式
 						</el-dropdown-item>
-                        <el-dropdown-item @click="openSettingVisible">
-                            <Cog8ToothIcon class="w-4 h-4 mr-2 text-gray-500"></Cog8ToothIcon>
-                            更多设置
-                        </el-dropdown-item>
+						<el-dropdown-item @click="openSettingVisible">
+							<Cog8ToothIcon class="w-4 h-4 mr-2 text-gray-500"></Cog8ToothIcon>
+							更多设置
+						</el-dropdown-item>
 
-                        <div class="border-gray-200 border-t"></div>
+						<div class="border-gray-200 border-t"></div>
 
-                        <template v-if="storageConfigStore.loginInfo.isLogin">
-                            <el-dropdown-item @click="router.push('/learning')">课程资料</el-dropdown-item>
-                            <el-dropdown-item @click="openMyShare">
-                                <i-mdi-share-variant class="w-4 h-4 mr-2 text-gray-500" name="share" />
-                                我的分享
-                            </el-dropdown-item>
-                            <el-dropdown-item @click="toAdmin" v-if="storageConfigStore.loginInfo.isAdmin">
-                                <i-mdi-account-settings-variant class="w-4 h-4 mr-2 text-gray-500" name="admin" />
-                                前往后台
-                            </el-dropdown-item>
-                            <el-dropdown-item @click="openUpdatePwdDialog">
-                                <i-mdi-lock class="w-4 h-4 mr-2 text-gray-500" name="lock" />
-                                修改密码
-                            </el-dropdown-item>
-                            <el-dropdown-item @click="logout">
-                                <i-mdi-logout class="w-4 h-4 mr-2 text-gray-500" name="logout" />
-                                注销
-                            </el-dropdown-item>
-                        </template>
-                        <el-dropdown-item v-else-if="storageConfigStore.globalConfig.showLogin" @click="toLoginView">
-                            <i-mdi-login-variant class="w-4 h-4 mr-2 text-gray-500" name="login" />
-                            登录账号
-                        </el-dropdown-item>
+						<template v-if="storageConfigStore.loginInfo.isLogin">
+							<el-dropdown-item @click="router.push('/learning')"
+								>课程资料</el-dropdown-item
+							>
+							<el-dropdown-item @click="openMyShare">
+								<i-mdi-share-variant
+									class="w-4 h-4 mr-2 text-gray-500"
+									name="share"
+								/>
+								我的分享
+							</el-dropdown-item>
+							<el-dropdown-item
+								v-if="storageConfigStore.loginInfo.isAdmin"
+								@click="toAdmin"
+							>
+								<i-mdi-account-settings-variant
+									class="w-4 h-4 mr-2 text-gray-500"
+									name="admin"
+								/>
+								前往后台
+							</el-dropdown-item>
+							<el-dropdown-item
+								v-if="storageConfigStore.loginInfo.role === 'TENANT_ADMIN'"
+								@click="router.push('/workspace-admin')"
+								>工作空间管理</el-dropdown-item
+							>
+							<el-dropdown-item @click="openUpdatePwdDialog">
+								<i-mdi-lock class="w-4 h-4 mr-2 text-gray-500" name="lock" />
+								修改密码
+							</el-dropdown-item>
+							<el-dropdown-item @click="logout">
+								<i-mdi-logout
+									class="w-4 h-4 mr-2 text-gray-500"
+									name="logout"
+								/>
+								注销
+							</el-dropdown-item>
+						</template>
+						<el-dropdown-item
+							v-else-if="storageConfigStore.globalConfig.showLogin"
+							@click="toLoginView"
+						>
+							<i-mdi-login-variant
+								class="w-4 h-4 mr-2 text-gray-500"
+								name="login"
+							/>
+							登录账号
+						</el-dropdown-item>
+					</el-dropdown-menu>
+				</template>
+			</el-dropdown>
+		</div>
+	</div>
+	<Setting></Setting>
 
-                    </el-dropdown-menu>
-                </template>
-            </el-dropdown>
-        </div>
-    </div>
-    <Setting></Setting>
-
-    <update-pwd ref="updatePwdDialogRef" />
-    <update-user-name-and-pwd ref="resetAdminPwdDialogRef" />
-    <MyShareDialog
-        v-model:visible="myShareDialogVisible"
-        :storage-list="storageList"
-        :active-storage-key="shareActiveStorageKey"
-    />
+	<update-pwd ref="updatePwdDialogRef" />
+	<update-user-name-and-pwd ref="resetAdminPwdDialogRef" />
+	<MyShareDialog
+		v-model:visible="myShareDialogVisible"
+		:storage-list="storageList"
+		:active-storage-key="shareActiveStorageKey"
+	/>
 </template>
 
 <script setup>
-import { Bars3Icon, Cog8ToothIcon, CloudArrowUpIcon } from "@heroicons/vue/24/outline";
+import {
+	Bars3Icon,
+	Cog8ToothIcon,
+	CloudArrowUpIcon,
+	ChevronDownIcon,
+} from '@heroicons/vue/24/outline'
 
-let router = useRouter();
-let route = useRoute();
+let router = useRouter()
+let route = useRoute()
 
-import { isMobile, isNotMobile } from "~/utils";
+import { isMobile, isNotMobile } from '~/utils'
 
 // 存储源列表.
-import useHeaderStorageList from "~/composables/header/useHeaderStorageList";
-const { loadStorageSourceList, currentStorageKey, storageList } = useHeaderStorageList();
+import useHeaderStorageList from '~/composables/header/useHeaderStorageList'
+const { loadStorageSourceList, currentStorageKey, storageList } =
+	useHeaderStorageList()
 
 // 面包屑数据和操作
-import useBreadcrumb from "~/composables/header/useHeaderBreadcrumb";
-const { buildBreadcrumbData, breadcrumbData } = useBreadcrumb();
+import useBreadcrumb from '~/composables/header/useHeaderBreadcrumb'
+const { buildBreadcrumbData, breadcrumbData } = useBreadcrumb()
 
-import useStorageConfigStore from "~/stores/storage-config";
-let storageConfigStore = useStorageConfigStore();
+import useStorageConfigStore from '~/stores/storage-config'
+let storageConfigStore = useStorageConfigStore()
+const accountDisplayName = computed(
+	() =>
+		String(storageConfigStore.loginInfo.nickname || '').trim() ||
+		String(storageConfigStore.loginInfo.username || '').trim() ||
+		'我的账号'
+)
+const accountInitial = computed(
+	() => Array.from(accountDisplayName.value.trim())[0]?.toUpperCase() || '我'
+)
 
-import useFileDataStore from "~/stores/file-data";
-let fileDataStore = useFileDataStore();
+import useFileDataStore from '~/stores/file-data'
+let fileDataStore = useFileDataStore()
 
-onMounted(() => {
-    loadStorageSourceList().then(() => {
-        buildBreadcrumbData();
-    });
-});
+onMounted(async () => {
+	try {
+		await loadStorageSourceList()
+	} catch {
+		// The loader clears stale storage state and the request layer shows errors.
+	}
+	buildBreadcrumbData()
+})
 
-const updatePwdDialogRef = ref(null);
+const updatePwdDialogRef = ref(null)
 const openUpdatePwdDialog = () => {
-    updatePwdDialogRef.value.openDialog();
-};
+	updatePwdDialogRef.value.openDialog()
+}
 
-const resetAdminPwdDialogRef = ref(null);
+const resetAdminPwdDialogRef = ref(null)
 const openResetAdminPwdDialog = () => {
-    resetAdminPwdDialogRef.value.openDialog();
-};
+	resetAdminPwdDialogRef.value.openDialog()
+}
 
 const clickBreadcrumb = (item) => {
-    if (item.href) {
-        router.push(item.href);
-    }
-};
+	if (item.href) {
+		router.push(item.href)
+	}
+}
 
-watch(() => route.params.storageKey, (value) => {
-    if (value === undefined) {
-        currentStorageKey.value = "";
-		fileDataStore.imgMode = false;
-    }
-});
+watch(
+	() => route.params.storageKey,
+	(value) => {
+		if (value === undefined) {
+			currentStorageKey.value = ''
+			fileDataStore.imgMode = false
+		}
+	}
+)
 
+import useFileOperator from '~/composables/file/useFileOperator'
+const { newFolder } = useFileOperator()
 
-import useFileOperator from "~/composables/file/useFileOperator";
-const { newFolder } = useFileOperator();
+import useFileUpload from '~/composables/file/useFileUpload'
+const {
+	openUploadDialog,
+	openUploadFolderDialog,
+	uploadProgressInfoStatistics,
+} = useFileUpload()
 
-import useFileUpload from "~/composables/file/useFileUpload";
-const { openUploadDialog, openUploadFolderDialog, uploadProgressInfoStatistics } = useFileUpload();
-
-import useSetting from "~/composables/header/useSetting";
-const { openSettingVisible } = useSetting();
+import useSetting from '~/composables/header/useSetting'
+const { openSettingVisible } = useSetting()
 
 // 监听存储源设置 -> 默认打开图片模式, 如果为是, 则打开图片模式.
-watch(() => [storageConfigStore.folderConfig.defaultSwitchToImgMode, fileDataStore.oldStorageKey], (val, oldValue) => {
-    let defaultSwitchToImgMode = val[0];
-    let storageKey = val[1];
-    let oldStorageKey = oldValue[1];
+watch(
+	() => [
+		storageConfigStore.folderConfig.defaultSwitchToImgMode,
+		fileDataStore.oldStorageKey,
+	],
+	(val, oldValue) => {
+		let defaultSwitchToImgMode = val[0]
+		let storageKey = val[1]
+		let oldStorageKey = oldValue[1]
 
-    if (storageKey !== oldStorageKey) {
-        fileDataStore.imgMode = defaultSwitchToImgMode;
-    }
-});
+		if (storageKey !== oldStorageKey) {
+			fileDataStore.imgMode = defaultSwitchToImgMode
+		}
+	}
+)
 
 const toLoginView = () => {
-    window.location.href = "/login";
-};
+	window.location.href = '/login'
+}
 
 // 自定义 css js 功能.
-import { useStyleTag } from "@vueuse/core";
+import { useStyleTag } from '@vueuse/core'
 
 if (storageConfigStore.globalConfig.customCss) {
-    try {
-        useStyleTag(storageConfigStore.globalConfig.customCss);
-    } catch (e) {
-        console.error("加载自定义 css 加载失败:", storageConfigStore.globalConfig.customCss, e);
-    }
+	try {
+		useStyleTag(storageConfigStore.globalConfig.customCss)
+	} catch (e) {
+		console.error(
+			'加载自定义 css 加载失败:',
+			storageConfigStore.globalConfig.customCss,
+			e
+		)
+	}
 }
-import HeaderLogo from "~/components/file/HeaderLogo.vue";
-import { checkLoginReq, logoutReq } from "~/api/home/user";
-import UpdateUserNameAndPwd from "~/components/user/UpdateUserNameAndPwd.vue";
-const MyShareDialog = defineAsyncComponent(() => import("~/components/share/MyShareDialog.vue"));
+import HeaderLogo from '~/components/file/HeaderLogo.vue'
+import { checkLoginReq, logoutReq } from '~/api/home/user'
+import UpdateUserNameAndPwd from '~/components/user/UpdateUserNameAndPwd.vue'
+const MyShareDialog = defineAsyncComponent(() =>
+	import('~/components/share/MyShareDialog.vue')
+)
 
 const loadScriptDom = (scriptDom) => {
-    if (scriptDom) {
-        document.getElementsByTagName("head")[0].appendChild(scriptDom);
-        console.log(`加载自定义 js, src:${scriptDom.src}, text:${scriptDom.text}`);
-    }
-};
+	if (scriptDom) {
+		document.getElementsByTagName('head')[0].appendChild(scriptDom)
+		console.log(`加载自定义 js, src:${scriptDom.src}, text:${scriptDom.text}`)
+	}
+}
 
 const loadScriptText = (scriptText) => {
-    if (scriptText && scriptText.trim()) {
-        let scriptDom = document.createElement("script");
-        scriptDom.type = "text/javascript";
-        scriptDom.text = scriptText;
-        loadScriptDom(scriptDom);
-    }
-};
-
+	if (scriptText && scriptText.trim()) {
+		let scriptDom = document.createElement('script')
+		scriptDom.type = 'text/javascript'
+		scriptDom.text = scriptText
+		loadScriptDom(scriptDom)
+	}
+}
 
 onMounted(() => {
-    nextTick(() => {
-        if (storageConfigStore.globalConfig.customJs) {
-            // 创建一个新的 div 元素
-            const tempDivDom = document.createElement("div");
-            // 将字符串作为 HTML 插入到新的 div 中
-            tempDivDom.innerHTML = storageConfigStore.globalConfig.customJs;
-            // 遍历新 div 中的所有 script 元素
-            Array.from(tempDivDom.getElementsByTagName("script")).forEach(script => {
-                // 如果该 script 元素有 src 属性，则动态引入外部 JavaScript
-                if (script.src) {
-                    const newScript = document.createElement("script");
-                    for (let i = 0; i < script.attributes.length; i++) {
-                        const attr = script.attributes[i];
-                        newScript.setAttribute(attr.name, attr.value);
-                    }
-                    loadScriptDom(newScript);
-                } else {
-                    // 否则，执行内联的 JavaScript 代码
-                    loadScriptText(script.innerHTML);
-                }
-                tempDivDom.removeChild(script);
-            });
-            loadScriptText(tempDivDom.innerHTML);
-        }
-    });
-});
+	nextTick(() => {
+		if (storageConfigStore.globalConfig.customJs) {
+			// 创建一个新的 div 元素
+			const tempDivDom = document.createElement('div')
+			// 将字符串作为 HTML 插入到新的 div 中
+			tempDivDom.innerHTML = storageConfigStore.globalConfig.customJs
+			// 遍历新 div 中的所有 script 元素
+			Array.from(tempDivDom.getElementsByTagName('script')).forEach(
+				(script) => {
+					// 如果该 script 元素有 src 属性，则动态引入外部 JavaScript
+					if (script.src) {
+						const newScript = document.createElement('script')
+						for (let i = 0; i < script.attributes.length; i++) {
+							const attr = script.attributes[i]
+							newScript.setAttribute(attr.name, attr.value)
+						}
+						loadScriptDom(newScript)
+					} else {
+						// 否则，执行内联的 JavaScript 代码
+						loadScriptText(script.innerHTML)
+					}
+					tempDivDom.removeChild(script)
+				}
+			)
+			loadScriptText(tempDivDom.innerHTML)
+		}
+	})
+})
 
 // 如果已登录, 则自动跳转到 admin.
 checkLoginReq().then((response) => {
-    storageConfigStore.updateLoginInfo(response.data);
-});
+	storageConfigStore.updateLoginInfo(response.data)
+})
 
 const logout = () => {
-    logoutReq().finally(() => {
-        window.localStorage.removeItem("tongligong-student-cloud-token");
-        storageConfigStore.clearLoginInfo();
-        router.replace("/login");
-    });
-};
+	logoutReq().finally(() => {
+		window.localStorage.removeItem('tongligong-student-cloud-token')
+		storageConfigStore.clearLoginInfo()
+		router.replace('/login')
+	})
+}
 
 const toAdmin = () => {
-    router.push("/admin/site-setting");
-};
+	router.push('/admin/overview')
+}
 
-const isSharePage = computed(() => !!route.params.shareKey);
-const shareActiveStorageKey = computed(() => route.params.storageKey ? String(route.params.storageKey) : "");
-const myShareDialogVisible = ref(false);
+const isSharePage = computed(() => !!route.params.shareKey)
+const shareActiveStorageKey = computed(() =>
+	route.params.storageKey ? String(route.params.storageKey) : ''
+)
+const myShareDialogVisible = ref(false)
 const openMyShare = () => {
-    myShareDialogVisible.value = true;
-};
+	myShareDialogVisible.value = true
+}
 </script>
 
 <style scoped lang="scss">
-
 .student-cloud-header {
-    display: flex;
-    flex-flow: row nowrap;
-    justify-content: space-between;
-    height: 48px;
-    line-height: 48px !important;
-    padding: 0 15px;
+	display: flex;
+	flex-flow: row nowrap;
+	justify-content: space-between;
+	align-items: center;
+	gap: 16px;
+	height: 72px;
+	min-height: 72px;
+	line-height: 1.4;
+	padding: 0 clamp(14px, 2vw, 30px);
 
-    background-color: #ffffff;
-    color: #606266;
-    transition: border-color var(--el-transition-duration), background-color var(--el-transition-duration);
-    border-bottom: 1px solid rgba(132, 133, 141, 0.2);
+	background: var(--cloud-surface);
+	color: var(--cloud-ink);
+	border-bottom: 1px solid var(--cloud-line);
 
-    .el-scrollbar {
-        @apply w-full;
-        :deep(.el-scrollbar__bar.is-vertical) {
-            display: none !important;
-        }
-    }
+	.el-scrollbar {
+		@apply w-full;
+		:deep(.el-scrollbar__bar.is-vertical) {
+			display: none !important;
+		}
+	}
 
-    .student-cloud-header-breadcrumb {
-        :deep(.el-breadcrumb) {
-            line-height: 48px;
-            font-size: 13px;
-            white-space: nowrap;
-            margin-left: 14px;
+	.student-cloud-header-breadcrumb {
+		min-width: 0;
+		align-items: center;
 
-            .el-breadcrumb__item {
-                display: inline;
-                float: none;
-            }
-        }
-    }
+		:deep(.el-breadcrumb) {
+			line-height: 48px;
+			font-size: 13px;
+			white-space: nowrap;
+			margin-left: 22px;
 
-    .student-cloud-header-right {
-        @apply flex space-x-10;
+			.el-breadcrumb__item {
+				display: inline;
+				float: none;
+			}
+		}
+	}
 
-        :deep(.el-dropdown) {
-            line-height: 48px !important;
-        }
+	.student-cloud-header-right {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+		flex-shrink: 0;
 
-        .student-cloud-header-btn {
-            @apply flex text-4xl space-x-10 items-center;
+		:deep(.el-dropdown) {
+			line-height: 1 !important;
+		}
 
-            div {
-                @apply cursor-pointer h-5 #{!important};
-            }
-        }
+		.student-cloud-header-btn {
+			display: flex;
+			align-items: center;
+			gap: 8px;
 
-        .student-cloud-header-storage-select {
-            @apply mr-4 min-w-[200px];
-        }
-    }
+			> .el-button:not(.el-button--danger) {
+				border-radius: 8px;
+				color: var(--cloud-primary);
+				font-weight: 600;
+			}
+		}
 
+		.student-cloud-header-storage-select {
+			width: 210px;
+			flex-shrink: 0;
+		}
+	}
+}
+
+.header-icon-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 38px;
+	height: 38px;
+	flex-shrink: 0;
+	padding: 0;
+	border: 1px solid transparent;
+	border-radius: 9px;
+	background: #f3f4ef;
+	color: #667872;
+	cursor: pointer;
+	line-height: 1;
+	transition: color 150ms ease, background-color 150ms ease;
+}
+.header-icon-button :deep(svg),
+.header-account-chevron {
+	width: 20px;
+	height: 20px;
+	flex-shrink: 0;
+}
+.header-icon-button:hover,
+.header-icon-button.is-active {
+	background: #e8f1ec;
+	color: var(--cloud-primary);
+}
+.header-icon-button:focus-visible,
+.header-account-button:focus-visible {
+	outline: 2px solid var(--cloud-primary);
+	outline-offset: 3px;
+}
+.header-account-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 38px;
+	padding: 3px 7px 3px 4px;
+	border: 1px solid var(--cloud-line);
+	border-radius: 9px;
+	background: var(--cloud-surface);
+	color: var(--cloud-ink);
+	cursor: pointer;
+	line-height: 1;
+}
+.header-account-button:hover {
+	border-color: #a7beb4;
+	background: #f7f8f3;
+}
+.header-account-avatar {
+	display: grid;
+	place-items: center;
+	width: 28px;
+	height: 28px;
+	flex-shrink: 0;
+	border-radius: 7px;
+	background: #efe8d8;
+	color: #786341;
+	font-size: 13px;
+	font-weight: 650;
+}
+.header-account-name {
+	max-width: 96px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12px;
+}
+.header-account-chevron {
+	color: var(--cloud-muted);
+}
+.header-mobile-menu {
+	flex-shrink: 0;
+}
+
+@media only screen and (max-width: 1150px) {
+	.header-account-name {
+		display: none;
+	}
+	.student-cloud-header .student-cloud-header-right {
+		gap: 10px;
+		.student-cloud-header-storage-select {
+			width: 180px;
+		}
+	}
 }
 
 @media only screen and (max-width: 767px) {
-    .student-cloud-header {
-        :deep(.el-breadcrumb__separator) {
-            display: none !important;
-        }
+	.student-cloud-header {
+		:deep(.el-breadcrumb__separator) {
+			display: none !important;
+		}
 
-        :deep(.el-form-item__label) {
-            display: none !important;
-        }
+		:deep(.el-form-item__label) {
+			display: none !important;
+		}
 
-        :deep(.el-select) {
-            width: 120px;
-            @apply truncate text-sm font-medium text-gray-700;
-        }
-    }
+		:deep(.el-select) {
+			width: 120px;
+			@apply truncate text-sm font-medium text-gray-700;
+		}
+
+		padding: 0 12px;
+	}
 }
 
 .student-cloud-debug-tips {
-    :deep(.el-form-item__label) {
-        font-weight: bold;
-        color: red !important;
-    }
+	:deep(.el-form-item__label) {
+		font-weight: bold;
+		color: red !important;
+	}
 }
 
-
 .student-cloud-header-storage-select {
-    :deep(.el-input__wrapper) {
-        @apply truncate text-sm font-medium;
-    }
+	:deep(.el-input__wrapper) {
+		@apply truncate text-sm font-medium;
+	}
+
+	:deep(.el-select__wrapper),
+	:deep(.el-input__wrapper) {
+		min-height: 38px;
+		border: 1px solid var(--cloud-line);
+		border-radius: 8px;
+		background: var(--cloud-surface);
+		box-shadow: none;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.header-icon-button {
+		transition: none;
+	}
 }
 </style>
 
 <style lang="scss">
 .student-cloud-header-dropdown {
-    .el-dropdown-menu__item:hover,
-    .el-dropdown-menu__item:hover svg {
-        @apply text-blue-500
-    }
+	.el-dropdown-menu__item svg {
+		width: 20px;
+		height: 20px;
+		flex-shrink: 0;
+		color: var(--cloud-muted);
+	}
+	.el-dropdown-menu__item:hover,
+	.el-dropdown-menu__item:hover svg {
+		color: var(--cloud-primary);
+	}
 }
 </style>

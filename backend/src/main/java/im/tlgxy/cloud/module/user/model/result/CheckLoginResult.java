@@ -38,11 +38,16 @@ public class CheckLoginResult implements Serializable {
      */
     private String username;
 
+    private String accountId;
+
+    private String email;
+
     /**
      * 用户昵称（显示名称）
      */
     private String nickname;
 
+    @io.swagger.v3.oas.annotations.media.Schema(title = "用户角色", type = "string", implementation = String.class, allowableValues = {"ADMIN", "TENANT_ADMIN", "USER"})
     private UserRoleEnum role;
 
     private Integer tenantId;

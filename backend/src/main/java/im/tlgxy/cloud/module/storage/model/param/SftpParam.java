@@ -19,6 +19,9 @@ public class SftpParam extends ProxyTransferParam {
     @StorageParamItem(name = "端口", order = 2)
     private int port;
 
+    @StorageParamItem(name = "SSH 主机 SHA256 指纹", order = 2, description = "必须从服务器管理员或可信控制台核实，格式 SHA256:...。不要盲信 ssh-keyscan 扫描结果；更换主机密钥后需重新核实。未配置或不匹配将拒绝连接。")
+    private String hostKeyFingerprint;
+
     @StorageParamItem(name = "编码格式",
             defaultValue = "UTF-8",
             type = StorageParamTypeEnum.SELECT,

@@ -216,7 +216,7 @@ public class ShareLinkController {
         // 通过分享文件服务获取实际文件信息(内部会设置 ShareAccessContext, 走分享 basePath).
         FileItemResult fileItem = shareLinkFileService.getShareFileItem(request.getShareKey(),
                 request.getPath(),
-                request.getSharePassword());
+                request.getSharePassword(), request.getFolderPassword());
         // 如果文件不存在，抛出业务异常提示用户
         if (fileItem == null) {
             throw new BizException("文件不存在");
@@ -250,10 +250,10 @@ public class ShareLinkController {
      * <p>通过分享链接下载指定的文件。此接口不直接返回文件流，而是：
      * <ol>
      *   <li>先通过 {@link ShareLinkFileService#getShareFileDownloadUrl} 获取实际的文件下载地址
-     *       （直链地址，可能是对象存储的预签名 URL 等）</li>
+     *       （绑定分享身份、可即时撤销的服务器代理地址）</li>
      *   <li>返回 HTTP 302 重定向响应，浏览器会自动跳转到实际下载地址</li>
      * </ol>
-     * 使用 302 重定向而非代理下载的好处是减少服务器带宽压力，大文件下载体验更好。
+     * 302 的目标仍是服务器代理；这样每次传输都可重新校验分享者与授权，但会占用服务器带宽。
      * </p>
      *
      * <p>响应头中设置了禁用缓存的头信息（Cache-Control、Pragma、Expires），
@@ -274,25 +274,16 @@ public class ShareLinkController {
     public ResponseEntity<?> downloadShareFile(
             @PathVariable String shareKey,
             @RequestParam String path,
-            @RequestParam(required = false) String password) {
-        try {
-            // 获取实际下载地址（可能是对象存储的预签名 URL 等）
-            String actualDownloadUrl = shareLinkFileService.getShareFileDownloadUrl(shareKey, path, password);
-
-            // 302重定向到实际地址，设置禁用缓存的响应头以确保每次都获取最新的下载地址
-            return ResponseEntity.status(302)
-                    .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate, private")
-                    .header(HttpHeaders.PRAGMA, "no-cache")
-                    .header(HttpHeaders.EXPIRES, "0")
-                    .header(HttpHeaders.LOCATION, actualDownloadUrl)
-                    .build();
-
-        } catch (Exception e) {
-            // 记录下载失败的日志，包含 shareKey 和 path 方便排查问题
-            log.error("分享文件下载失败, shareKey: {}, path: {}", shareKey, path, e);
-            // 返回 400 状态码和错误信息给客户端
-            return ResponseEntity.status(400).body(AjaxJson.getError(e.getMessage()));
-        }
+            @RequestParam(required = false) String password,
+            @RequestParam(required = false) String folderPassword) {
+        // 校验错误交给全局处理器，保留明确的业务码和 HTTP 4xx 状态。
+        String actualDownloadUrl = shareLinkFileService.getShareFileDownloadUrl(shareKey, path, password, folderPassword);
+        return ResponseEntity.status(302)
+                .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate, private")
+                .header(HttpHeaders.PRAGMA, "no-cache")
+                .header(HttpHeaders.EXPIRES, "0")
+                .header(HttpHeaders.LOCATION, actualDownloadUrl)
+                .build();
     }
 
     /**

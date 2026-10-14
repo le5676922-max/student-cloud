@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.sqlite.SQLiteException;
 
@@ -241,6 +242,14 @@ public class GlobalExceptionHandler {
         return new AjaxJson<>(e.getCode(), e.getMessage());
     }
 
+    /** Invalid query/path value types are client errors; never echo the raw supplied value. */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    @ResponseBody
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public AjaxJson<?> invalidArgumentType(MethodArgumentTypeMismatchException ignored) {
+        return AjaxJson.getError("请求参数格式不正确，请检查页码、数量和筛选条件");
+    }
+
     // ---------------------- status exception end ----------------------
 
 
@@ -328,7 +337,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(value = StorageSourceFileForbiddenAccessBizException.class)
     @ResponseBody
-    @ResponseStatus
+    @ResponseStatus(HttpStatus.FORBIDDEN)
     public AjaxJson<String> storageSourceFileForbiddenAccessBizException(StorageSourceFileForbiddenAccessBizException e) {
         log.warn("尝试访问不被授权的文件/目录, 存储源 ID: {}: 目录: {}", e.getStorageId(), e.getPath());
         return new AjaxJson<>(e.getCode(), e.getMessage());
@@ -345,7 +354,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(value = StorageSourceIllegalOperationBizException.class)
     @ResponseBody
-    @ResponseStatus
+    @ResponseStatus(HttpStatus.FORBIDDEN)
     public AjaxJson<String> storageSourceIllegalOperationBizException(StorageSourceIllegalOperationBizException e) {
         log.warn("存储源非法或未授权的操作, 存储源 ID: {}, 操作类型: {}", e.getStorageId(), e.getAction());
         return new AjaxJson<>(e.getCode(), e.getMessage());
@@ -406,7 +415,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(value = BizException.class)
     @ResponseBody
-    @ResponseStatus
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
     public AjaxJson<String> bizException(BizException e) {
         return new AjaxJson<>(e.getCode(), e.getMessage());
     }

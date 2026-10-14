@@ -1,17 +1,17 @@
-import axios from "~/http/request";
+import axios from '~/http/request'
 
 export const authDeviceCodeReq = (data) => {
-  return axios({
-    url: `/115/qrcode`,
-    method: "get",
-    data
-  })
-};
+	return axios({
+		url: `/115/qrcode`,
+		method: 'get',
+		data,
+	})
+}
 
 export const getStatusReq = (data) => {
-  return axios({
-    url: `/115/qrCodeStatus`,
-    method: "post",
-    data
-  })
-};
+	return axios({
+		url: `/115/qrCodeStatus`,
+		method: 'post',
+		data,
+	})
+}

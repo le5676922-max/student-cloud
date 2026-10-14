@@ -144,6 +144,9 @@ public class ProxyDownloadUrlUtils {
 	 * @return	签名有效返回 true，否则返回 false（签名格式错误、路径不匹配、已过期、解密异常等情况均返回 false）
 	 */
 	public static boolean validSignatureExpired(Integer expectedStorageId, String expectedPathAndName, String signature) {
+		if (ShareDownloadTokenUtils.isShareSignature(signature)) {
+			return ShareDownloadTokenUtils.validate(expectedStorageId, expectedPathAndName, signature) != null;
+		}
 		// 签名为空，直接返回无效
 		if (StringUtils.isEmpty(signature)) {
 			return false;
@@ -178,7 +181,7 @@ public class ProxyDownloadUrlUtils {
 					&& StringUtils.equals(StringUtils.concat(pathAndName), StringUtils.concat(expectedPathAndName));
 
 			if (!storageAndPathMatch) {
-				log.warn("校验链接不匹配, signature: {}, storageId={}, pathAndName={}, expiredSecond={}, now:={}", signature, storageId, pathAndName, expiredSecond, currentTimeMillis);
+				log.warn("代理下载签名与存储或文件路径不匹配");
 				return false;
 			}
 
@@ -193,10 +196,10 @@ public class ProxyDownloadUrlUtils {
 			}
 
 			// 签名已过期，记录警告日志
-			log.warn("校验链接已过期, signature: {}, storageId={}, pathAndName={}, expiredSecond={}, now:={}", signature, storageId, pathAndName, expiredSecond, currentTimeMillis);
+			log.warn("代理下载签名已过期");
 		} catch (Exception e) {
 			// 解密或解析过程中发生异常（如签名被篡改导致解密失败、格式不正确等），记录错误日志并返回无效
-			log.error("校验签名链接异常, signature: {}, storageId={}, pathAndName={}, expiredSecond={}, now:={}", signature, storageId, pathAndName, expiredSecond, currentTimeMillis);
+			log.warn("代理下载签名无效");
 			return false;
 		}
 

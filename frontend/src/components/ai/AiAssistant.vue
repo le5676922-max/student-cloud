@@ -65,12 +65,22 @@
 						</div>
 
 						<div class="ai-agent-actions">
+							<router-link
+								:to="automationRoute"
+								class="ai-agent-icon-button"
+								title="自动化任务"
+								aria-label="打开自动化任务"
+								><i-lucide-list-checks
+							/></router-link>
 							<el-tooltip content="清空对话" placement="bottom">
 								<button
 									type="button"
 									class="ai-agent-icon-button"
 									:disabled="
-										isLoading || isAgentUploading || messages.length === 1
+										isLoading ||
+										isAgentUploading ||
+										isQuickPreviewing ||
+										messages.length === 1
 									"
 									aria-label="清空对话"
 									@click="clearMessages"
@@ -90,6 +100,51 @@
 							</el-tooltip>
 						</div>
 					</header>
+					<div class="ai-agent-shortcuts" aria-label="常用文件操作">
+						<div class="ai-agent-shortcuts-heading">
+							<span>快捷操作 · 无需等待 AI</span>
+							<small
+								v-if="automationContext.storageKey"
+								:title="automationContext.path"
+								>{{
+									automationContext.path === '/'
+										? '当前云盘根目录'
+										: automationContext.path
+								}}</small
+							>
+						</div>
+						<div class="ai-agent-shortcut-buttons">
+							<button
+								type="button"
+								:disabled="shortcutBusy"
+								@click="chooseShortcutUpload"
+							>
+								<i-lucide-upload />上传文件
+							</button>
+							<button
+								v-if="canOrganizeDirectory"
+								type="button"
+								:disabled="shortcutBusy"
+								@click="previewDirectory('ORGANIZE_FILES')"
+							>
+								<i-lucide-folders />整理目录
+							</button>
+							<button
+								v-if="canRenameDirectory"
+								type="button"
+								:disabled="shortcutBusy"
+								@click="previewDirectory('RENAME_BY_DATE')"
+							>
+								<i-lucide-calendar-days />日期命名
+							</button>
+							<router-link :to="learningAutomationRoute"
+								><i-lucide-book-open />归档课程</router-link
+							>
+						</div>
+						<small v-if="isQuickPreviewing" role="status"
+							>正在生成预览，不会自动修改文件…</small
+						>
+					</div>
 
 					<div
 						ref="messageListRef"
@@ -98,6 +153,7 @@
 					>
 						<div
 							v-for="message in messages"
+							v-show="message.content || message.tools?.length"
 							:key="message.id"
 							class="ai-agent-message-row"
 							:class="`is-${message.role}`"
@@ -122,11 +178,11 @@
 										{{ tool.summary }}
 									</span>
 								</div>
-								<div
+								<SafeHtml
 									v-if="message.role === 'assistant'"
 									class="ai-agent-response"
-									v-html="message.renderedContent"
-								></div>
+									:html="message.renderedContent"
+								/>
 								<template v-else>
 									<div
 										v-if="message.attachments?.length"
@@ -139,12 +195,49 @@
 									</div>
 									{{ message.content }}
 								</template>
-								<details v-if="message.citations?.length" class="ai-material-citations">
-									<summary>本轮资料依据（{{ message.citations.length }} 个片段）</summary>
-									<article v-for="citation in message.citations" :key="citation.reference">
-										<strong>[{{ citation.reference }}] {{ citation.name }} · 文本片段 {{ citation.segment }}</strong>
+								<details
+									v-if="message.knowledge?.length"
+									class="ai-material-citations"
+								>
+									<summary>
+										项目知识依据（{{ message.knowledge.length }} 条）
+									</summary>
+									<article v-for="item in message.knowledge" :key="item.id">
+										<strong>[K:{{ item.id }}] {{ item.title }}</strong>
+										<p>{{ item.content }}</p>
+										<small>来源：{{ item.source }}</small>
+									</article>
+								</details>
+								<AgentTaskCard
+									v-for="plan in message.plans || []"
+									:key="plan.id"
+									:plan="plan"
+									@updated="updateMessagePlan(message, $event)"
+									@created="addMessagePlan(message, $event)"
+								/>
+								<details
+									v-if="message.citations?.length"
+									class="ai-material-citations"
+								>
+									<summary>
+										本轮资料依据（{{ message.citations.length }} 个片段）
+									</summary>
+									<article
+										v-for="citation in message.citations"
+										:key="citation.reference"
+									>
+										<strong
+											>[{{ citation.reference }}] {{ citation.name }} · 文本片段
+											{{ citation.segment }}</strong
+										>
 										<p>{{ citation.excerpt }}</p>
-										<router-link :to="{ path: '/learning', query: { courseId: citation.courseId } }">查看所属课程</router-link>
+										<router-link
+											:to="{
+												path: '/learning',
+												query: { courseId: citation.courseId },
+											}"
+											>查看所属课程</router-link
+										>
 									</article>
 								</details>
 							</div>
@@ -161,7 +254,7 @@
 								<span></span>
 								<span></span>
 								<span></span>
-								<small>正在分析并查询</small>
+								<small>{{ streamStatus }}</small>
 							</div>
 						</div>
 						<div
@@ -259,7 +352,7 @@
 										/>
 									</label>
 									<p class="ai-agent-upload-notice">
-										执行前会再次校验上传权限；同名文件按目标存储源规则处理。
+										执行前会再次校验上传权限并检查同名文件。
 									</p>
 									<p v-if="uploadIntent.error" class="ai-agent-upload-error">
 										{{ uploadIntent.error }}
@@ -269,7 +362,7 @@
 											type="button"
 											class="ai-agent-action-button is-primary"
 											:disabled="!uploadIntent.storageKey"
-											@click="confirmCloudUpload"
+											@click="confirmCloudUpload()"
 										>
 											<i-lucide-check />
 											确认上传
@@ -285,6 +378,63 @@
 									</div>
 								</template>
 
+								<template v-else-if="uploadIntent.phase === 'review-conflicts'">
+									<p>
+										目标目录已有
+										{{ uploadIntent.duplicates.length }} 个同名文件：
+									</p>
+									<p class="ai-agent-upload-notice">
+										{{ uploadIntent.duplicates.slice(0, 3).join('、')
+										}}{{
+											uploadIntent.duplicates.length > 3 ? ' 等' : ''
+										}}。小芽不会主动覆盖它们。
+									</p>
+									<p v-if="uploadIntent.error" class="ai-agent-upload-error">
+										{{ uploadIntent.error }}
+									</p>
+									<div class="ai-agent-upload-actions">
+										<button
+											type="button"
+											class="ai-agent-action-button is-primary"
+											:disabled="
+												uploadIntent.duplicates.length ===
+												uploadIntent.files.length
+											"
+											@click="confirmCloudUpload(true)"
+										>
+											跳过同名并上传其余文件
+										</button>
+										<button
+											type="button"
+											class="ai-agent-action-button is-quiet"
+											@click="uploadIntent.phase = 'configure'"
+										>
+											修改目标目录
+										</button>
+									</div>
+								</template>
+								<template v-else-if="uploadIntent.phase === 'retry-failed'">
+									<p>
+										{{ uploadIntent.files.length }}
+										个文件上传失败，可单独重试；重试前会重新检查权限和同名文件。
+									</p>
+									<div class="ai-agent-upload-actions">
+										<button
+											type="button"
+											class="ai-agent-action-button is-primary"
+											@click="confirmCloudUpload()"
+										>
+											重试失败文件
+										</button>
+										<button
+											type="button"
+											class="ai-agent-action-button is-quiet"
+											@click="cancelUploadIntent"
+										>
+											稍后处理
+										</button>
+									</div>
+								</template>
 								<div
 									v-else-if="uploadIntent.phase === 'uploading'"
 									class="ai-agent-upload-progress"
@@ -293,7 +443,7 @@
 										<span>正在存储 {{ uploadIntent.currentFile }}</span>
 										<strong>
 											{{ uploadIntent.completed }}/{{
-												uploadIntent.files.length
+												uploadIntent.uploadCount || uploadIntent.files.length
 											}}
 										</strong>
 									</div>
@@ -308,6 +458,16 @@
 					</div>
 
 					<footer class="ai-agent-composer">
+						<button
+							type="button"
+							class="ai-agent-answer-style"
+							:aria-label="`回答模式：${
+								answerStyle === 'concise' ? '简洁' : '详细'
+							}，点击切换`"
+							@click="toggleAnswerStyle"
+						>
+							回答：{{ answerStyle === 'concise' ? '简洁' : '详细' }}
+						</button>
 						<input
 							ref="fileInputRef"
 							type="file"
@@ -315,6 +475,13 @@
 							:accept="ATTACHMENT_ACCEPT"
 							multiple
 							@change="selectAttachments"
+						/>
+						<input
+							ref="uploadPickerRef"
+							type="file"
+							class="ai-agent-file-input"
+							multiple
+							@change="selectUploadFiles"
 						/>
 						<div v-if="selectedFiles.length" class="ai-agent-selected-files">
 							<span
@@ -358,21 +525,25 @@
 								type="textarea"
 								resize="none"
 								maxlength="2000"
-								:disabled="isLoading || isAgentUploading"
+								:disabled="shortcutBusy"
 								:autosize="{ minRows: 2, maxRows: 4 }"
 								placeholder="输入问题，或添加附件"
 								aria-label="输入问题"
 								@keydown.enter.exact.prevent="sendMessage"
 							/>
-							<el-tooltip content="发送" placement="top">
+							<el-tooltip
+								:content="isLoading ? '停止生成' : '发送'"
+								placement="top"
+							>
 								<button
 									type="button"
 									class="ai-agent-send-button"
-									:disabled="!canSend"
-									aria-label="发送消息"
-									@click="sendMessage"
+									:disabled="!isLoading && !canSend"
+									:aria-label="isLoading ? '停止生成' : '发送消息'"
+									@click="isLoading ? stopGeneration() : sendMessage()"
 								>
-									<i-lucide-send />
+									<i-lucide-square v-if="isLoading" />
+									<i-lucide-send v-else />
 								</button>
 							</el-tooltip>
 						</div>
@@ -443,21 +614,35 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { marked } from 'marked'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
+import { streamWithAiAgentReq } from '~/api/home/ai-agent'
+import { agentTaskRequest } from '~/api/home/agent-tasks'
 import {
-	chatWithAiAgentFilesReq,
-	chatWithAiAgentReq,
-} from '~/api/home/ai-agent'
+	automationContextFromRoute,
+	buildAutomationRoute,
+	canPreviewDirectory,
+} from '~/utils/automation-context.mjs'
 import AiMascotSprite from '~/components/ai/AiMascotSprite.vue'
+import AgentTaskCard from '~/components/ai/AgentTaskCard.vue'
 import {
 	clampPanelSize as clampStoredPanelSize,
 	restorePanelSize as restoreStoredPanelSize,
 } from '~/components/ai/ai-assistant-panel.mjs'
-import { getSourceListReq, loadStorageConfigReq } from '~/api/home/home'
+import {
+	getSourceListReq,
+	loadStorageConfigReq,
+	loadFileListReq,
+} from '~/api/home/home'
 import useFileUpload from '~/composables/file/useFileUpload'
 import useStorageConfigStore from '~/stores/storage-config'
+import useFileDataStore from '~/stores/file-data'
+import {
+	isUploadCommand,
+	explicitUploadPath,
+	existingUploadNames,
+} from '~/utils/ai-upload-intent.mjs'
 
 const WELCOME_MESSAGE =
-	'你好，我是小芽，学生云盘的 AI 助手。你可以把桌面文件拖给我，再选择存入云盘或交给我分析。'
+	'你好，我是小芽。拖入文件可以上传或分析；整理目录、日期命名可以直接生成预览，确认后再执行。'
 const MAX_ATTACHMENT_FILES = 3
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
 const MAX_AGENT_UPLOAD_FILES = 20
@@ -504,6 +689,7 @@ const ATTACHMENT_ACCEPT = Array.from(SUPPORTED_ATTACHMENT_EXTENSIONS)
 	.join(',')
 const FLOATING_POSITION_KEY = 'student-cloud-ai-position'
 const PANEL_SIZE_KEY = 'student-cloud-ai-panel-size'
+const ANSWER_STYLE_KEY = 'student-cloud-ai-answer-style'
 const FLOATING_BUTTON_WIDTH = 96
 const FLOATING_BUTTON_HEIGHT = 104
 const VIEWPORT_PADDING = 12
@@ -535,13 +721,48 @@ const ALLOWED_ASSISTANT_TAGS = new Set([
 const route = useRoute()
 const router = useRouter()
 const storageConfigStore = useStorageConfigStore()
+const fileDataStore = useFileDataStore()
 const { silentUploadFile } = useFileUpload()
 
 const isOpen = ref(false)
 const isLoading = ref(false)
+const isQuickPreviewing = ref(false)
+let quickPreviewController = null
+let assistantDisposed = false
+const automationContext = computed(() => automationContextFromRoute(route))
+const automationRoute = computed(() =>
+	buildAutomationRoute(automationContext.value)
+)
+const learningAutomationRoute = computed(() =>
+	buildAutomationRoute({ ...automationContext.value, type: 'IMPORT_LEARNING' })
+)
+const canOrganizeDirectory = computed(() =>
+	canPreviewDirectory(
+		automationContext.value,
+		fileDataStore.currentStorageSource,
+		storageConfigStore.folderConfig.permission,
+		'ORGANIZE_FILES'
+	)
+)
+const canRenameDirectory = computed(() =>
+	canPreviewDirectory(
+		automationContext.value,
+		fileDataStore.currentStorageSource,
+		storageConfigStore.folderConfig.permission,
+		'RENAME_BY_DATE'
+	)
+)
+const shortcutBusy = computed(
+	() => isLoading.value || isAgentUploading.value || isQuickPreviewing.value
+)
+const streamStatus = ref('正在连接 AI 助手')
+let chatAbortController = null
 const inputMessage = ref('')
+const answerStyle = ref('concise')
 const inputRef = ref()
 const fileInputRef = ref()
+const uploadPickerRef = ref()
+const pendingUploadPath = ref(null)
 const selectedFiles = ref([])
 const uploadIntent = ref(null)
 const isAgentFileOver = ref(false)
@@ -586,7 +807,8 @@ const canSend = computed(
 	() =>
 		(inputMessage.value.trim().length > 0 || selectedFiles.value.length > 0) &&
 		!isLoading.value &&
-		!isAgentUploading.value
+		!isAgentUploading.value &&
+		!isQuickPreviewing.value
 )
 
 const agentUploadProgress = computed(() => {
@@ -594,7 +816,9 @@ const agentUploadProgress = computed(() => {
 	if (!intent?.files?.length) {
 		return 0
 	}
-	return Math.round((intent.completed / intent.files.length) * 100)
+	return Math.round(
+		(intent.completed / (intent.uploadCount || intent.files.length)) * 100
+	)
 })
 
 const floatingButtonStyle = computed(() => {
@@ -627,16 +851,39 @@ watch(
 watch(showAssistant, (visible) => {
 	if (!visible) {
 		isOpen.value = false
+		stopGeneration()
+		cancelQuickPreview()
+		clearMessages()
 	}
 })
+
+// A result from a previous account must never appear in the next account's conversation.
+watch(
+	[
+		() => storageConfigStore.loginInfo.username,
+		() => storageConfigStore.loginInfo.tenantId,
+	],
+	() => {
+		cancelQuickPreview()
+		stopGeneration()
+		clearMessages()
+	}
+)
 
 onMounted(() => {
 	restoreFloatingPosition()
 	restorePanelSize()
+	answerStyle.value =
+		window.localStorage.getItem(ANSWER_STYLE_KEY) === 'detailed'
+			? 'detailed'
+			: 'concise'
 	window.addEventListener('resize', keepAssistantInViewport)
 })
 
 onBeforeUnmount(() => {
+	assistantDisposed = true
+	cancelQuickPreview()
+	stopGeneration()
 	window.removeEventListener('resize', keepAssistantInViewport)
 	window.removeEventListener('mousemove', movePanelResize)
 	window.removeEventListener('mouseup', finishPanelResize)
@@ -649,6 +896,8 @@ function renderAssistantContent(content) {
 	const parsed = marked.parse(String(content || ''), {
 		breaks: true,
 		gfm: true,
+		mangle: false,
+		headerIds: false,
 	})
 	return sanitizeAssistantHtml(parsed)
 }
@@ -707,7 +956,9 @@ function createMessage(role, content, options = {}) {
 }
 
 function readToken() {
-	const localToken = window.localStorage.getItem('tongligong-student-cloud-token')
+	const localToken = window.localStorage.getItem(
+		'tongligong-student-cloud-token'
+	)
 	if (localToken) {
 		return localToken
 	}
@@ -957,11 +1208,104 @@ function clearMessages() {
 	]
 	inputMessage.value = ''
 	selectedFiles.value = []
+	pendingUploadPath.value = null
 	uploadIntent.value = null
 	isAgentFileOver.value = false
 	fileDragDepth = 0
 	if (fileInputRef.value) {
 		fileInputRef.value.value = ''
+	}
+}
+
+function chooseShortcutUpload() {
+	if (shortcutBusy.value) return
+	pendingUploadPath.value = automationContext.value.path || null
+	uploadPickerRef.value?.click()
+}
+
+function cancelQuickPreview() {
+	quickPreviewController?.abort()
+	quickPreviewController = null
+	isQuickPreviewing.value = false
+}
+
+function updateMessagePlan(message, plan) {
+	if (!plan?.id || !messages.value.some((item) => item.id === message.id))
+		return
+	message.plans = (message.plans || []).map((item) =>
+		item.id === plan.id ? plan : item
+	)
+}
+
+function addMessagePlan(message, plan) {
+	if (!plan?.id || !messages.value.some((item) => item.id === message.id))
+		return
+	if (!(message.plans || []).some((item) => item.id === plan.id))
+		message.plans = [...(message.plans || []), plan]
+}
+
+async function previewDirectory(type) {
+	if (
+		shortcutBusy.value ||
+		!canPreviewDirectory(
+			automationContext.value,
+			fileDataStore.currentStorageSource,
+			storageConfigStore.folderConfig.permission,
+			type
+		)
+	)
+		return
+	const context = { ...automationContext.value }
+	const controller = new AbortController()
+	quickPreviewController = controller
+	isQuickPreviewing.value = true
+	const title = type === 'ORGANIZE_FILES' ? '整理目录' : '按日期命名'
+	messages.value.push(
+		createMessage('user', `${title}：${context.storageKey} · ${context.path}`)
+	)
+	try {
+		// Only create a PENDING preview. Confirmation always belongs to the task card.
+		const response = await agentTaskRequest(
+			'post',
+			'',
+			{ ...context, type },
+			{ signal: controller.signal, timeout: 15000 }
+		)
+		if (
+			assistantDisposed ||
+			controller.signal.aborted ||
+			quickPreviewController !== controller
+		)
+			return
+		messages.value.push(
+			createMessage(
+				'assistant',
+				'方案已生成，请检查文件清单。确认后才会执行。',
+				{ plans: [response.data] }
+			)
+		)
+	} catch (error) {
+		if (
+			assistantDisposed ||
+			controller.signal.aborted ||
+			quickPreviewController !== controller
+		)
+			return
+		const detail = error?.response?.data?.msg || error?.data?.msg
+		messages.value.push(
+			createMessage(
+				'assistant',
+				`${
+					detail || '未能确认预览结果。'
+				}\n\n请先打开自动化任务并刷新列表，检查是否已有待确认任务，再尝试。`,
+				{ error: true }
+			)
+		)
+	} finally {
+		if (quickPreviewController === controller) {
+			quickPreviewController = null
+			isQuickPreviewing.value = false
+		}
 	}
 }
 
@@ -1000,8 +1344,10 @@ function handleAgentDragLeave() {
 function handleAgentFileDrop(event) {
 	fileDragDepth = 0
 	isAgentFileOver.value = false
+	stageUploadFiles(Array.from(event.dataTransfer?.files || []))
+}
 
-	const droppedFiles = Array.from(event.dataTransfer?.files || [])
+function stageUploadFiles(droppedFiles) {
 	if (droppedFiles.length === 0) {
 		return
 	}
@@ -1036,6 +1382,7 @@ function handleAgentFileDrop(event) {
 		targets: [],
 		storageKey: '',
 		path: '/',
+		duplicates: [],
 		completed: 0,
 		currentFile: '',
 		error: '',
@@ -1056,31 +1403,16 @@ async function prepareCloudUpload() {
 	try {
 		const response = await getSourceListReq()
 		const sources = Array.isArray(response.data) ? response.data : []
-		const targetResults = await Promise.all(
-			sources.map(async (source) => {
-				try {
-					const configResponse = await loadStorageConfigReq({
-						storageKey: source.key,
-						path: '/',
-					})
-					if (configResponse.data?.permission?.upload !== true) {
-						return null
-					}
-					return {
-						key: source.key,
-						name: source.name,
-						rootConfig: configResponse.data,
-					}
-				} catch {
-					return null
-				}
-			})
-		)
-		const targets = targetResults.filter(Boolean)
+		// A source may deny uploads at / but allow a delegated subdirectory.
+		// Check the chosen directory below, not the root of every source here.
+		const targets = sources.map((source) => ({
+			key: source.key,
+			name: source.name,
+		}))
 		intent.targets = targets
 		intent.phase = 'configure'
 		if (targets.length === 0) {
-			intent.error = '当前账户没有可上传的存储源，请联系管理员授权。'
+			intent.error = '当前账户没有可访问的存储源，请联系管理员授权。'
 			return
 		}
 
@@ -1090,6 +1422,14 @@ async function prepareCloudUpload() {
 		intent.storageKey = defaultTarget.key
 		intent.path =
 			defaultTarget.key === currentStorageKey ? currentRouteDirectory() : '/'
+		if (pendingUploadPath.value) {
+			try {
+				intent.path = normalizeAgentUploadPath(pendingUploadPath.value)
+			} catch {
+				/* Keep the current directory when a suggested path is invalid. */
+			}
+			pendingUploadPath.value = null
+		}
 	} catch (error) {
 		intent.phase = 'configure'
 		intent.error = extractAgentError(error, '无法读取可用存储源')
@@ -1129,13 +1469,19 @@ async function analyzeDroppedFiles() {
 
 function cancelUploadIntent() {
 	uploadIntent.value = null
+	pendingUploadPath.value = null
 	isAgentFileOver.value = false
 	fileDragDepth = 0
 }
 
-async function confirmCloudUpload() {
+async function confirmCloudUpload(skipKnownDuplicates = false) {
+	if (shortcutBusy.value) return
 	const intent = uploadIntent.value
-	if (!intent || intent.phase !== 'configure' || !intent.storageKey) {
+	if (
+		!intent ||
+		!['configure', 'review-conflicts', 'retry-failed'].includes(intent.phase) ||
+		!intent.storageKey
+	) {
 		return
 	}
 	if (!readToken()) {
@@ -1167,15 +1513,35 @@ async function confirmCloudUpload() {
 		if (folderConfig?.permission?.upload !== true) {
 			throw new Error('当前账户没有目标目录的上传权限')
 		}
+		const listing = await loadFileListReq({
+			storageKey: target.key,
+			path: targetPath,
+		})
+		const duplicates = existingUploadNames(intent.files, listing.data?.files)
+		intent.duplicates = duplicates
+		if (duplicates.length && !skipKnownDuplicates) {
+			intent.phase = 'review-conflicts'
+			return
+		}
+		const duplicateSet = new Set(duplicates)
+		const filesToUpload = intent.files.filter(
+			(file) => !duplicateSet.has(file.name)
+		)
+		if (!filesToUpload.length) {
+			intent.phase = 'review-conflicts'
+			intent.error = '全部文件都与目标目录同名，请修改目标目录。'
+			return
+		}
 
 		intent.phase = 'uploading'
+		intent.uploadCount = filesToUpload.length
 		intent.completed = 0
 		intent.currentFile = ''
 		await router.push(buildStorageRoute(target.key, targetPath))
 		storageConfigStore.updateFolderConfig(folderConfig)
 
 		const failures = []
-		for (const file of intent.files) {
+		for (const file of filesToUpload) {
 			intent.currentFile = file.name
 			try {
 				await silentUploadFile(file, {
@@ -1191,10 +1557,16 @@ async function confirmCloudUpload() {
 			intent.completed += 1
 		}
 
-		const successCount = intent.files.length - failures.length
+		const successCount = filesToUpload.length - failures.length
+		if (successCount > 0) {
+			useEventBus('cloud-files-changed').emit({
+				storageKey: target.key,
+				path: targetPath,
+			})
+		}
 		const summary = failures.length
-			? `已将 ${successCount} 个文件存入“${target.name}”的 ${targetPath}，另有 ${failures.length} 个文件上传失败。`
-			: `已将 ${successCount} 个文件存入“${target.name}”的 ${targetPath}。`
+			? `已上传 ${successCount} 个文件，${failures.length} 个失败，跳过 ${duplicates.length} 个同名文件。`
+			: `已上传 ${successCount} 个文件到“${target.name}”的 ${targetPath}，跳过 ${duplicates.length} 个同名文件。`
 		messages.value.push(
 			createMessage('assistant', summary, {
 				tools: [
@@ -1208,11 +1580,38 @@ async function confirmCloudUpload() {
 				],
 			})
 		)
-		uploadIntent.value = null
+		if (failures.length) {
+			intent.files = failures.map(({ file }) => file)
+			intent.totalSize = intent.files.reduce(
+				(total, file) => total + file.size,
+				0
+			)
+			intent.duplicates = []
+			intent.phase = 'retry-failed'
+			intent.error = ''
+		} else {
+			uploadIntent.value = null
+		}
 	} catch (error) {
 		intent.phase = 'configure'
 		intent.error = extractAgentError(error, '上传前权限校验失败')
 	}
+}
+
+function selectUploadFiles(event) {
+	const files = Array.from(event.target.files || [])
+	event.target.value = ''
+	if (!files.length) {
+		pendingUploadPath.value = null
+		return
+	}
+	stageUploadFiles(files)
+	prepareCloudUpload()
+}
+
+function toggleAnswerStyle() {
+	answerStyle.value = answerStyle.value === 'concise' ? 'detailed' : 'concise'
+	window.localStorage.setItem(ANSWER_STYLE_KEY, answerStyle.value)
 }
 
 function currentRouteDirectory() {
@@ -1268,6 +1667,7 @@ function extractAgentError(error, fallback) {
 }
 
 function openAttachmentPicker() {
+	if (shortcutBusy.value) return
 	fileInputRef.value?.click()
 }
 
@@ -1317,17 +1717,36 @@ function formatFileSize(bytes) {
 async function sendMessage() {
 	const filesToSend = [...selectedFiles.value]
 	const inputContent = inputMessage.value.trim()
-	if ((!inputContent && filesToSend.length === 0) || isLoading.value) {
+	if ((!inputContent && filesToSend.length === 0) || shortcutBusy.value) {
 		return
 	}
 	const content = inputContent || '请分析这些附件。'
+	if (isUploadCommand(content)) {
+		messages.value.push(createMessage('user', content))
+		inputMessage.value = ''
+		pendingUploadPath.value = explicitUploadPath(content)
+		if (filesToSend.length) {
+			selectedFiles.value = []
+			stageUploadFiles(filesToSend)
+			await prepareCloudUpload()
+		} else {
+			messages.value.push(
+				createMessage(
+					'assistant',
+					'请选择要上传的文件。选好后，我会让你确认云盘和目标目录。'
+				)
+			)
+			uploadPickerRef.value?.click()
+		}
+		return
+	}
 
 	const history = messages.value
 		.filter((message) => !message.welcome && !message.error)
 		.slice(-8)
 		.map(({ role, content: messageContent }) => ({
 			role,
-			content: messageContent,
+			content: messageContent.slice(-2000),
 		}))
 
 	messages.value.push(
@@ -1338,34 +1757,71 @@ async function sendMessage() {
 	inputMessage.value = ''
 	selectedFiles.value = []
 	isLoading.value = true
+	streamStatus.value = '正在连接 AI 助手'
+	chatAbortController = new AbortController()
+	messages.value.push(createMessage('assistant', ''))
+	const reply = messages.value[messages.value.length - 1]
+	let renderTimer = null
+	const renderReply = () => {
+		if (renderTimer) window.clearTimeout(renderTimer)
+		renderTimer = null
+		reply.renderedContent = renderAssistantContent(reply.content)
+		scrollToBottom()
+	}
 
 	const request = {
 		message: content,
 		history,
 		pagePath: route.fullPath,
+		answerStyle: answerStyle.value,
 	}
 
 	try {
-		const response = filesToSend.length
-			? await chatWithAiAgentFilesReq(request, filesToSend)
-			: await chatWithAiAgentReq(request)
-		messages.value.push(
-			createMessage('assistant', response.data.answer, {
-				tools: response.data.tools || [],
-				citations: response.data.citations || [],
-			})
-		)
+		const result = await streamWithAiAgentReq(request, filesToSend, {
+			signal: chatAbortController.signal,
+			onEvent: (event, data) => {
+				if (event === 'progress') {
+					streamStatus.value = data.message
+					if (data.stage === 'model') {
+						reply.content = ''
+						renderReply()
+					}
+				} else if (event === 'token') {
+					reply.content += data.text
+					if (!renderTimer) renderTimer = window.setTimeout(renderReply, 50)
+				} else if (event === 'tool') {
+					reply.tools = [...(reply.tools || []), data]
+				}
+			},
+		})
+		Object.assign(reply, {
+			content: result.answer,
+			tools: result.tools || [],
+			citations: result.citations || [],
+			knowledge: result.knowledge || [],
+			plans: result.plans || [],
+		})
 	} catch (error) {
 		const errorMessage =
-			error?.data?.msg ||
-			error?.response?.data?.msg ||
-			'暂时无法连接 AI 助手，请稍后重试。'
-		messages.value.push(
-			createMessage('assistant', errorMessage, { error: true })
-		)
+			error?.name === 'AbortError'
+				? '已停止生成。以上未完成内容仅供参考，不会作为下一轮对话依据。'
+				: error?.message || '暂时无法连接 AI 助手，请稍后重试。'
+		reply.content = `${
+			reply.content ? `${reply.content}\n\n---\n\n` : ''
+		}${errorMessage}`
+		reply.error = true
 	} finally {
+		renderReply()
+		chatAbortController = null
 		isLoading.value = false
 		nextTick(() => inputRef.value?.focus())
+	}
+}
+
+function stopGeneration() {
+	if (chatAbortController) {
+		streamStatus.value = '正在停止生成'
+		chatAbortController.abort()
 	}
 }
 function scrollToBottom() {
@@ -1379,10 +1835,25 @@ function scrollToBottom() {
 </script>
 
 <style scoped>
-.ai-material-citations { margin-top: 12px; font-size: 12px; }
-.ai-material-citations summary { cursor: pointer; color: #2563eb; }
-.ai-material-citations article { border-top: 1px solid #dbeafe; padding-top: 10px; margin-top: 10px; }
-.ai-material-citations p { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow-y: auto; }
+.ai-material-citations {
+	margin-top: 12px;
+	font-size: 12px;
+}
+.ai-material-citations summary {
+	cursor: pointer;
+	color: #2563eb;
+}
+.ai-material-citations article {
+	border-top: 1px solid #dbeafe;
+	padding-top: 10px;
+	margin-top: 10px;
+}
+.ai-material-citations p {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	max-height: 180px;
+	overflow-y: auto;
+}
 .ai-agent-panel {
 	position: fixed;
 	right: 24px;
@@ -1514,6 +1985,65 @@ function scrollToBottom() {
 	opacity: 0.45;
 }
 
+.ai-agent-shortcuts {
+	flex-shrink: 0;
+	padding: 10px 16px;
+	border-bottom: 1px solid #e2e8df;
+	background: #f6f7f2;
+	color: #526456;
+}
+.ai-agent-shortcuts-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	font-size: 11px;
+}
+.ai-agent-shortcuts-heading small {
+	max-width: 45%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.ai-agent-shortcut-buttons {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 8px;
+}
+.ai-agent-shortcut-buttons button,
+.ai-agent-shortcut-buttons a {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 6px 9px;
+	border: 1px solid #d8e0d4;
+	border-radius: 7px;
+	background: #fff;
+	color: #354b3c;
+	font: inherit;
+	font-size: 12px;
+	text-decoration: none;
+	cursor: pointer;
+}
+.ai-agent-shortcut-buttons svg {
+	width: 14px;
+	height: 14px;
+}
+.ai-agent-shortcut-buttons button:disabled {
+	opacity: 0.5;
+	cursor: wait;
+}
+.ai-agent-shortcut-buttons button:focus-visible,
+.ai-agent-shortcut-buttons a:focus-visible {
+	outline: 2px solid #2b7160;
+	outline-offset: 2px;
+}
+.ai-agent-shortcut-buttons button:not(:disabled):hover,
+.ai-agent-shortcut-buttons a:hover {
+	background: #eaf1e8;
+	border-color: #9aad9f;
+}
 .ai-agent-messages {
 	flex: 1;
 	min-height: 0;
@@ -2030,6 +2560,17 @@ function scrollToBottom() {
 	padding: 12px;
 	background: #ffffff;
 	border-top: 1px solid #e5e7eb;
+}
+
+.ai-agent-answer-style {
+	align-self: flex-end;
+	padding: 2px 8px;
+	border: 1px solid #d8dee8;
+	border-radius: 12px;
+	background: #f8fafc;
+	color: #475569;
+	font-size: 11px;
+	cursor: pointer;
 }
 
 .ai-agent-file-input {

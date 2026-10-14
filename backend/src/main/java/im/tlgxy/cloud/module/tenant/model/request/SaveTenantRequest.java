@@ -10,9 +10,8 @@ public class SaveTenantRequest {
     private Integer id;
 
     @NotBlank(message = "工作空间名称不能为空")
-    @Size(max = 100, message = "工作空间名称不能超过 100 个字符")
+    @Size(max = 80, message = "工作空间名称不能超过 80 个字符")
     private String name;
 
     private Boolean enable = true;
 }
-

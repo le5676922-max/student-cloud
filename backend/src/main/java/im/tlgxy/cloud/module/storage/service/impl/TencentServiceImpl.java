@@ -86,7 +86,7 @@ public class TencentServiceImpl extends AbstractS3BaseFileService<TencentParam> 
                 .build();
 
         // 设置跨域上传规则，允许浏览器端直传
-        setUploadCors();
+        // CORS is an explicit administrative operation, not an initialization side effect.
     }
 
     /**

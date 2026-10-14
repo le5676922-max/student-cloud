@@ -31,6 +31,10 @@ public class AiChatRequest {
     )
     private String pagePath;
 
+    /** Optional response length preference; concise is the default. */
+    @Pattern(regexp = "concise|detailed", message = "回答风格只能是 concise 或 detailed")
+    private String answerStyle = "concise";
+
     /** 单条历史消息。 */
     @Data
     public static class ChatMessage {

@@ -16,7 +16,7 @@ import java.util.function.Function;
  * 避免每次请求都从数据库查询。
  * </p>
  * <p>
- * 缓存的生命周期与应用进程一致，重启后自动清空。
+ * 缓存的生命周期与当前 Spring 容器一致，重建容器后自动清空。
  * </p>
  */
 @Component
@@ -27,7 +27,7 @@ public class TlgxyCloudCacheManager {
      * key 为用户 ID，value 为该用户可访问的存储源列表。
      * 使用 ConcurrentHashMap 保证线程安全。
      */
-    private static final Map<Integer, List<StorageSource>> userEnableStorageSourceCache = new ConcurrentHashMap<>();
+    private final Map<Integer, List<StorageSource>> userEnableStorageSourceCache = new ConcurrentHashMap<>();
 
     /**
      * 根据用户 ID 获取可用的存储源列表（按排序号升序排列）。

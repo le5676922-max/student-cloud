@@ -2,8 +2,20 @@ import { ElLoading } from 'element-plus'
 import { newFolderReq, uploadFileReq } from '~/api/home/file-operator'
 import axios from 'axios'
 import selfAxios from '~/http/request'
+import useFilePwd from '~/composables/file/useFilePwd'
+import {
+	isResumableCandidate,
+	tryResumableUpload,
+	readResumableStatus,
+} from '~/utils/resumable-upload.mjs'
 import { concatPath, fileSizeFormat, removeDuplicateSeparator } from '~/utils'
 import { calculateUploadProgress } from './upload-progress.mjs'
+import { effectScope, getCurrentInstance, onBeforeUnmount, watch } from 'vue'
+import {
+	captureUploadTarget,
+	uploadAccountIdentity,
+	uploadCancellationError,
+} from './upload-lifecycle.mjs'
 
 import useStorageConfigStore from '~/stores/storage-config'
 let storageConfigStore = useStorageConfigStore()
@@ -36,6 +48,50 @@ const waitingFileList = reactive([])
 // 取消上传文件的 cancelTokenSource 映射表
 const cancelTokenSourceMap = new Map()
 
+// An operation exists before the first async request, including signing and folder creation.
+const uploadOperationMap = new Map()
+const uploadWatchScope = effectScope(true)
+let detachDropListeners = null
+
+const currentAccountIdentity = () =>
+	uploadAccountIdentity(storageConfigStore.loginInfo)
+
+const createUploadOperation = (fileIndex, target, onCancel) => {
+	const operation = {
+		controller: new AbortController(),
+		cancelSource: axios.CancelToken.source(),
+		target,
+		onCancel,
+	}
+	uploadOperationMap.set(fileIndex, operation)
+	cancelTokenSourceMap.set(fileIndex, operation.cancelSource)
+	return operation
+}
+
+const isUploadOperationActive = (fileIndex) => {
+	const operation = uploadOperationMap.get(fileIndex)
+	return !!(
+		operation &&
+		!operation.controller.signal.aborted &&
+		operation.target.accountIdentity === currentAccountIdentity()
+	)
+}
+
+const releaseUploadOperation = (fileIndex) => {
+	uploadOperationMap.delete(fileIndex)
+	cancelTokenSourceMap.delete(fileIndex)
+}
+
+const abortUploadOperation = (fileIndex) => {
+	const operation = uploadOperationMap.get(fileIndex)
+	if (!operation) return
+	// Remove first: late success/error callbacks cannot mutate a removed task.
+	releaseUploadOperation(fileIndex)
+	operation.controller.abort()
+	operation.cancelSource.cancel('上传已取消')
+	operation.onCancel?.(uploadCancellationError())
+}
+
 // 正在上传或已完成文件映射表 key: fileInfo.index value: fileInfo
 const uploadingFileMap = new Map()
 
@@ -50,14 +106,113 @@ const uploadFileTypeSortMap = {
 	finished: 4,
 }
 
+const activeUploadCount = () =>
+	uploadingFileList.filter((item) => item.status === 'uploading').length
+
 export default function useFileUpload() {
 	let { storageKey, currentPath } = useRouterData()
-	const maxFileUploads = storageConfigStore.globalConfig.maxFileUploads
+	const { getPathPwd } = useFilePwd()
+	const resumableRequest = (fileIndex, target, path) => (options) => {
+		if (!isUploadOperationActive(fileIndex))
+			return Promise.reject(uploadCancellationError())
+		const { headers, signal, timeout, onUploadProgress, ...request } = options
+		return selfAxios({
+			...request,
+			config: {
+				signal,
+				timeout,
+				onUploadProgress,
+				cancelToken: uploadOperationMap.get(fileIndex)?.cancelSource.token,
+				containToken: true,
+				showDefaultMsg: false,
+				headers: {
+					...headers,
+					// Percent encoding also supports Chinese passwords in HTTP headers.
+					'X-Upload-Directory-Password': encodeURIComponent(
+						getPathPwd(path, false, target) || ''
+					),
+				},
+			},
+		})
+	}
+	const resumableUpload = (file, param, fileIndex, target) => {
+		const operation = uploadOperationMap.get(fileIndex)
+		return tryResumableUpload({
+			file,
+			uploadType: target.uploadType,
+			storageKey: target.storageKey,
+			path: param.path,
+			request: resumableRequest(fileIndex, target, param.path),
+			signal: operation.controller.signal,
+			isActive: () => isUploadOperationActive(fileIndex),
+			onState: (session) => {
+				if (!isUploadOperationActive(fileIndex)) return
+				const info = uploadingFileMap.get(fileIndex)
+				if (!info) return
+				info.resumable = true
+				info.resumableState = session.state
+				if (session.id) info.resumableId = session.id
+				info.msg = session.message || '正在上传分片，可暂停后续传…'
+			},
+			onHashProgress: ({ checked, total }) => {
+				if (!isUploadOperationActive(fileIndex)) return
+				const info = uploadingFileMap.get(fileIndex)
+				if (info)
+					info.msg = `正在校验文件内容 ${Math.floor(
+						(checked / total) * 100
+					)}%（尚未上传）`
+			},
+			onProgress: (event) => {
+				baseOnUploadProgress(event, fileIndex)
+				const info = uploadingFileMap.get(fileIndex)
+				if (!info || !isUploadOperationActive(fileIndex)) return
+				// Receiving bytes is not publication; show 100% only after complete succeeds.
+				info.progress = Math.min(99, info.progress)
+				info.msg = event.resumed
+					? '已恢复已接收的分片，正在继续上传…'
+					: '正在上传分片，可暂停后续传…'
+			},
+		})
+	}
+	let ownDropCleanup = null
+	if (getCurrentInstance()) {
+		onBeforeUnmount(() => {
+			ownDropCleanup?.()
+		})
+	}
+	const maxFileUploads = () => {
+		const limit = Number(storageConfigStore.globalConfig.maxFileUploads)
+		return Number.isFinite(limit) && limit > 0
+			? Math.max(1, Math.floor(limit))
+			: 3
+	}
+	const captureTarget = (options = {}) =>
+		captureUploadTarget({
+			storageKey: options.storageKey ?? storageKey.value,
+			directory: options.path ?? currentPath.value,
+			folderConfig: options.folderConfig ?? storageConfigStore.folderConfig,
+			rootPath: options.rootPath ?? storageConfigStore.user.rootPath,
+			accountIdentity: currentAccountIdentity(),
+		})
 
 	// 监听文件拖拽上传事件
 	const listenDropFile = (dropArea) => {
 		// 拖拽进入, 显示提示.
 		dropArea = document.querySelector('body')
+		if (!dropArea) return
+		detachDropListeners?.()
+		const listeners = []
+		const listen = (type, callback, capture = false) => {
+			dropArea.addEventListener(type, callback, capture)
+			listeners.push([type, callback, capture])
+		}
+		ownDropCleanup = () => {
+			listeners.forEach(([type, callback, capture]) =>
+				dropArea.removeEventListener(type, callback, capture)
+			)
+			dropArea.classList.remove('dragging-over')
+		}
+		detachDropListeners = ownDropCleanup
 
 		const dropOrPasteUpload = (e) => {
 			let isPaste = e.clipboardData?.items?.length > 0
@@ -99,6 +254,15 @@ export default function useFileUpload() {
 			if (!storageConfigStore.permission.upload) {
 				return
 			}
+			let uploadTarget
+			try {
+				uploadTarget = captureTarget()
+			} catch (error) {
+				ElMessage.warning(error.message)
+				return
+			}
+			const batchIndex = uploadIndex++
+			const batchOperation = createUploadOperation(batchIndex, uploadTarget)
 
 			//阻止事件冒泡
 			e.stopPropagation()
@@ -110,155 +274,173 @@ export default function useFileUpload() {
 				text: '文件读取中...',
 				background: 'rgba(0, 0, 0, .3)',
 			})
+			let createFoldersLoadingInstance
+			batchOperation.onCancel = () => {
+				loadingInstance.close()
+				createFoldersLoadingInstance?.close()
+			}
 
 			const items = e.clipboardData?.items || e.dataTransfer?.items
 
-			getFilesByDataTransferItemList(items).then(async (fileList) => {
-				// 关闭 loading
-				loadingInstance.close()
+			getFilesByDataTransferItemList(items)
+				.then(async (fileList) => {
+					// 关闭 loading
+					loadingInstance.close()
 
-				// 如果用户没有新建文件夹权限, 则不允许上传文件夹
-				if (!storageConfigStore.permission.newFolder) {
-					fileList = fileList.filter((item) => {
-						if (item.dropUploadPath) {
-							return (
-								removeDuplicateSeparator(item.dropUploadPath).split('/')
-									.length <= 2
-							)
-						}
-						if (item.webkitRelativePath) {
-							return (
-								removeDuplicateSeparator(item.webkitRelativePath).split('/')
-									.length <= 2
-							)
-						}
-						if (item.path) {
-							return removeDuplicateSeparator(item.path).split('/').length <= 2
-						}
-						return false
-					})
-				}
+					// 如果用户没有新建文件夹权限, 则不允许上传文件夹
+					if (!isUploadOperationActive(batchIndex)) return
+					if (!uploadTarget.canCreateFolder) {
+						fileList = fileList.filter((item) => {
+							if (item.dropUploadPath) {
+								return (
+									removeDuplicateSeparator(item.dropUploadPath).split('/')
+										.length <= 2
+								)
+							}
+							if (item.webkitRelativePath) {
+								return (
+									removeDuplicateSeparator(item.webkitRelativePath).split('/')
+										.length <= 2
+								)
+							}
+							if (item.path) {
+								return (
+									removeDuplicateSeparator(item.path).split('/').length <= 2
+								)
+							}
+							return !item.isEmptyDirectory
+						})
+					}
 
-				// 如果没有文件, 则直接返回
-				if (fileList.length === 0) {
-					return
-				}
-
-				// 上传文件过多时，提示.
-				if (fileList.length > 100) {
-					const action = await ElMessageBox.confirm(
-						`文件数量为 ${fileList.length} 个，是否确认上传？`,
-						'提示',
-						{
-							confirmButtonText: '确定',
-							cancelButtonText: '取消',
-							type: 'success',
-						}
-					)
-
-					if (action !== 'confirm') {
+					// 如果没有文件, 则直接返回
+					if (fileList.length === 0) {
 						return
 					}
-				}
 
-				// 先创建所有文件夹
-				const createFoldersLoadingInstance = ElLoading.service({
-					text: '创建文件夹中...',
-					background: 'rgba(0, 0, 0, .3)',
-				})
+					// 上传文件过多时，提示.
+					if (fileList.length > 100) {
+						const action = await ElMessageBox.confirm(
+							`文件数量为 ${fileList.length} 个，是否确认上传？`,
+							'提示',
+							{
+								confirmButtonText: '确定',
+								cancelButtonText: '取消',
+								type: 'success',
+							}
+						)
 
-				// 获取上传中包含的空文件夹，存储到 createdFolderSet 中并从 fileList 中移除
-				let createdFolderSet = new Set()
-				fileList = fileList.filter((file) => {
-					// 如果包含 webkitRelativePath, 则表示是文件夹上传, 需要获取文件完整路径
-					if (file.webkitRelativePath || file.dropUploadPath) {
-						let pathStr = file.webkitRelativePath || file.dropUploadPath
-
-						if (!pathStr.startsWith('/')) {
-							pathStr = '/' + pathStr
+						if (action !== 'confirm') {
+							return
 						}
+					}
+					if (!isUploadOperationActive(batchIndex)) return
 
-						pathStr = pathStr.substring(0, pathStr.lastIndexOf('/'))
+					// 先创建所有文件夹
+					createFoldersLoadingInstance = ElLoading.service({
+						text: '创建文件夹中...',
+						background: 'rgba(0, 0, 0, .3)',
+					})
 
-						let prePath = ''
-						for (let subPath of pathStr.split('/')) {
-							if (subPath) {
-								if (!prePath) {
-									prePath = '/' + subPath
-								} else {
-									prePath = prePath + '/' + subPath
+					// 获取上传中包含的空文件夹，存储到 createdFolderSet 中并从 fileList 中移除
+					let createdFolderSet = new Set()
+					fileList = fileList.filter((file) => {
+						// 如果包含 webkitRelativePath, 则表示是文件夹上传, 需要获取文件完整路径
+						if (file.webkitRelativePath || file.dropUploadPath) {
+							let pathStr = file.webkitRelativePath || file.dropUploadPath
+
+							if (!pathStr.startsWith('/')) {
+								pathStr = '/' + pathStr
+							}
+
+							pathStr = pathStr.substring(0, pathStr.lastIndexOf('/'))
+
+							let prePath = ''
+							for (let subPath of pathStr.split('/')) {
+								if (subPath) {
+									if (!prePath) {
+										prePath = '/' + subPath
+									} else {
+										prePath = prePath + '/' + subPath
+									}
+									createdFolderSet.add(prePath)
 								}
-								createdFolderSet.add(prePath)
+							}
+						} else if (file.isEmptyDirectory) {
+							createdFolderSet.add(file.path)
+							return false
+						}
+						return true
+					})
+
+					// 创建指定的文件夹列表方法
+					async function handleCreateFolders(folderPathList) {
+						let uploadToPath = uploadTarget.directory
+						for (let path of folderPathList) {
+							if (!isUploadOperationActive(batchIndex)) return
+							let basePath = path.substring(0, path.lastIndexOf('/'))
+							let pathName = path.substring(path.lastIndexOf('/') + 1)
+							let param = {
+								storageKey: uploadTarget.storageKey,
+								path: concatPath(uploadToPath, basePath),
+								name: pathName,
+							}
+							try {
+								await newFolderReq(param, {
+									signal: batchOperation.controller.signal,
+									cancelToken: batchOperation.cancelSource.token,
+									uploadContext: uploadTarget,
+									timeout: 30000,
+								})
+							} catch {
+								// Existing directories may already be present. Signing remains authoritative.
+								if (!isUploadOperationActive(batchIndex)) return
 							}
 						}
-					} else if (file.isEmptyDirectory) {
-						createdFolderSet.add(file.path)
-						return false
 					}
-					return true
-				})
 
-				console.log('[upload] 要提前创建的文件夹:', createdFolderSet)
-
-				// 创建指定的文件夹列表方法
-				async function handleCreateFolders(folderPathList) {
-					let uploadToPath = currentPath.value
-					for (let path of folderPathList) {
-						let basePath = path.substring(0, path.lastIndexOf('/'))
-						let pathName = path.substring(path.lastIndexOf('/') + 1)
-						let param = {
-							storageKey: storageKey.value,
-							path: concatPath(uploadToPath, basePath),
-							name: pathName,
-						}
-						console.log(
-							'[upload] 创建文件夹: path:',
-							param.path,
-							', name:',
-							param.name
-						)
-						try {
-							await newFolderReq(param)
-							console.log('[upload] 创建文件夹成功:', path)
-						} catch {
-							console.log('[upload] 创建文件夹失败:', path)
-						}
-					}
-				}
-
-				if (
-					storageConfigStore.folderConfig.metadata
-						.needCreateFolderBeforeUpload === true
-				) {
-					await handleCreateFolders(createdFolderSet).finally(() => {
+					if (uploadTarget.needCreateFolderBeforeUpload) {
+						await handleCreateFolders(createdFolderSet).finally(() => {
+							createFoldersLoadingInstance.close()
+						})
+					} else {
 						createFoldersLoadingInstance.close()
-					})
-				} else {
-					createFoldersLoadingInstance.close()
-				}
+					}
 
-				// 如果去除所有空文件夹下没有文件, 则直接返回
-				if (fileList.length === 0) {
-					console.log(
-						'[upload] 去除所有空文件夹下没有文件, 则直接返回，无需上传文件'
-					)
-					return
-				}
+					// 如果去除所有空文件夹下没有文件, 则直接返回
+					if (fileList.length === 0 || !isUploadOperationActive(batchIndex)) {
+						return
+					}
 
-				// 上传文件
-				visible.value = true
-				fileList.forEach((item) => {
-					beforeUpload({
-						file: item,
+					// 上传文件
+					visible.value = true
+					fileList.forEach((item) => {
+						beforeUpload({
+							file: item,
+							uploadTarget,
+							foldersPrepared: true,
+						})
 					})
 				})
-			})
+				.catch((error) => {
+					if (
+						isUploadOperationActive(batchIndex) &&
+						error !== 'cancel' &&
+						error !== 'close' &&
+						error?.code !== 'ERR_CANCELED'
+					)
+						ElMessage.warning('文件读取或准备失败，请重新选择文件')
+				})
+				.finally(() => {
+					loadingInstance.close()
+					createFoldersLoadingInstance?.close()
+					releaseUploadOperation(batchIndex)
+				})
 		}
 
 		// 最后拖拽的目标元素
 		let lastEnterTarget = null
 		// 拖拽进入时，记录当前拖拽的目标元素，并添加防止拖拽穿透的 class
-		dropArea.addEventListener(
+		listen(
 			'dragenter',
 			(event) => {
 				if (!storageKey.value) {
@@ -284,7 +466,7 @@ export default function useFileUpload() {
 		)
 
 		// 拖拽进入后, 移动位置时, 记录拖拽状态
-		dropArea.addEventListener(
+		listen(
 			'dragover',
 			function (event) {
 				if (!storageKey.value) {
@@ -308,7 +490,7 @@ export default function useFileUpload() {
 		)
 
 		// 拖拽离开, 移除防拖拽穿透 class, 并关闭拖拽提示
-		dropArea.addEventListener(
+		listen(
 			'dragleave',
 			function (event) {
 				if (!storageKey.value) {
@@ -336,10 +518,10 @@ export default function useFileUpload() {
 		)
 
 		// 拖拽放下时, 移除防拖拽穿透 class, 并关闭拖拽提示, 开始上传
-		dropArea.addEventListener('drop', dropOrPasteUpload, false)
+		listen('drop', dropOrPasteUpload, false)
 
 		// ctrl + v 粘贴文件时, 开始上传
-		dropArea.addEventListener('paste', dropOrPasteUpload, false)
+		listen('paste', dropOrPasteUpload, false)
 
 		// 根据拖拽或粘贴事件的 DataTransferItemList 列表获取文件列表
 		const getFilesByDataTransferItemList = async (dataTransferItemList) => {
@@ -368,7 +550,7 @@ export default function useFileUpload() {
 						item = e.getAsEntry()
 					} else {
 						ElMessage.warning('浏览器不支持拖拽上传')
-						return
+						return []
 					}
 					if (item) {
 						DirectoryEntryList.push(item)
@@ -413,7 +595,7 @@ export default function useFileUpload() {
 			return new Promise((resolve, reject) => {
 				item.file((res) => {
 					resolve(res)
-				})
+				}, reject)
 			})
 		}
 
@@ -422,7 +604,7 @@ export default function useFileUpload() {
 			return new Promise((rel, rej) => {
 				dirReader.readEntries((res) => {
 					rel(res)
-				})
+				}, rej)
 			})
 		}
 
@@ -456,7 +638,12 @@ export default function useFileUpload() {
 				// item 为文件夹时
 			} else if (item.isDirectory) {
 				let dirReader = item.createReader()
-				let entries = await readEntriesSync(dirReader)
+				let entries = []
+				let page
+				do {
+					page = await readEntriesSync(dirReader)
+					entries.push(...page)
+				} while (page.length)
 				// 如果目录为空，返回当前路径或目录信息
 				if (entries.length === 0) {
 					return { path, isEmptyDirectory: true }
@@ -492,16 +679,31 @@ export default function useFileUpload() {
 	 * @param param
 	 */
 	const beforeUpload = (param) => {
-		uploadFile(param.file, param.uploadBasePath)
+		return uploadFile(
+			param.file,
+			param.uploadBasePath,
+			param.uploadTarget,
+			param.foldersPrepared
+		)
 	}
 
 	// 文件上传操作.
-	const uploadFile = async (file, uploadBasePath) => {
+	const uploadFile = (
+		file,
+		uploadBasePath,
+		uploadTarget,
+		foldersPrepared = false
+	) => {
+		let target
+		try {
+			target = uploadTarget || captureTarget({ path: uploadBasePath })
+		} catch (error) {
+			ElMessage.warning(error.message)
+			return
+		}
+		if (target.accountIdentity !== currentAccountIdentity()) return
 		const fileIndex = uploadIndex++
-
-		uploadBasePath = uploadBasePath || currentPath.value
-
-		let uploadToPath = uploadBasePath
+		let uploadToPath = target.directory
 
 		// 如果包含 webkitRelativePath, 则表示是文件夹上传, 需要获取文件完整路径
 		if (file.webkitRelativePath || file.dropUploadPath) {
@@ -524,29 +726,28 @@ export default function useFileUpload() {
 			})
 		}
 
-		let param = {
-			storageKey: storageKey.value,
-			path: removeDuplicateSeparator(uploadToPath),
+		const job = {
+			index: fileIndex,
+			file,
+			target,
+			uploadPath: removeDuplicateSeparator(uploadToPath),
+			foldersPrepared,
+		}
+		if (activeUploadCount() >= maxFileUploads()) {
+			waitingFileList.push(job)
+			return
+		}
+		return startUpload(job)
+	}
+
+	const startUpload = async (job) => {
+		const { file, index: fileIndex, target, uploadPath, foldersPrepared } = job
+		if (target.accountIdentity !== currentAccountIdentity()) return
+		const param = {
+			storageKey: target.storageKey,
+			path: uploadPath,
 			name: file.name,
 			size: file.size,
-		}
-
-		console.log(
-			'[upload] 当前上传信息:',
-			param,
-			', 当前同时上传文件数:',
-			uploadProgressInfoStatistics.value.totalUploading,
-			'限制同时上传文件数:',
-			maxFileUploads
-		)
-		if (uploadProgressInfoStatistics.value.totalUploading >= maxFileUploads) {
-			console.log(`[upload] 上传文件数超出 ${maxFileUploads}, 等待上传`)
-			waitingFileList.push({
-				index: fileIndex,
-				file: file,
-				uploadBasePath: uploadBasePath,
-			})
-			return
 		}
 
 		let uploadFileInfo = {
@@ -559,79 +760,113 @@ export default function useFileUpload() {
 			startTime: Date.now(),
 			file: file,
 			index: fileIndex,
+			target,
+			uploadPath,
+			foldersPrepared,
 		}
 		uploadingFileList.push(uploadFileInfo)
-		cancelTokenSourceMap.set(fileIndex, axios.CancelToken.source())
+		const operation = createUploadOperation(fileIndex, target)
 		uploadingFileMap.set(
 			fileIndex,
 			uploadingFileList[uploadingFileList.length - 1]
 		)
 
-		uploadFileReq(param)
-			.then((res) => {
-				// 监听取消上传事件
-				const { on } = useEventBus(`cancel-upload-${fileIndex}`)
-				on(() => {
-					let cancelTokenSource = cancelTokenSourceMap.get(fileIndex)
-					if (cancelTokenSource) {
-						cancelTokenSource.cancel()
-						// 从上传列表中移除当前要取消的文件
-						uploadingFileList.find((item, index) => {
-							let b = item.name === file.name
-							if (b) {
-								uploadingFileList.splice(index, 1)
+		try {
+			if (target.needCreateFolderBeforeUpload && !foldersPrepared) {
+				const basePath = removeDuplicateSeparator(target.directory).replace(
+					/\/$/,
+					''
+				)
+				const parts = uploadPath
+					.slice(basePath.length)
+					.split('/')
+					.filter(Boolean)
+				if (parts.length && !target.canCreateFolder)
+					throw new Error('当前用户没有新建上传目录的权限')
+				let parentPath = basePath || '/'
+				for (const name of parts) {
+					if (!isUploadOperationActive(fileIndex)) return
+					try {
+						await newFolderReq(
+							{ storageKey: target.storageKey, path: parentPath, name },
+							{
+								signal: operation.controller.signal,
+								cancelToken: operation.cancelSource.token,
+								uploadContext: target,
+								timeout: 30000,
 							}
-							return b
-						})
+						)
+					} catch {
+						// Provider mkdir may fail for an existing directory; signing verifies the final path.
+						if (!isUploadOperationActive(fileIndex)) return
 					}
-				})
-
-				if (storageConfigStore.folderConfig.metadata.uploadType === 'PROXY') {
-					fileProxyUpload(file, res.data, fileIndex)
-				} else if (
-					storageConfigStore.folderConfig.metadata.uploadType === 'S3'
-				) {
-					s3FileUpload(file, res.data, fileIndex)
-				} else if (
-					storageConfigStore.folderConfig.metadata.uploadType === 'MICROSOFT'
-				) {
-					onedriveUpload(file, res.data, fileIndex)
-				} else if (
-					storageConfigStore.folderConfig.metadata.uploadType === 'UPYUN'
-				) {
-					upyunFileUpload(file, res.data, fileIndex)
+					parentPath = concatPath(parentPath, name)
 				}
+			}
+			if (!isUploadOperationActive(fileIndex)) return
+			if (isResumableCandidate(file, target.uploadType)) {
+				const result = await resumableUpload(file, param, fileIndex, target)
+				if (!isUploadOperationActive(fileIndex)) return
+				if (result.handled) {
+					baseOnUploadFinish(fileIndex)
+					return
+				}
+			}
+			const response = await uploadFileReq(param, {
+				signal: operation.controller.signal,
+				cancelToken: operation.cancelSource.token,
+				uploadContext: target,
+				timeout: 30000,
 			})
-			.catch((err) => {
-				baseOnUploadError(fileIndex, err)
-			})
+			if (!isUploadOperationActive(fileIndex)) return
+			transferUpload(file, response.data, fileIndex, target.uploadType)
+		} catch (error) {
+			baseOnUploadError(fileIndex, error)
+		}
+	}
+
+	const transferUpload = (
+		file,
+		uploadUrl,
+		fileIndex,
+		uploadType,
+		silentMode = false,
+		onSuccess,
+		onError
+	) => {
+		if (!isUploadOperationActive(fileIndex)) return
+		const uploader = {
+			PROXY: fileProxyUpload,
+			S3: s3FileUpload,
+			MICROSOFT: onedriveUpload,
+			UPYUN: upyunFileUpload,
+		}[uploadType]
+		if (!uploader) throw new Error('目标存储源暂不支持当前上传方式')
+		return uploader(file, uploadUrl, fileIndex, silentMode, onSuccess, onError)
 	}
 
 	const silentUploadFile = (file, options = {}) => {
 		const normalizedOptions =
 			typeof options === 'string' ? { path: options } : options
-		const uploadToPath = normalizedOptions.path || currentPath.value
-		const targetStorageKey = normalizedOptions.storageKey || storageKey.value
-		const targetFolderConfig =
-			normalizedOptions.folderConfig || storageConfigStore.folderConfig
 		const showLoading = normalizedOptions.showLoading !== false
 		const showFeedback = normalizedOptions.showFeedback !== false
-
-		if (!targetStorageKey) {
-			return Promise.reject(new Error('未指定目标存储源'))
-		}
-		if (targetFolderConfig?.permission?.upload === false) {
-			return Promise.reject(new Error('当前用户没有目标目录的上传权限'))
+		let target
+		try {
+			target = captureTarget(normalizedOptions)
+		} catch (error) {
+			return Promise.reject(error)
 		}
 
 		const param = {
-			storageKey: targetStorageKey,
-			path: removeDuplicateSeparator(uploadToPath),
+			storageKey: target.storageKey,
+			path: removeDuplicateSeparator(target.directory),
 			name: file.name,
 			size: file.size,
 		}
 
 		return new Promise((resolve, reject) => {
+			const fileIndex = uploadIndex++
+			let settled = false
 			let loadingInstance = null
 			if (showLoading) {
 				loadingInstance = ElLoading.service({
@@ -640,44 +875,75 @@ export default function useFileUpload() {
 				})
 			}
 
+			const cleanup = () => {
+				releaseUploadOperation(fileIndex)
+				normalizedOptions.signal?.removeEventListener('abort', cancel)
+				loadingInstance?.close()
+			}
 			const finish = () => {
+				if (settled || !isUploadOperationActive(fileIndex)) return
+				settled = true
+				cleanup()
 				if (showFeedback) {
 					ElMessage.success('保存成功')
 				}
-				loadingInstance?.close()
 				resolve({
 					name: file.name,
 					path: param.path,
-					storageKey: targetStorageKey,
+					storageKey: target.storageKey,
 				})
 			}
-			const fail = (err) => {
-				if (showFeedback) {
+			const fail = (err, canceled = false) => {
+				if (settled || (!canceled && !isUploadOperationActive(fileIndex)))
+					return
+				settled = true
+				cleanup()
+				if (showFeedback && !canceled) {
 					ElMessage.error('保存失败: ' + parseErrMessage(err))
 				}
-				loadingInstance?.close()
 				reject(err)
 			}
+			const operation = createUploadOperation(fileIndex, target, (error) =>
+				fail(error, true)
+			)
+			const cancel = () => abortUploadOperation(fileIndex)
+			if (normalizedOptions.signal?.aborted) {
+				cancel()
+				return
+			}
+			normalizedOptions.signal?.addEventListener('abort', cancel, {
+				once: true,
+			})
 
-			uploadFileReq(param)
-				.then((res) => {
-					const fileIndex = uploadIndex++
-					const uploadType = targetFolderConfig?.metadata?.uploadType
-					if (uploadType === 'PROXY') {
-						fileProxyUpload(file, res.data, fileIndex, true, finish, fail)
-					} else if (uploadType === 'S3') {
-						s3FileUpload(file, res.data, fileIndex, true, finish, fail)
-					} else if (uploadType === 'MICROSOFT') {
-						onedriveUpload(file, res.data, fileIndex, true, finish, fail)
-					} else if (uploadType === 'UPYUN') {
-						upyunFileUpload(file, res.data, fileIndex, true, finish, fail)
-					} else {
-						fail(
-							new Error(`暂不支持目标存储源的上传方式：${uploadType || '未知'}`)
-						)
-					}
+			const begin = () =>
+				uploadFileReq(param, {
+					signal: operation.controller.signal,
+					cancelToken: operation.cancelSource.token,
+					uploadContext: target,
+					timeout: 30000,
 				})
-				.catch(fail)
+					.then((res) => {
+						if (!isUploadOperationActive(fileIndex)) return
+						transferUpload(
+							file,
+							res.data,
+							fileIndex,
+							target.uploadType,
+							true,
+							finish,
+							fail
+						)
+					})
+					.catch(fail)
+			if (isResumableCandidate(file, target.uploadType)) {
+				resumableUpload(file, param, fileIndex, target)
+					.then((result) => {
+						if (!isUploadOperationActive(fileIndex)) return
+						if (result.handled) finish()
+						else begin()
+					})
+					.catch(fail)
+			} else begin()
 		})
 	}
 
@@ -690,6 +956,7 @@ export default function useFileUpload() {
 		onSuccess,
 		onError
 	) => {
+		if (!isUploadOperationActive(fileIndex)) return
 		let formData = new FormData()
 		formData.append('file', file)
 		selfAxios({
@@ -701,6 +968,7 @@ export default function useFileUpload() {
 					'Content-Type': 'multipart/form-data',
 				},
 				cancelToken: cancelTokenSourceMap.get(fileIndex)?.token,
+				signal: uploadOperationMap.get(fileIndex)?.controller.signal,
 				onUploadProgress: silentMode
 					? null
 					: (progressEvent) => {
@@ -710,6 +978,7 @@ export default function useFileUpload() {
 			},
 		})
 			.then(() => {
+				if (!isUploadOperationActive(fileIndex)) return
 				if (onSuccess) {
 					onSuccess()
 				} else {
@@ -717,6 +986,7 @@ export default function useFileUpload() {
 				}
 			})
 			.catch((err) => {
+				if (!isUploadOperationActive(fileIndex)) return
 				if (onError) {
 					onError(err)
 				} else {
@@ -734,6 +1004,7 @@ export default function useFileUpload() {
 		onSuccess,
 		onError
 	) => {
+		if (!isUploadOperationActive(fileIndex)) return
 		// 处理 uploadUrl 中的 Content-Type 参数，如果则获取赋值到一个变量，用于请求时设置，并从 url 中移除这个参数
 		let contentType = ''
 		if (uploadUrl.includes('Content-Type=')) {
@@ -749,6 +1020,7 @@ export default function useFileUpload() {
 					'Content-Type': contentType,
 				},
 				cancelToken: cancelTokenSourceMap.get(fileIndex)?.token,
+				signal: uploadOperationMap.get(fileIndex)?.controller.signal,
 				onUploadProgress: silentMode
 					? null
 					: (progressEvent) => {
@@ -756,6 +1028,7 @@ export default function useFileUpload() {
 					  },
 			})
 			.then(() => {
+				if (!isUploadOperationActive(fileIndex)) return
 				if (onSuccess) {
 					onSuccess()
 				} else {
@@ -763,6 +1036,7 @@ export default function useFileUpload() {
 				}
 			})
 			.catch((err) => {
+				if (!isUploadOperationActive(fileIndex)) return
 				if (onError) {
 					onError(err)
 				} else {
@@ -780,7 +1054,6 @@ export default function useFileUpload() {
 		onSuccess,
 		onError
 	) => {
-		let index = 1 // 当前块数
 		let start = 0 // 开始字节数
 		let end = 0 // 结束字节数
 		let fileSize = file.size // 文件大小
@@ -797,6 +1070,7 @@ export default function useFileUpload() {
 
 		// 分块上传
 		const uploadBlock = () => {
+			if (!isUploadOperationActive(fileIndex)) return
 			// 计算每块的开始和结束位置
 			if (start + MAX_FILE_SIZE >= fileSize) {
 				end = fileSize
@@ -804,15 +1078,12 @@ export default function useFileUpload() {
 				end = start + MAX_FILE_SIZE
 			}
 
-			if (index > 1) {
-				cancelTokenSourceMap.set(fileIndex, axios.CancelToken.source())
-			}
-
 			// 截取文件每块上传
 			let fileBlock = file.slice(start, end)
 			axios
 				.put(`${uploadUrl}`, fileBlock, {
 					cancelToken: cancelTokenSourceMap.get(fileIndex)?.token,
+					signal: uploadOperationMap.get(fileIndex)?.controller.signal,
 					timeout: 10000000,
 					headers: {
 						'Content-Type': 'application/octet-stream',
@@ -823,8 +1094,10 @@ export default function useFileUpload() {
 					onUploadProgress: silentMode
 						? null
 						: (progressEvent) => {
+								if (!isUploadOperationActive(fileIndex)) return
 								if (progressEvent.lengthComputable || progressEvent.loaded) {
 									let uploadFileInfo = uploadingFileMap.get(fileIndex)
+									if (!uploadFileInfo) return
 
 									const realLoaded = progressEvent.loaded + start
 
@@ -843,9 +1116,9 @@ export default function useFileUpload() {
 						  },
 				})
 				.then((response) => {
+					if (!isUploadOperationActive(fileIndex)) return
 					if (response.status === 202) {
 						start += MAX_FILE_SIZE
-						index += 1
 						uploadBlock()
 					} else if (response.status === 201 || response.status === 200) {
 						if (onSuccess) {
@@ -856,6 +1129,7 @@ export default function useFileUpload() {
 					}
 				})
 				.catch((e) => {
+					if (!isUploadOperationActive(fileIndex)) return
 					if (onError) {
 						onError(e)
 					} else {
@@ -876,6 +1150,7 @@ export default function useFileUpload() {
 		onSuccess,
 		onError
 	) => {
+		if (!isUploadOperationActive(fileIndex)) return
 		let uploadInfo = JSON.parse(uploadUrl)
 		let formData = new FormData()
 		formData.append('name', file.name)
@@ -887,6 +1162,7 @@ export default function useFileUpload() {
 			.post(uploadInfo.url, formData, {
 				withCredentials: false,
 				cancelToken: cancelTokenSourceMap.get(fileIndex)?.token,
+				signal: uploadOperationMap.get(fileIndex)?.controller.signal,
 				onUploadProgress: silentMode
 					? null
 					: (progressEvent) => {
@@ -894,6 +1170,7 @@ export default function useFileUpload() {
 					  },
 			})
 			.then(() => {
+				if (!isUploadOperationActive(fileIndex)) return
 				if (onSuccess) {
 					onSuccess()
 				} else {
@@ -901,6 +1178,7 @@ export default function useFileUpload() {
 				}
 			})
 			.catch((err) => {
+				if (!isUploadOperationActive(fileIndex)) return
 				if (onError) {
 					onError(err)
 				} else {
@@ -1032,33 +1310,49 @@ export default function useFileUpload() {
 
 	// 通用上传结束设置.
 	const baseOnUploadError = (fileIndex, err) => {
+		if (!isUploadOperationActive(fileIndex)) return
 		let uploadFileInfo = uploadingFileMap.get(fileIndex)
+		if (!uploadFileInfo) return
 		uploadFileInfo.status = 'error'
 		uploadFileInfo.endTime = Date.now()
 		uploadFileInfo.msg = parseErrMessage(err)
+		if (err?.session?.state === 'COMPLETING') {
+			uploadFileInfo.resumableState = 'COMPLETING'
+			uploadFileInfo.resumableId = err.session.id
+		}
+		releaseUploadOperation(fileIndex)
 	}
 
 	// 通用上传结束设置.
 	const baseOnUploadFinish = (fileIndex) => {
+		if (!isUploadOperationActive(fileIndex)) return
 		let uploadFileInfo = uploadingFileMap.get(fileIndex)
+		if (!uploadFileInfo) return
 		uploadFileInfo.progress = 100
 		uploadFileInfo.loaded = uploadFileInfo.size
 		uploadFileInfo.status = 'finished'
 		uploadFileInfo.endTime = Date.now()
 		uploadFileInfo.msg = '上传成功'
+		releaseUploadOperation(fileIndex)
 	}
 
 	// 通用上传进度条处理
 	const baseOnUploadProgress = (progressEvent, fileIndex, isProxyUpload) => {
+		if (!isUploadOperationActive(fileIndex)) return
 		let uploadFileInfo = uploadingFileMap.get(fileIndex)
-		Object.assign(uploadFileInfo, calculateUploadProgress(uploadFileInfo.size, progressEvent))
+		if (!uploadFileInfo) return
+		Object.assign(
+			uploadFileInfo,
+			calculateUploadProgress(uploadFileInfo.size, progressEvent)
+		)
 		uploadFileInfo.speed = fileSizeFormat(
 			Math.round(
-				(uploadFileInfo.loaded / Math.max(1, Date.now() - uploadFileInfo.startTime)) * 1000
+				(uploadFileInfo.loaded /
+					Math.max(1, Date.now() - uploadFileInfo.startTime)) *
+					1000
 			)
 		)
 
-		console.log('[upload] uploadFileInfo', uploadFileInfo, isProxyUpload)
 		if (isProxyUpload && uploadFileInfo.progress === 100) {
 			uploadFileInfo.msg = '上传完成, 服务器中转中...'
 		}
@@ -1066,20 +1360,21 @@ export default function useFileUpload() {
 
 	// 取消上传请求
 	const cancelUpload = (item) => {
-		ElMessageBox.confirm(
-			`是否确定取消文件「${item.name}」上传？`,
-			'提示',
-			{
-				confirmButtonText: '确定',
-				cancelButtonText: '返回',
-				type: 'warning',
-				callback: (action) => {
-					if (action === 'confirm') {
-						useEventBus(`cancel-upload-${item.index}`).emit()
-					}
-				},
-			}
-		)
+		const message = item.resumable
+			? item.resumableState === 'COMPLETING'
+				? `停止等待「${item.name}」？保存请求可能已经提交，请检查目标目录，不要重复提交。`
+				: `暂停「${item.name}」上传？已接收的分片暂存 24 小时，重新选择同一文件即可续传。`
+			: `是否确定取消文件「${item.name}」上传？`
+		ElMessageBox.confirm(message, '提示', {
+			confirmButtonText: '确定',
+			cancelButtonText: '返回',
+			type: 'warning',
+			callback: (action) => {
+				if (action === 'confirm') {
+					removeUploadFileByIndex(item.index)
+				}
+			},
+		})
 	}
 
 	// 上传文件信息
@@ -1116,6 +1411,8 @@ export default function useFileUpload() {
 				status: 'waiting',
 				msg: '排队中...',
 				index: item.index,
+				target: item.target,
+				uploadPath: item.uploadPath,
 			})
 		})
 
@@ -1133,34 +1430,37 @@ export default function useFileUpload() {
 			// 如果状态一样，则按照开始时间排序
 			return a.endTime - b.endTime
 		})
-		console.log('[upload] uploadProgressInfoSorted', result)
-		// return mockUploadData;
 		return result
 	})
 
 	if (!isInitWatch) {
-		watch(
-			() => uploadProgressInfoStatistics.value.totalUploading,
-			(newValue) => {
-				if (newValue < maxFileUploads) {
-					console.log('[upload] 检测到上传中的文件个数小于最大上传限制.')
-					if (waitingFileList.length === 0) {
-						console.log('[upload] 等待上传的文件数为 0, 无需继续上传.')
-					} else {
-						let spliceList = waitingFileList.splice(0, 1)
-						let fileItem = spliceList[0]
-						beforeUpload({
-							file: fileItem.file,
-							uploadBasePath: fileItem.uploadBasePath,
-						})
-						console.log(
-							'[upload] 开始从等待队列中获取上传文件: ',
-							fileItem.file.name
-						)
+		uploadWatchScope.run(() => {
+			watch(
+				() => [activeUploadCount(), waitingFileList.length, maxFileUploads()],
+				() => {
+					while (
+						waitingFileList.length &&
+						activeUploadCount() < maxFileUploads()
+					) {
+						startUpload(waitingFileList.shift())
 					}
 				}
-			}
-		)
+			)
+			watch(
+				currentAccountIdentity,
+				() => {
+					// Clear the queue first; canceled work must not pump into another account.
+					waitingFileList.splice(0)
+					for (const fileIndex of [...uploadOperationMap.keys()])
+						abortUploadOperation(fileIndex)
+					uploadingFileList.splice(0)
+					uploadingFileMap.clear()
+					visible.value = false
+					dropState.value = false
+				},
+				{ flush: 'sync' }
+			)
+		})
 		isInitWatch = true
 	}
 
@@ -1169,26 +1469,17 @@ export default function useFileUpload() {
 			return
 		}
 
-		let removeIndex = uploadingFileList.findIndex((item, index) => {
-			if (item.index === fileIndex) {
-				uploadingFileList.splice(index, 1)
-				return true
-			}
-		})
-
-		if (removeIndex === -1) {
-			removeIndex = waitingFileList.findIndex((item, index) => {
-				if (item.index === fileIndex) {
-					waitingFileList.splice(index, 1)
-					return true
-				}
-			})
-		}
-
-		if (removeIndex !== -1) {
-			uploadingFileMap.delete(fileIndex)
-			cancelTokenSourceMap.delete(fileIndex)
-		}
+		abortUploadOperation(fileIndex)
+		const activeIndex = uploadingFileList.findIndex(
+			(item) => item.index === fileIndex
+		)
+		if (activeIndex !== -1) uploadingFileList.splice(activeIndex, 1)
+		const waitingIndex = waitingFileList.findIndex(
+			(item) => item.index === fileIndex
+		)
+		if (waitingIndex !== -1) waitingFileList.splice(waitingIndex, 1)
+		uploadingFileMap.delete(fileIndex)
+		releaseUploadOperation(fileIndex)
 	}
 
 	const clearALlFinishedUploadFile = () => {
@@ -1206,9 +1497,53 @@ export default function useFileUpload() {
 	}
 
 	const retryUpload = (item) => {
-		console.log('[upload] 重新上传文件', item)
+		const failed = uploadingFileMap.get(item.index)
+		if (failed?.status !== 'error') return
+		if (failed.target.accountIdentity !== currentAccountIdentity()) {
+			removeUploadFileByIndex(item.index)
+			return
+		}
+		if (failed.resumableState === 'COMPLETING' && failed.resumableId) {
+			// The retry control is read-only while publication is uncertain.
+			const operation = createUploadOperation(item.index, failed.target)
+			failed.status = 'uploading'
+			failed.msg = '正在检查保存结果…'
+			readResumableStatus({
+				id: failed.resumableId,
+				size: failed.size,
+				request: resumableRequest(item.index, failed.target, failed.uploadPath),
+				signal: operation.controller.signal,
+				isActive: () => isUploadOperationActive(item.index),
+			})
+				.then((session) => {
+					if (!isUploadOperationActive(item.index)) return
+					if (session.state === 'COMPLETED') baseOnUploadFinish(item.index)
+					else {
+						failed.resumableState = session.state
+						baseOnUploadError(
+							item.index,
+							new Error(
+								session.state === 'OPEN'
+									? '分片已保留，点击重试继续上传'
+									: session.message ||
+									  '保存结果仍待核查，请检查目标目录，不要重复提交'
+							)
+						)
+					}
+				})
+				.catch((error) => baseOnUploadError(item.index, error))
+			return
+		}
+		const job = {
+			index: uploadIndex++,
+			file: failed.file,
+			target: failed.target,
+			uploadPath: failed.uploadPath,
+			foldersPrepared: failed.foldersPrepared,
+		}
 		removeUploadFileByIndex(item.index)
-		uploadFile(item.file)
+		if (activeUploadCount() >= maxFileUploads()) waitingFileList.push(job)
+		else startUpload(job)
 	}
 
 	return {

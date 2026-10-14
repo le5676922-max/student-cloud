@@ -203,12 +203,4 @@ public class FrontSiteConfigResult {
 	@Schema(title = "是否启用 hover 菜单", example = "true")
 	private Boolean enableHoverMenu;
 
-	// ==================== 访客状态 ====================
-
-	/**
-	 * 当前用户是否为访客（未登录用户且配置了访客首页）
-	 */
-	@Schema(title = "是否是游客", example = "true")
-	private boolean guest;
-
 }

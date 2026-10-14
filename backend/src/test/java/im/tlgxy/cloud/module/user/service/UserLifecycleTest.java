@@ -2,6 +2,7 @@ package im.tlgxy.cloud.module.user.service;
 
 import im.tlgxy.cloud.core.exception.core.BizException;
 import im.tlgxy.cloud.module.tenant.service.TenantSecurityService;
+import im.tlgxy.cloud.module.tenant.mapper.WorkspaceJoinRequestMapper;
 import im.tlgxy.cloud.module.tenant.service.TenantService;
 import im.tlgxy.cloud.module.user.mapper.UserMapper;
 import im.tlgxy.cloud.module.user.model.entity.User;
@@ -113,6 +114,7 @@ class UserLifecycleTest {
         UserService service = new UserService();
         ReflectionTestUtils.setField(service, "userMapper", mapper);
         ReflectionTestUtils.setField(service, "tenantService", tenants);
+        ReflectionTestUtils.setField(service, "workspaceJoinRequestMapper", mock(WorkspaceJoinRequestMapper.class));
         return service;
     }
 

@@ -97,8 +97,7 @@ public class AliyunServiceImpl extends AbstractS3BaseFileService<AliyunParam> {
                 .credentialsProvider(credentialsProvider)
                 .build();
 
-        // 设置上传 CORS 规则
-        setUploadCors();
+        // Initializing/saving a connection must never change remote bucket policies.
     }
 
     /**

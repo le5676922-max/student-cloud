@@ -32,7 +32,7 @@
 mvn clean package
 ```
 
-构建产物默认输出到 `target/tongligong-student-cloud-4.5.0.jar`。
+构建产物默认输出到 `target/tongligong-student-cloud-4.6.0.jar`。
 
 ## 开源说明
 

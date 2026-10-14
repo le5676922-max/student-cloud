@@ -53,6 +53,11 @@ public class StorageSourceConfigService {
         return storageSourceConfigMapper.findByStorageIdOrderById(storageId);
     }
 
+    /** Administrative remote writes must use fresh committed configuration, never a cached secret snapshot. */
+    public List<StorageSourceConfig> selectFreshStorageConfigByStorageId(Integer storageId) {
+        return storageSourceConfigMapper.findByStorageIdOrderById(storageId);
+    }
+
 
     /**
      * 获取指定存储源的指定参数名称

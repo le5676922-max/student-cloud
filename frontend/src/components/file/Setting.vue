@@ -5,16 +5,24 @@
 			title="个人设置"
 			class="text-left"
 			:with-header="false"
-			direction="rtl">
+			direction="rtl"
+		>
 			<div class="student-cloud-index-setting-drawer-body">
-				<div class="student-cloud-index-setting-drawer-group" v-if="isMobile">
+				<div v-if="isMobile" class="student-cloud-index-setting-drawer-group">
 					<div class="student-cloud-index-setting-drawer-title">存储源</div>
 					<div class="w-full">
-						<el-select size="large" class="w-full" v-model="currentStorageKey" placeholder="请选择存储源">
-							<el-option v-for="item in storageList"
-							           :key="item.key"
-							           :label="item.name"
-							           :value="item.key">
+						<el-select
+							v-model="currentStorageKey"
+							size="large"
+							class="w-full"
+							placeholder="请选择存储源"
+						>
+							<el-option
+								v-for="item in storageList"
+								:key="item.key"
+								:label="item.name"
+								:value="item.key"
+							>
 							</el-option>
 						</el-select>
 					</div>
@@ -23,25 +31,40 @@
 				<div class="student-cloud-index-setting-drawer-group">
 					<div class="student-cloud-index-setting-drawer-title">视图</div>
 					<div class="student-cloud-index-setting-drawer-blockCheckbox">
-						<el-tooltip
-							effect="dark"
-							content="列表模式"
-							placement="bottom">
-							<div class="student-cloud-index-setting-drawer-item" :class="{ current: studentCloudSettingCache.view.type === 'table' }" @click="studentCloudSettingCache.view.type = 'table'">
+						<el-tooltip effect="dark" content="列表模式" placement="bottom">
+							<div
+								class="student-cloud-index-setting-drawer-item"
+								:class="{
+									current: studentCloudSettingCache.view.type === 'table',
+								}"
+								@click="studentCloudSettingCache.view.type = 'table'"
+							>
 								<Bars3Icon></Bars3Icon>
 							</div>
 						</el-tooltip>
-						<el-tooltip
-							effect="dark"
-							content="图标模式"
-							placement="bottom">
-							<div class="student-cloud-index-setting-drawer-item" :class="{ current: studentCloudSettingCache.view.type === 'card' }" @click="studentCloudSettingCache.view.type = 'card'">
+						<el-tooltip effect="dark" content="图标模式" placement="bottom">
+							<div
+								class="student-cloud-index-setting-drawer-item"
+								:class="{
+									current: studentCloudSettingCache.view.type === 'card',
+								}"
+								@click="studentCloudSettingCache.view.type = 'card'"
+							>
 								<Squares2X2Icon></Squares2X2Icon>
 							</div>
 						</el-tooltip>
 					</div>
 					<div class="px-2.5">
-						<el-slider size="large" :show-tooltip="false" :marks="marks" v-model="studentCloudSettingCache.view.size" :step="1" :min="1" :max="3" show-stops />
+						<el-slider
+							v-model="studentCloudSettingCache.view.size"
+							size="large"
+							:show-tooltip="false"
+							:marks="marks"
+							:step="1"
+							:min="1"
+							:max="3"
+							show-stops
+						/>
 					</div>
 				</div>
 
@@ -61,26 +84,41 @@
 
 				<div class="student-cloud-index-setting-drawer-group">
 					<div class="student-cloud-index-setting-drawer-title">画廊</div>
-					<div class="text-gray-400 text-sm">如已处于画廊模式，需重新启用画廊模式生效.</div>
+					<div class="text-gray-400 text-sm">
+						如已处于画廊模式，需重新启用画廊模式生效.
+					</div>
 					<div class="flex justify-between">
 						<div class="text-base font-medium">图片列数</div>
-						<el-input-number v-model="studentCloudSettingCache.gallery.column" :min="1"></el-input-number>
+						<el-input-number
+							v-model="studentCloudSettingCache.gallery.column"
+							:min="1"
+						></el-input-number>
 					</div>
 					<div class="flex justify-between">
 						<div class="text-base font-medium">列间距</div>
-						<el-input-number v-model="studentCloudSettingCache.gallery.columnSpacing" :min="0"></el-input-number>
+						<el-input-number
+							v-model="studentCloudSettingCache.gallery.columnSpacing"
+							:min="0"
+						></el-input-number>
 					</div>
 					<div class="flex justify-between">
 						<div class="text-base font-medium">行间距</div>
-						<el-input-number v-model="studentCloudSettingCache.gallery.rowSpacing" :min="0"></el-input-number>
+						<el-input-number
+							v-model="studentCloudSettingCache.gallery.rowSpacing"
+							:min="0"
+						></el-input-number>
 					</div>
 					<div class="flex justify-between">
 						<div class="text-base font-medium">图片是否带圆角边框</div>
-						<el-switch v-model="studentCloudSettingCache.gallery.roundedBorder"></el-switch>
+						<el-switch
+							v-model="studentCloudSettingCache.gallery.roundedBorder"
+						></el-switch>
 					</div>
 					<div class="flex justify-between">
 						<div class="text-base font-medium">显示名称</div>
-						<el-switch v-model="studentCloudSettingCache.gallery.showInfo"></el-switch>
+						<el-switch
+							v-model="studentCloudSettingCache.gallery.showInfo"
+						></el-switch>
 					</div>
 					<div class="flex justify-between">
 						<div class="text-base font-medium w-full">名称显示模式</div>
@@ -96,14 +134,18 @@
 							<el-option label="显示单张" value="only"></el-option>
 						</el-select>
 					</div>
-          <div class="flex justify-between">
-            <div class="text-base font-medium">点击放大预览</div>
-            <el-switch v-model="studentCloudSettingCache.imagePreview.gallery"></el-switch>
-          </div>
-          <div class="flex justify-between">
-            <div class="text-base font-medium">回到顶部按钮</div>
-            <el-switch v-model="studentCloudSettingCache.gallery.showBackTop"></el-switch>
-          </div>
+					<div class="flex justify-between">
+						<div class="text-base font-medium">点击放大预览</div>
+						<el-switch
+							v-model="studentCloudSettingCache.imagePreview.gallery"
+						></el-switch>
+					</div>
+					<div class="flex justify-between">
+						<div class="text-base font-medium">回到顶部按钮</div>
+						<el-switch
+							v-model="studentCloudSettingCache.gallery.showBackTop"
+						></el-switch>
+					</div>
 				</div>
 				<div class="text-gray-400 text-sm mt-10">
 					Tips: 设置会自动保存，刷新后仍有效.
@@ -113,7 +155,10 @@
 					<div class="student-cloud-index-setting-drawer-title">其他</div>
 					<div class="flex justify-between my-auto">
 						<div class="text-base font-medium">清理密码文件夹缓存</div>
-							<TrashIcon @click="clearPwdCache" class="w-6 h-6 text-red-500 cursor-pointer" />
+						<TrashIcon
+							class="w-6 h-6 text-red-500 cursor-pointer"
+							@click="clearPwdCache"
+						/>
 					</div>
 				</div>
 			</div>
@@ -122,65 +167,60 @@
 </template>
 
 <script setup>
-import useFilePwd from "~/composables/file/useFilePwd";
-let { clearPwdCache } = useFilePwd();
+import useFilePwd from '~/composables/file/useFilePwd'
+let { clearPwdCache } = useFilePwd()
 
-import { isMobile } from "~/utils";
+import { isMobile } from '~/utils'
 import { Bars3Icon, Squares2X2Icon, TrashIcon } from '@heroicons/vue/24/solid'
 
-import useSetting from "~/composables/header/useSetting";
-const { visible, studentCloudSettingCache } = useSetting();
+import useSetting from '~/composables/header/useSetting'
+const { visible, studentCloudSettingCache } = useSetting()
 
-import useHeaderStorageList from "~/composables/header/useHeaderStorageList";
-const { currentStorageKey, storageList } = useHeaderStorageList();
+import useHeaderStorageList from '~/composables/header/useHeaderStorageList'
+const { currentStorageKey, storageList } = useHeaderStorageList()
 
-import useGlobalConfigStore from "~/stores/global-config";
-let globalConfigStore = useGlobalConfigStore();
+import useGlobalConfigStore from '~/stores/global-config'
+let globalConfigStore = useGlobalConfigStore()
 
-import useStorageConfigStore from "~/stores/storage-config";
-let storageConfigStore = useStorageConfigStore();
+import useStorageConfigStore from '~/stores/storage-config'
+let storageConfigStore = useStorageConfigStore()
 
 const marks = reactive({
 	1: '小',
 	2: '中',
-	3: '大'
+	3: '大',
 })
 
 const viewSizeMap = {
 	1: 'small',
 	2: 'default',
-	3: 'large'
-};
+	3: 'large',
+}
 
-const viewMap = {
-	1: 'table',
-	2: 'card',
-	3: 'card-gallery'
-};
+watch(
+	() => studentCloudSettingCache.value,
+	(value) => {
+		globalConfigStore.studentCloudConfig.gallery = value.gallery
+		globalConfigStore.studentCloudConfig.imagePreview = value.imagePreview
 
+		// 赋予表格大小默认值
+		if (value?.view?.size) {
+			storageConfigStore.globalConfig.tableSize = viewSizeMap[value.view.size]
+		}
 
-watch(() => studentCloudSettingCache.value, (value) => {
-	globalConfigStore.studentCloudConfig.gallery = value.gallery;
-  globalConfigStore.studentCloudConfig.imagePreview = value.imagePreview;
-
-  // 赋予表格大小默认值
-	if (value?.view?.size) {
-		storageConfigStore.globalConfig.tableSize = viewSizeMap[value.view.size];
+		if (!storageConfigStore.globalConfig.tableSize) {
+			storageConfigStore.globalConfig.tableSize = 'defualt'
+		}
+	},
+	{
+		immediate: true,
+		deep: true,
 	}
-
-	if (!storageConfigStore.globalConfig.tableSize) {
-		storageConfigStore.globalConfig.tableSize = 'defualt';
-	}
-}, {
-	immediate: true,
-	deep: true
-});
+)
 </script>
 
 <style lang="scss" scoped>
-
 .student-cloud-index-setting-drawer {
-
 	// 自适应宽度
 	:deep(.el-drawer) {
 		@apply w-[90%] sm:w-6/12 md:w-5/12 lg:w-4/12 xl:w-3/12 #{!important};
@@ -221,5 +261,4 @@ watch(() => studentCloudSettingCache.value, (value) => {
 		}
 	}
 }
-
 </style>

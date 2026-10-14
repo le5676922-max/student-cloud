@@ -30,7 +30,10 @@ public class TwoFactorAuthLoginVerifyService implements LoginVerifyService {
     @Override
     public void verify(UserLoginRequest userLoginRequest) {
         // 如果不是管理员, 则不需要进行二次验证
-        if (!userService.isAdmin(userLoginRequest.getUsername())) {
+        boolean isAdmin = userLoginRequest.getResolvedUserId() == null
+                ? userService.isAdmin(userLoginRequest.getUsername())
+                : userService.isAdmin(userLoginRequest.getResolvedUserId());
+        if (!isAdmin) {
             return;
         }
 

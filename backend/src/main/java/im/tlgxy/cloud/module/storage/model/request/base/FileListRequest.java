@@ -7,6 +7,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Size;
 
 /**
  * 获取文件夹下文件列表请求类
@@ -53,6 +56,21 @@ public class FileListRequest {
 	@StringListValue(message = "排序顺序参数异常，只能是 asc 或 desc", vals = {"asc", "desc"})
 	private String orderDirection;
 
+    /** Optional for compatibility with folder pickers and other existing callers. */
+    @Min(1) @Max(500)
+    private Integer pageSize;
+
+    @Size(max = 100)
+    private String pageCursor;
+
+    @Size(max = 200)
+    private String nameQuery;
+
+    @Schema(title = "强制刷新目录元数据，翻页可复用短时快照")
+    private boolean refreshMetadata;
+    @Schema(title = "快速浏览：仅存储源顺序，不提供全局排序/搜索或总数")
+    private boolean nativePagination;
+
     /**
      * 处理默认值
      * <p>
@@ -68,13 +86,13 @@ public class FileListRequest {
             path = "/";
         }
         // 排序字段为空时默认按名称排序
-    	if (StringUtils.isEmpty(orderBy)) {
-    		orderBy = "name";
-    	}
+        if (!nativePagination && StringUtils.isEmpty(orderBy)) {
+            orderBy = "name";
+        }
         // 排序方向为空时默认升序
-        if (StringUtils.isEmpty(orderDirection)) {
-    		orderDirection = "asc";
-    	}
+        if (!nativePagination && StringUtils.isEmpty(orderDirection)) {
+            orderDirection = "asc";
+        }
 
         // 自动补全路径, 如 a 补全为 /a/
         path = StringUtils.concat(path);

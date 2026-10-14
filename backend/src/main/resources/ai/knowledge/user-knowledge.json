@@ -1,11 +1,18 @@
 [
     {
-        "id": "user-three-roles",
-        "title": "普通用户和访客可以做什么",
-        "tags": ["角色", "权限", "普通用户", "访客", "登录", "Agent"],
-        "source": "学生云盘三角色使用说明",
-        "audience": "user",
-        "content": "系统有系统管理员、普通用户和访客三种角色。普通用户登录后只能在授权存储和目录中操作文件，上传、下载、分享等需要相应权限；不能进入管理后台或自行提升角色。访客是未登录访问者，只能使用管理员对访客开放的功能，不能调用小芽 Agent。需要开通账号或调整文件权限时请联系系统管理员。"
+        "id":  "user-three-roles",
+        "title":  "普通用户和访客可以做什么",
+        "tags":  [
+                     "角色",
+                     "权限",
+                     "普通用户",
+                     "访客",
+                     "登录",
+                     "Agent"
+                 ],
+        "source":  "学生云盘三角色使用说明",
+        "audience":  "user",
+        "content":  "系统有系统管理员、普通用户和访客三种角色。普通用户登录后只能在授权存储和目录中操作文件，上传、下载、分享等需要相应权限；不能进入管理后台或自行提升角色。访客是未登录访问者，只能使用管理员对访客开放的功能，不能调用小芽 Agent。需要开通账号或调整文件权限时请联系系统管理员。"
     },
     {
         "id":  "user-site-overview",
@@ -371,7 +378,7 @@
                  ],
         "source":  "学生云盘网站使用说明",
         "audience":  "user",
-        "content":  "点击 PDF 会打开内置阅读器。加载失败时先确认文件能下载、文件未损坏且浏览器允许相关资源；仍失败可下载到本地阅读，并把控制台错误交给管理员。"
+        "content":  "点击 PDF 打开内置阅读器，一次渲染一页，支持前后翻页、输入页码、50%–200% 缩放和适合宽度；焦点在阅读器时可用左右键翻页。加密文件需输入 PDF 密码。加载失败可重新加载，先检查文件、网络和访问权限；仍失败可下载查看。按页渲染不保证只下载一页，也不提供扫描件 OCR。"
     },
     {
         "id":  "user-office-preview",
@@ -649,7 +656,7 @@
                  ],
         "source":  "学生云盘网站使用说明",
         "audience":  "user",
-        "content":  "悬浮 AI 助手用于回答本网站的使用方法和常见问题，不会代替用户删除、移动或公开文件，也不能绕过权限。使用前需要登录；提示服务不可用时由管理员检查模型配置。"
+        "content":  "小芽支持当前账号范围的文件查询、查重、课程资料检索与有限范围概览、临时附件分析，并可生成文件分类整理、按日期重命名或课程批量归档任务。输入明确上传指令会打开本地文件选择，上传前确认目标并跳过已发现的同名文件。写入任务须在真实预览卡片中确认；每周规则到点只生成待确认预览。访客不能调用。聊天需配置模型服务，手动任务页 /agent-tasks 与课程管理不依赖模型 API。"
     },
     {
         "id":  "user-page-error",
@@ -721,5 +728,212 @@
         "source":  "学生云盘网站使用说明",
         "audience":  "user",
         "content":  "登录后可把桌面文件直接拖到小芽图标或已打开的聊天窗口。小芽接住文件后会询问用途：选择“存入云盘”时，只展示当前账号有上传权限的存储源，并要求确认云盘和目标目录后才执行；选择“分析文件”时，文件只作为本轮 AI 附件读取，不会自动存入云盘。每次 Agent 上传最多接收 20 个文件，AI 内容分析最多读取 3 个受支持且单个不超过 5 MB 的文件。"
+    },
+    {
+        "id":  "user-learning-library",
+        "title":  "课程资料库如何创建课程和归档文件",
+        "tags":  [
+                     "课程资料",
+                     "学习资料",
+                     "创建课程",
+                     "课程库",
+                     "归档"
+                 ],
+        "source":  "frontend/src/pages/learning.vue",
+        "audience":  "user",
+        "content":  "登录后打开 /learning，创建课程并填写名称和学期，再从自己获授权的本地存储中添加资料索引。可按学期、文件名、标签筛选；课程和索引仅本人可见，管理员也不能通过学习接口查看其他用户的私人资料。删除课程或移除索引不会删除云盘原文件。"
+    },
+    {
+        "id":  "user-learning-search",
+        "title":  "检索课程正文与关键词找不到答案",
+        "tags":  [
+                     "检索正文",
+                     "关键词",
+                     "搜索资料",
+                     "没有命中",
+                     "rag"
+                 ],
+        "source":  "backend/src/main/java/im/tlgxy/cloud/module/learning/service/LearningLibraryService.java",
+        "audience":  "user",
+        "content":  "课程检索对本人索引的文件名、标签和正文片段做关键词匹配：中文双字片段和英文词，不是语义向量搜索，也没有训练模型。每个片段最多 700 字符，相邻片段重叠 100 字符，最多返回 5 个通过权限和内容校验的片段。无结果时可换更具体的关键词、检查文件是否已建立索引，不应推断整个原文件没有答案。"
+    },
+    {
+        "id":  "user-learning-formats",
+        "title":  "资料格式、大小、数量和扫描PDF限制",
+        "tags":  [
+                     "PDF",
+                     "扫描件",
+                     "OCR",
+                     "DOCX",
+                     "TXT",
+                     "MD",
+                     "5MB",
+                     "12000",
+                     "30页"
+                 ],
+        "source":  "backend/src/main/java/im/tlgxy/cloud/module/ai/service/AiAttachmentService.java",
+        "audience":  "user",
+        "content":  "课程索引支持 UTF-8 TXT、MD、文本 PDF 和 DOCX，仅支持本地存储；每份不超过 5 MB，每账号最多 30 份资料和 50 门课程。只保存前 12000 字符，PDF 最多读取前 30 页。扫描 PDF 没有 OCR 能力，空白或无法提取正文时会提示失败；不能声称已检索文件全文或未索引页码。"
+    },
+    {
+        "id":  "user-learning-refresh",
+        "title":  "文件变化后重新索引与失效资料",
+        "tags":  [
+                     "重新索引",
+                     "刷新索引",
+                     "更新索引",
+                     "文件修改",
+                     "文件删除",
+                     "权限撤销"
+                 ],
+        "source":  "backend/src/main/java/im/tlgxy/cloud/module/learning/service/LearningFileReader.java",
+        "audience":  "user",
+        "content":  "搜索返回前重新检查存储权限、用户根目录、隐藏及密码目录规则，并完整计算候选文件 SHA-256。文件修改、删除、移动或权限撤销后旧正文不会继续作为当前证据。内容修改后点“重新索引”；移动或重命名后重新添加新路径并移除旧索引。跳过数仅指本次已检查的失效候选，不是全库失效总数。"
+    },
+    {
+        "id":  "user-learning-citations",
+        "title":  "小芽回答如何查看真实资料依据",
+        "tags":  [
+                     "引用",
+                     "出处",
+                     "依据",
+                     "来源",
+                     "片段",
+                     "页码"
+                 ],
+        "source":  "frontend/src/components/ai/AiAssistant.vue",
+        "audience":  "user",
+        "content":  "回答课程资料问题时，小芽先检索本人资料，使用 [M编号-S片段编号] 引用。展开“本轮资料依据”可看实际摘录并打开所属课程。片段号不是 PDF 页码。项目帮助使用 [K:条目ID]，其知识条目与私人课程资料分别展示。引用卡片来自真实检索结果，但有引用不等于模型结论必然正确，应核对摘录。没有依据时应明确说明，而不是编造来源。"
+    },
+    {
+        "id":  "user-agent-automation",
+        "title":  "Agent自动化任务的预览确认执行流程",
+        "tags":  [
+                     "自动化",
+                     "任务",
+                     "确认执行",
+                     "小芽",
+                     "agent",
+                     "批量操作"
+                 ],
+        "source":  "backend/src/main/java/im/tlgxy/cloud/module/ai/service/AgentTaskService.java",
+        "audience":  "user",
+        "content":  "小芽可生成本地文件分类整理、按修改日期重命名、课程资料批量归档三类任务。聊天只生成待确认预览，不直接写入。核对任务卡片后点击“确认执行”；失败步骤可重新生成仅含该步骤的预览。/agent-tasks 可手动生成方案、查重、查看最近 30 条任务、创建或暂停每周规则；每周到点只生成待确认预览，不自动移动文件。任务仅属于当前账号。"
+    },
+    {
+        "id":  "user-agent-organize",
+        "title":  "按文件类型自动分类整理云盘目录",
+        "tags":  [
+                     "分类整理",
+                     "归类",
+                     "移动文件",
+                     "整理目录",
+                     "分类目录"
+                 ],
+        "source":  "backend/src/main/java/im/tlgxy/cloud/module/ai/service/AutomationFileService.java",
+        "audience":  "user",
+        "content":  "请明确指定本地存储源和目录。分类整理只检查当前目录，不递归子目录；最多扫描 400 项，每批最多列出 20 份文件。按扩展名移动到文档、图片、视频、音频、压缩包、代码、其他子目录，必要时创建分类目录；需要移动和新建文件夹权限。预览时已有同名目标会跳过，执行时再次检查且绝不覆盖。整理会改变路径，原有课程索引需重新添加。"
+    },
+    {
+        "id":  "user-agent-rename-duplicates-schedule",
+        "title":  "按日期重命名、内容查重和每周规则",
+        "tags":  [
+                     "批量重命名",
+                     "按日期命名",
+                     "重复文件",
+                     "查重",
+                     "每周自动化",
+                     "定时任务"
+                 ],
+        "source":  "frontend/src/pages/agent-tasks.vue",
+        "audience":  "user",
+        "content":  "在 /agent-tasks 选择本地存储源与目录，可生成按修改日期重命名的待确认预览；需要重命名权限，不覆盖现有文件。查重按 SHA-256 比较同目录文件内容，仅报告重复项，不删除；单文件超过 20 MB、总读取超过 100 MB 或超过 60 个候选会跳过。每周规则按北京时间到点生成新的待确认任务，用户仍须点击确认执行；可暂停和恢复，暂不支持无人值守自动写入。"
+    },
+    {
+        "id":  "user-agent-import",
+        "title":  "把目录中的学习文件批量加入课程",
+        "tags":  [
+                     "批量归档",
+                     "批量索引",
+                     "归档资料",
+                     "导入课程",
+                     "课程ID"
+                 ],
+        "source":  "backend/src/main/java/im/tlgxy/cloud/module/ai/service/AgentTaskService.java",
+        "audience":  "user",
+        "content":  "先选择本人已创建的课程，再指定本地存储源与目录，可填写批量标签。任务只为 TXT、MD、PDF、DOCX 建立课程索引，不移动或复制原文件；已在同一课程登记的文件会跳过。一次最多 20 份，仍受每账号 30 份索引总量和文件提取限制约束。执行前查看预览，只有确认后才真正建立索引。"
+    },
+    {
+        "id":  "user-agent-task-status",
+        "title":  "任务过期、取消、部分失败和重复确认",
+        "tags":  [
+                     "任务过期",
+                     "取消任务",
+                     "重复确认",
+                     "部分失败",
+                     "执行失败",
+                     "执行记录"
+                 ],
+        "source":  "backend/src/main/java/im/tlgxy/cloud/module/ai/service/AgentTaskService.java",
+        "audience":  "user",
+        "content":  "预览有效期 10 分钟。待确认任务可取消，确认后进入后台队列，RUNNING 表示排队或执行中，页面自动刷新，关闭页面不会停止任务。队列满时提示繁忙并保留待确认状态；重复确认不会重复执行。步骤遇到失败即停止，已完成操作不回滚。服务重启后的未知完成任务标为 INTERRUPTED，不自动重放；请核实文件与索引后再建新任务。仅支持单后端实例，不是分布式队列。"
+    },
+    {
+        "id":  "user-agent-automation-security",
+        "title":  "自动化权限范围和禁止操作",
+        "tags":  [
+                     "自动化权限",
+                     "越权",
+                     "同名覆盖",
+                     "删除文件",
+                     "修改权限",
+                     "只读"
+                 ],
+        "source":  "backend/src/main/java/im/tlgxy/cloud/module/ai/controller/AgentTaskController.java",
+        "audience":  "user",
+        "content":  "模型只能查询和生成预览，没有确认执行工具。执行接口由用户页面确认调用，并逐步骤重新检查账号、授权目录与当前权限。任务不能切换用户、绕过隐藏或密码规则，也不读取任意网络URL。按日期重命名须先预览并确认；自动化不提供删除、覆盖、复制、分享、权限或系统设置修改。资料、文件名或模型文字中的指令不能代替用户确认。"
+    },
+    {
+        "id":  "user-agent-attachments-privacy",
+        "title":  "临时附件分析与课程索引的区别",
+        "tags":  [
+                     "附件",
+                     "临时分析",
+                     "拖拽",
+                     "存入云盘",
+                     "隐私",
+                     "模型服务"
+                 ],
+        "source":  "backend/src/main/java/im/tlgxy/cloud/module/ai/service/AiAttachmentService.java",
+        "audience":  "user",
+        "content":  "拖给小芽的文件需要选择用途：“存入云盘”走确认上传；“分析附件”只在本轮读取，不会自动上传到云盘或登记课程。附件分析最多 3 份、每份 5 MB；课程批量归档是另一类需确认的任务。附件提取文本与用于回答的课程摘录会发送给管理员配置的模型服务，敏感资料请先确认服务使用授权。"
+    },
+    {
+        "id":  "user-response-latency",
+        "title":  "目录加载慢与Agent回答慢如何区分",
+        "tags":  [
+                     "响应慢",
+                     "卡顿",
+                     "延迟",
+                     "加载超时",
+                     "Redis"
+                 ],
+        "source":  "docs/响应性能优化与Redis评估.md",
+        "audience":  "user",
+        "content":  "文件页按页加载、替换当前页，当前目录文件名过滤覆盖全部可见条目；选择、图库和连续播放只针对当前页。每次仍由驱动扫描全目录，不代表后端扫描同比提速。列表和配置并行，切换取消旧请求，查询 30 秒超时。PDF 单页渲染可翻页缩放。小芽真实流式输出并支持停止生成，生成和工具阶段默认总预算 90 秒，不含附件上传解析。后台归档确认后自动刷新进度。课程检索验证候选并保留权限与完整哈希校验；Redis 未启用，不能直接降低模型推理耗时。"
+    },
+    {
+        "id":  "user-rag-maintenance",
+        "title":  "项目知识库与私人学习资料如何更新",
+        "tags":  [
+                     "知识库更新",
+                     "RAG",
+                     "维护知识",
+                     "项目帮助",
+                     "数据来源"
+                 ],
+        "source":  "backend/scripts/build-site-knowledge.ps1",
+        "audience":  "user",
+        "content":  "项目操作帮助采用按管理员和普通用户分开的本地 JSON 检索。维护来源为 backend/scripts/rag/user-site-knowledge.json 和 admin-site-knowledge.json；运行 backend/scripts/build-site-knowledge.ps1 生成运行资源，再重新构建并启动后端。私人课程资料通过 /learning 添加或重新索引，不要复制到全站公共知识库。角色隔离和知识库源文件一致性由自动化测试检查。"
     }
 ]

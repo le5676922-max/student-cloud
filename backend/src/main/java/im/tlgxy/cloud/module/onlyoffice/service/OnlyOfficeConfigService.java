@@ -1,9 +1,11 @@
 package im.tlgxy.cloud.module.onlyoffice.service;
 
 import cn.hutool.jwt.JWTUtil;
+import cn.dev33.satoken.stp.StpUtil;
 import com.alibaba.fastjson2.JSONObject;
 import im.tlgxy.cloud.core.util.FileUtils;
 import im.tlgxy.cloud.core.util.OnlyOfficeKeyCacheUtils;
+import im.tlgxy.cloud.core.util.OnlyOfficeDownloadTokenUtils;
 import im.tlgxy.cloud.core.util.StringUtils;
 import im.tlgxy.cloud.core.util.TlgxyCloudAuthUtil;
 import im.tlgxy.cloud.module.config.model.dto.SystemConfigDTO;
@@ -78,7 +80,7 @@ public class OnlyOfficeConfigService {
                 .fluentPut("permissions", new JSONObject()
                         .fluentPut("edit", allowEdit))
                 .fluentPut("title", fileItemResult.getName())
-                .fluentPut("url", fileItemResult.getUrl())
+                .fluentPut("url", OnlyOfficeDownloadTokenUtils.documentUrl(fileItemResult.getUrl(), StpUtil.getLoginIdAsInt()))
                 .fluentPut("lang", "zh-CN"));
 
         User currentUser = TlgxyCloudAuthUtil.getCurrentUser();

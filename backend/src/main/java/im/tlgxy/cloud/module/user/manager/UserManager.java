@@ -8,9 +8,11 @@ import im.tlgxy.cloud.module.user.model.dto.UserStorageSourceDetailDTO;
 import im.tlgxy.cloud.module.user.model.entity.User;
 import im.tlgxy.cloud.module.user.model.entity.UserStorageSource;
 import im.tlgxy.cloud.module.user.model.enums.UserRoleEnum;
+import im.tlgxy.cloud.module.user.model.constant.UserConstant;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import im.tlgxy.cloud.module.user.model.response.UserDetailResponse;
 import im.tlgxy.cloud.module.user.service.UserStorageSourceService;
+import im.tlgxy.cloud.module.tenant.service.WorkspaceStorageProvisioningService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -53,6 +55,9 @@ public class UserManager {
     @Resource
     private UserStorageSourceMapper userStorageSourceMapper;
 
+    @Resource
+    private WorkspaceStorageProvisioningService workspaceStorage;
+
 
     /**
      * 保存用户信息及用户关联的存储策略权限
@@ -74,6 +79,7 @@ public class UserManager {
     public void saveUserInfo(User user, List<UserStorageSource> userStorageSourceList) {
         // 保存或新增用户
         Integer userId = user.getId();
+        boolean newWorkspaceAdministrator = userId == null && user.getRole() == UserRoleEnum.TENANT_ADMIN;
         if (userId == null) {
             // 新增用户：插入后 MyBatis 会自动回填 ID
             userMapper.insert(user);
@@ -89,6 +95,7 @@ public class UserManager {
             userStorageSource.setUserId(userId);
             userStorageSourceMapper.insert(userStorageSource);
         }
+        if (newWorkspaceAdministrator) workspaceStorage.grantToNewWorkspaceAdministrator(user);
     }
 
 
@@ -156,10 +163,15 @@ public class UserManager {
     public void addDefaultPermissionsForTenantUsersInStorageSource(Integer storageId, Integer tenantId) {
         log.info("为存储源添加默认权限, storageId: {}", storageId);
         List<User> users = userMapper.selectList(Wrappers.<User>lambdaQuery()
-                .eq(User::getTenantId, tenantId)
-                .or()
-                .eq(User::getRole, UserRoleEnum.ADMIN));
+                .and(query -> query.eq(User::getTenantId, tenantId)
+                        .or().eq(User::getRole, UserRoleEnum.ADMIN))
+                .ne(User::getId, UserConstant.ANONYMOUS_ID)
+                .in(User::getRole, UserRoleEnum.ADMIN, UserRoleEnum.TENANT_ADMIN, UserRoleEnum.USER));
         for (User user : users) {
+            if (UserConstant.ANONYMOUS_ID.equals(user.getId())
+                    || user.getRole() == null || !user.getRole().isLoginRole()) {
+                continue;
+            }
             // 获取用户的默认权限集合
             Set<String> defaultPermissions = user.getDefaultPermissions();
             UserStorageSource userStorageSource = new UserStorageSource();

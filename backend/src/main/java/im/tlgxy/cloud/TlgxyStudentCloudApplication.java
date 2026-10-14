@@ -5,6 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.web.servlet.ServletComponentScan;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.EnableAspectJAutoProxy;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 
 /**
@@ -20,6 +21,7 @@ import org.springframework.context.annotation.EnableAspectJAutoProxy;
 // 启用 AspectJ 自动代理，exposeProxy = true 允许通过 AopContext.currentProxy() 获取当前代理对象，
 // proxyTargetClass = true 强制使用 CGLIB 代理（基于类的代理），以便对非接口方法也能进行 AOP 拦截
 @EnableAspectJAutoProxy(exposeProxy = true, proxyTargetClass = true)
+@EnableScheduling
 // 扫描并注册指定包下的 Servlet 组件（如 Filter、Servlet、Listener）
 @ServletComponentScan(basePackages = {"im.tlgxy.cloud.core.filter", "im.tlgxy.cloud.module.storage.filter"})
 // 组件扫描，覆盖所有 im.tlgxy.cloud 子包，确保 Spring 容器能发现并管理所有 Bean

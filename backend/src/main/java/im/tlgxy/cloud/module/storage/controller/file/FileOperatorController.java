@@ -15,6 +15,7 @@ import im.tlgxy.cloud.module.storage.model.enums.FileTypeEnum;
 import im.tlgxy.cloud.module.storage.model.request.operator.*;
 import im.tlgxy.cloud.module.storage.model.result.operator.BatchOperatorResult;
 import im.tlgxy.cloud.module.storage.service.base.AbstractBaseFileService;
+import im.tlgxy.cloud.module.learning.service.LearningLibraryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
@@ -39,6 +40,8 @@ public class FileOperatorController {
 
 	@Resource
 	private PasswordConfigService passwordConfigService;
+
+    @Resource private LearningLibraryService learningLibrary;
 
 	@ApiOperationSupport(order = 1)
 	@Operation(summary = "创建文件夹")
@@ -134,8 +137,12 @@ public class FileOperatorController {
 	@DemoDisable
 	public AjaxJson<Void> rename(@Valid @RequestBody RenameFileRequest renameFileRequest) {
 		AbstractBaseFileService<?> fileService = StorageSourceContext.getByStorageKey(renameFileRequest.getStorageKey());
+        var plan = learningLibrary.preparePathChange(renameFileRequest.getStorageKey(),
+                StringUtils.concat(renameFileRequest.getPath(), renameFileRequest.getName()),
+                StringUtils.concat(renameFileRequest.getPath(), renameFileRequest.getNewName()), false);
 		boolean flag = fileService.renameFile(renameFileRequest.getPath(), renameFileRequest.getName(), renameFileRequest.getNewName());
 		if (flag) {
+            learningLibrary.completePathChange(plan);
 			return AjaxJson.getSuccess("重命名成功");
 		} else {
 			return AjaxJson.getError("重命名失败");
@@ -152,8 +159,12 @@ public class FileOperatorController {
 	@DemoDisable
 	public AjaxJson<Void> renameFolder(@Valid @RequestBody RenameFolderRequest renameFolderRequest) {
 		AbstractBaseFileService<?> fileService = StorageSourceContext.getByStorageKey(renameFolderRequest.getStorageKey());
+        var plan = learningLibrary.preparePathChange(renameFolderRequest.getStorageKey(),
+                StringUtils.concat(renameFolderRequest.getPath(), renameFolderRequest.getName()),
+                StringUtils.concat(renameFolderRequest.getPath(), renameFolderRequest.getNewName()), true);
 		boolean flag = fileService.renameFolder(renameFolderRequest.getPath(), renameFolderRequest.getName(), renameFolderRequest.getNewName());
 		if (flag) {
+            learningLibrary.completePathChange(plan);
 			return AjaxJson.getSuccess("重命名成功");
 		} else {
 			return AjaxJson.getError("重命名失败");
@@ -225,6 +236,9 @@ public class FileOperatorController {
 
 			boolean flag = false;
 			try {
+				LearningLibraryService.PathChangePlan pathPlan = "move".equals(action)
+                        ? learningLibrary.preparePathChange(storageKey, StringUtils.concat(srcPath, srcName),
+                        StringUtils.concat(targetPath, targetName), "folder".equals(type)) : null;
 				if ("move".equals(action)) {
 					if ("file".equals(type)) {
 						flag = fileService.moveFile(srcPath, srcName, targetPath, targetName);
@@ -240,6 +254,7 @@ public class FileOperatorController {
 				}
 
 				if (flag) {
+                    learningLibrary.completePathChange(pathPlan);
 					batchOperatorResults.add(BatchOperatorResult.success(srcPath, srcName));
 				} else {
 					batchOperatorResults.add(BatchOperatorResult.fail(srcPath, srcName, "操作失败"));

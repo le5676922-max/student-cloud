@@ -83,7 +83,7 @@ public class HuaweiServiceImpl extends AbstractS3BaseFileService<HuaweiParam> {
                 .build();
 
         // 设置上传 CORS 规则
-        setUploadCors();
+        // CORS is an explicit administrative operation, not an initialization side effect.
     }
 
     /**

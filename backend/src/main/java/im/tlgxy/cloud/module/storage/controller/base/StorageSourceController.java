@@ -9,10 +9,12 @@ import im.tlgxy.cloud.module.storage.model.bo.RefreshTokenCacheBO;
 import im.tlgxy.cloud.module.storage.model.dto.StorageSourceDTO;
 import im.tlgxy.cloud.module.storage.model.entity.StorageSource;
 import im.tlgxy.cloud.module.storage.model.request.admin.CopyStorageSourceRequest;
+import im.tlgxy.cloud.module.storage.model.request.admin.ApplyStorageCorsRequest;
 import im.tlgxy.cloud.module.storage.model.request.admin.UpdateStorageSortRequest;
 import im.tlgxy.cloud.module.storage.model.request.base.SaveStorageSourceRequest;
 import im.tlgxy.cloud.module.storage.model.result.StorageSourceAdminResult;
 import im.tlgxy.cloud.module.storage.service.StorageSourceService;
+import im.tlgxy.cloud.module.storage.service.StorageSourceSafetyService;
 import im.tlgxy.cloud.module.tenant.service.TenantSecurityService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -66,6 +68,23 @@ public class StorageSourceController {
 
     @Resource
     private TenantSecurityService tenantSecurityService;
+
+    @Resource
+    private StorageSourceSafetyService storageSourceSafetyService;
+
+    @PostMapping("/storage/test-connection")
+    @Operation(summary = "只读测试未保存的存储配置", description = "不保存配置，不写入文件或远端跨域规则")
+    public AjaxJson<StorageSourceSafetyService.PreflightResult> testConnection(@RequestBody SaveStorageSourceRequest request) {
+        return AjaxJson.getSuccessData(storageSourceSafetyService.testConnection(request));
+    }
+
+    @PostMapping("/storage/{storageId}/cors/apply")
+    @DemoDisable
+    @Operation(summary = "显式应用已保存的跨域规则", description = "覆盖远端规则，无法通过数据库事务撤销；必须明确确认")
+    public AjaxJson<Void> applyCors(@PathVariable Integer storageId, @RequestBody ApplyStorageCorsRequest request) {
+        storageSourceSafetyService.applySavedCors(storageId, request != null && request.isConfirmed());
+        return AjaxJson.getSuccess();
+    }
 
     /**
      * 获取所有存储源列表。

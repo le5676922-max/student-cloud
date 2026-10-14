@@ -2,6 +2,7 @@ package im.tlgxy.cloud.module.user.model.result;
 
 import im.tlgxy.cloud.module.user.model.entity.User;
 import im.tlgxy.cloud.module.user.model.enums.UserRoleEnum;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import java.io.Serializable;
@@ -34,9 +35,14 @@ public class LoginResult implements Serializable {
      */
     private boolean admin;
 
+    @Schema(title = "用户角色", type = "string", implementation = String.class, allowableValues = {"ADMIN", "TENANT_ADMIN", "USER"})
     private UserRoleEnum role;
 
     private Integer tenantId;
+
+    private String accountId;
+
+    private String email;
 
     /**
      * 构造登录结果对象
@@ -54,5 +60,7 @@ public class LoginResult implements Serializable {
         this.role = user.getRole();
         this.admin = user.getRole() != null && user.getRole().isAdmin();
         this.tenantId = user.getTenantId();
+        this.accountId = user.getAccountId();
+        this.email = user.getEmail();
     }
 }

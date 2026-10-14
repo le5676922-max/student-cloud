@@ -74,7 +74,9 @@ public class CorsFilter implements Filter {
         String header = httpServletRequest.getHeader(HttpHeaders.ORIGIN);
 
         // 构建允许的请求头列表，包含标准头和 TlgxyCloud 自定义头
-        List<String> allowHeaders = Arrays.asList("Origin", "X-Requested-With", "Content-Type", "Accept", TlgxyCloudHttpHeaderConstant.TLGXY_CLOUD_TOKEN, TlgxyCloudHttpHeaderConstant.AXIOS_REQUEST, TlgxyCloudHttpHeaderConstant.AXIOS_FROM);
+        List<String> allowHeaders = Arrays.asList("Origin", "X-Requested-With", "Content-Type", "Accept",
+                TlgxyCloudHttpHeaderConstant.TLGXY_CLOUD_TOKEN, TlgxyCloudHttpHeaderConstant.AXIOS_REQUEST,
+                TlgxyCloudHttpHeaderConstant.AXIOS_FROM, "X-Upload-Directory-Password", "X-Upload-Chunk-SHA256");
         boolean allowedOrigin = corsProperties.isAllowed(header);
         if (allowedOrigin) {
             httpServletResponse.setHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, header);

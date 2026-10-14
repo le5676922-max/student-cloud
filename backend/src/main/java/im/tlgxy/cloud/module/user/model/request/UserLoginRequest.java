@@ -1,5 +1,6 @@
 package im.tlgxy.cloud.module.user.model.request;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -18,6 +19,16 @@ import jakarta.validation.constraints.NotBlank;
 @Data
 @Schema(description = "用户登录请求参数类")
 public class UserLoginRequest {
+
+    /** Bound by the controller after alias resolution; never accepted from JSON clients. */
+    @JsonIgnore
+    @Schema(hidden = true)
+    private Integer resolvedUserId;
+
+    /** The credential actually verified before token creation; rejects in-flight old-password logins. */
+    @JsonIgnore
+    @Schema(hidden = true)
+    private String verifiedCredentialFingerprint;
 
     /**
      * 用户名

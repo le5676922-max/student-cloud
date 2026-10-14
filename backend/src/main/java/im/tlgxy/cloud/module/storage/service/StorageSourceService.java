@@ -4,6 +4,7 @@ import cn.hutool.core.convert.Convert;
 import cn.hutool.core.util.ObjUtil;
 import cn.hutool.core.util.ReflectUtil;
 import im.tlgxy.cloud.core.cache.TlgxyCloudCacheManager;
+import im.tlgxy.cloud.core.cache.metadata.StorageMetadataCache;
 import im.tlgxy.cloud.core.exception.ErrorCode;
 import im.tlgxy.cloud.core.exception.biz.InvalidStorageSourceBizException;
 import im.tlgxy.cloud.core.exception.core.BizException;
@@ -15,6 +16,7 @@ import im.tlgxy.cloud.module.password.service.PasswordConfigService;
 import im.tlgxy.cloud.module.readme.model.entity.ReadmeConfig;
 import im.tlgxy.cloud.module.readme.service.ReadmeConfigService;
 import im.tlgxy.cloud.module.storage.context.StorageSourceContext;
+import im.tlgxy.cloud.module.storage.context.StorageSourceMutationGuard;
 import im.tlgxy.cloud.module.storage.convert.StorageSourceConvert;
 import im.tlgxy.cloud.module.storage.event.StorageSourceCopyEvent;
 import im.tlgxy.cloud.module.storage.event.StorageSourceDeleteEvent;
@@ -42,6 +44,7 @@ import im.tlgxy.cloud.module.user.service.UserStorageSourceService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.BeanUtils;
 import org.springframework.cache.annotation.CacheConfig;
 import org.springframework.cache.annotation.CacheEvict;
@@ -108,6 +111,12 @@ public class StorageSourceService {
     @Resource
     private TenantService tenantService;
 
+    @Resource
+    private StorageMetadataCache storageMetadataCache;
+
+    @Autowired(required = false)
+    private LocalUploadStagingPolicy uploadStagingPolicy = new LocalUploadStagingPolicy(new ResumableUploadProperties());
+
 
     /**
      * 获取所有存储源列表，按排序值升序排列
@@ -120,7 +129,8 @@ public class StorageSourceService {
 
     public List<StorageSource> findManageableOrderByOrderNum() {
         tenantSecurityService.requireSystemAdmin();
-        return storageSourceMapper.findAllOrderByOrderNum();
+        // Never cache this method/authorization: check the current role before reading display metadata.
+        return storageMetadataCache.orderedList(storageSourceMapper::findAllOrderByOrderNum);
     }
 
 
@@ -313,6 +323,8 @@ public class StorageSourceService {
     })
     public StorageSource deleteById(Integer id) {
         tenantSecurityService.requireManageStorage(id);
+        try (var mutation = StorageSourceMutationGuard.acquire()) {
+        storageMetadataCache.prepareMutation();
         log.info("删除 id 为 {} 的存储源", id);
         // 查询存储源是否存在
         StorageSource storageSource = ((StorageSourceService)AopContext.currentProxy()).findById(id);
@@ -334,6 +346,7 @@ public class StorageSourceService {
         // 清除用户存储源缓存
         studentCloudCacheManager.clearUserEnableStorageSourceCache();
         return storageSource;
+        }
     }
 
 
@@ -350,14 +363,19 @@ public class StorageSourceService {
     @Transactional(rollbackFor = Exception.class)
     @CacheEvict(allEntries = true)
     public void updateStorageSort(List<UpdateStorageSortRequest> updateStorageSortRequestList) {
+        try (var mutation = StorageSourceMutationGuard.acquire()) {
+        for (UpdateStorageSortRequest item : updateStorageSortRequestList) {
+            tenantSecurityService.requireManageStorage(item.getId());
+        }
+        storageMetadataCache.prepareMutation();
         for (int i = 0; i < updateStorageSortRequestList.size(); i++) {
             UpdateStorageSortRequest item = updateStorageSortRequestList.get(i);
-            tenantSecurityService.requireManageStorage(item.getId());
             // 只有当排序值发生变化时才更新数据库，减少不必要的写操作
             if (!Objects.equals(i, item.getOrderNum())) {
                 log.info("变更存储源 {} 顺序号为 {}", item.getId(), i);
                 storageSourceMapper.updateSetOrderNumById(i, item.getId());
             }
+        }
         }
     }
 
@@ -370,6 +388,7 @@ public class StorageSourceService {
      *
      * @param entity 包含更新后信息的存储源实体
      */
+    @Transactional(rollbackFor = Exception.class)
     @Caching(evict = {
             @CacheEvict(key = "#entity.id"),
             @CacheEvict(key = "#entity.key"),
@@ -377,10 +396,13 @@ public class StorageSourceService {
     })
     public void updateById(StorageSource entity) {
         StorageSource original = tenantSecurityService.requireManageStorage(entity.getId());
+        try (var mutation = StorageSourceMutationGuard.acquire()) {
+        storageMetadataCache.prepareMutation();
         entity.setTenantId(original.getTenantId());
         entity.setOwnerUserId(original.getOwnerUserId());
         storageSourceMapper.updateById(entity);
         studentCloudCacheManager.clearUserEnableStorageSourceCache();
+        }
     }
 
 
@@ -390,10 +412,10 @@ public class StorageSourceService {
      * 完整的保存流程：
      * 1. 判断是新增还是更新操作
      * 2. 转换为实体对象
-     * 3. 如果是更新，先销毁旧的存储源上下文
+     * 3. 保留旧的存储源上下文；构建独立候选连接
      * 4. 保存或更新存储源基本信息
      * 5. 保存存储源的参数配置
-     * 6. 初始化存储源上下文（加载驱动、测试连接等）
+     * 6. 验证候选连接，事务成功提交后才替换旧上下文；失败只清理候选
      * 7. 如果是新增，为用户分配默认权限
      * </p>
      *
@@ -404,6 +426,14 @@ public class StorageSourceService {
     @Transactional(rollbackFor = Exception.class)
     public Integer saveStorageSource(SaveStorageSourceRequest saveStorageSourceRequest) {
         tenantSecurityService.requireSystemAdmin();
+        try (var mutation = StorageSourceMutationGuard.acquire()) {
+        // The preflight endpoint is optional; protect the actual write even for disabled LOCAL sources.
+        if (saveStorageSourceRequest.getType() == StorageTypeEnum.LOCAL) {
+            if (saveStorageSourceRequest.getStorageSourceAllParam() == null) throw new BizException("请填写本地存储路径");
+            uploadStagingPolicy.assertSeparated(saveStorageSourceRequest.getStorageSourceAllParam().getFilePath());
+        }
+        // Fail before destroying the active storage context if Redis invalidation is unavailable.
+        storageMetadataCache.prepareMutation();
         // 判断是新增（无 ID）还是更新（有 ID）
         boolean isSave = ObjUtil.isEmpty(saveStorageSourceRequest.getId());
 
@@ -416,7 +446,7 @@ public class StorageSourceService {
         storageSource.setSearchMode(SearchModeEnum.SEARCH_ALL_MODE);
         User operator = tenantSecurityService.currentUser();
 
-        // 如果是更新操作，则销毁之前的存储源上下文（因为参数可能已经改变）
+        // 更新期间旧连接继续可用，候选验证成功并提交事务后才切换。
         if (isSave) {
             Integer tenantId = Optional.ofNullable(saveStorageSourceRequest.getTenantId())
                     .orElse(UserConstant.DEFAULT_TENANT_ID);
@@ -428,7 +458,6 @@ public class StorageSourceService {
                     saveStorageSourceRequest.getId());
             storageSource.setTenantId(dbStorageSource.getTenantId());
             storageSource.setOwnerUserId(dbStorageSource.getOwnerUserId());
-            StorageSourceContext.destroy(dbStorageSource);
         }
 
         // 保存或更新存储源基本信息
@@ -466,6 +495,7 @@ public class StorageSourceService {
         }
 
         return storageId;
+        }
     }
 
 
@@ -482,12 +512,15 @@ public class StorageSourceService {
      *
      * @return  保存后的存储源实体（包含生成的 ID）
      */
+    @Transactional(rollbackFor = Exception.class)
     @Caching(evict = {
             @CacheEvict(key = "#result.id"),
             @CacheEvict(key = "'dto-' + #result.id"),
             @CacheEvict(key = "#result.key")
     })
     public StorageSource saveOrUpdate(StorageSource storageSource) {
+        try (var mutation = StorageSourceMutationGuard.acquire()) {
+        storageMetadataCache.prepareMutation();
         // 判断是新增还是更新
         if (storageSource.getId() == null) {
             // 无 ID 则为新增
@@ -510,6 +543,7 @@ public class StorageSourceService {
         // 清除用户存储源缓存
         studentCloudCacheManager.clearUserEnableStorageSourceCache();
         return storageSource;
+        }
     }
 
 
@@ -602,6 +636,7 @@ public class StorageSourceService {
      */
     @Transactional(rollbackFor = Exception.class)
     public Integer copy(CopyStorageSourceRequest copyStorageSourceRequest) {
+        try (var mutation = StorageSourceMutationGuard.acquire()) {
         // 检查目标存储源别名是否已存在
         String toKey = copyStorageSourceRequest.getToKey();
         boolean existByStorageKey = ((StorageSourceService)AopContext.currentProxy()).existByStorageKey(toKey);
@@ -612,6 +647,13 @@ public class StorageSourceService {
         // 检查复制源是否存在
         Integer fromStorageId = copyStorageSourceRequest.getFromId();
         StorageSource storageSource = tenantSecurityService.requireManageStorage(fromStorageId);
+        if (storageSource.getType() == StorageTypeEnum.LOCAL) {
+            List<StorageSourceConfig> roots = storageSourceConfigService.selectFreshStorageConfigByStorageId(fromStorageId)
+                    .stream().filter(value -> "filePath".equals(value.getName())).toList();
+            if (roots.size() != 1) throw new BizException("本地存储路径配置不完整，不能安全复制");
+            uploadStagingPolicy.assertSeparated(roots.getFirst().getValue());
+        }
+        storageMetadataCache.prepareMutation();
 
         // 复制基本存储源信息
         StorageSource newStorageSource = new StorageSource();
@@ -641,6 +683,7 @@ public class StorageSourceService {
                 newStorageId, dbSaveResult.getName(), storageSourceConfigList.size());
 
         return newStorageId;
+        }
     }
 
 }

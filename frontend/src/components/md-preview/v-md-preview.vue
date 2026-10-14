@@ -1,39 +1,26 @@
 <template>
-	<v-md-preview-inner :text="props.text" />
+	<!-- All Markdown HTML is sanitized before rendering. -->
+	<!-- eslint-disable-next-line vue/no-v-html -->
+	<div class="markdown-body" v-html="html" />
 </template>
 
 <script setup>
-import MarkdownViewerAsyncLoading from "~/components/file/preview/MarkdownViewerAsyncLoading.vue";
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
+import 'github-markdown-css/github-markdown.css'
 
-const VMdPreviewInner = defineAsyncComponent({
-	loader: () => {
-		return new Promise((resolve, reject) => {
-			;(async function() {
-				try {
-					const res = await import('@kangc/v-md-editor/lib/preview')
-					import('@kangc/v-md-editor/lib/style/preview.css');
-					import('@kangc/v-md-editor/lib/theme/style/github.css');
-					const githubTheme = await import('@kangc/v-md-editor/lib/theme/github.js');
-					const hljs = await import('highlight.js');
-					res.use(githubTheme, {
-						Hljs: hljs.HighlightJS,
-					});
-					resolve(res)
-				} catch (error) {
-					reject(error);
-				}
-			})();
-		});
-	},
-	loadingComponent: MarkdownViewerAsyncLoading
-});
-
-
-const props = defineProps({
-	text: {
-		type: String,
-		required: true
-	}
-});
-
+const props = defineProps({ text: { type: String, default: '' } })
+const html = computed(() =>
+	DOMPurify.sanitize(
+		marked.parse(props.text, {
+			mangle: false,
+			headerIds: false,
+			gfm: true,
+		}),
+		{
+			USE_PROFILES: { html: true },
+			FORBID_TAGS: ['style', 'form', 'iframe'],
+		}
+	)
+)
 </script>

@@ -123,8 +123,7 @@ public class S3ServiceImpl extends AbstractS3BaseFileService<S3Param> {
                 .credentialsProvider(credentialsProvider)
                 .build();
 
-        // 设置跨域上传规则，允许浏览器端直传
-        setUploadCors();
+        // Remote CORS is changed only by the separately confirmed administrator action.
     }
 
     /**

@@ -16,7 +16,6 @@ import lombok.Data;
  *   <li>双因素认证（2FA）—— 为管理员启用 TOTP 二次验证</li>
  *   <li>登录日志模式 —— 记录所有登录或仅记录异常登录</li>
  *   <li>前台登录按钮 —— 是否在前台页面显示登录入口</li>
- *   <li>访客首页 —— 匿名用户访问时显示的首页内容</li>
  * </ul>
  *
  * @author zhaojun
@@ -62,11 +61,5 @@ public class UpdateSecuritySettingRequest {
 	 */
 	@Schema(title = "2FA登陆验证 Secret")
 	private String loginVerifySecret;
-
-	/**
-	 * 匿名用户访问首页时显示的 HTML 内容（用于自定义访客首页）
-	 */
-	@Schema(title = "匿名用户首页显示内容")
-	private String guestIndexHtml;
 
 }

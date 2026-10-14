@@ -18,6 +18,8 @@ import im.tlgxy.cloud.module.storage.support.StorageSourceSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.BooleanUtils;
 import org.springframework.aop.support.AopUtils;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.lang.reflect.Field;
 import java.util.*;
@@ -82,7 +84,7 @@ public class StorageSourceContext {
      * Map<参数类 Class, Map<字段 key, 字段 Field 对象>>。
      * 缓存每个存储源参数类的字段信息，避免重复反射解析，提升性能。
      */
-    private static final Map<Class<?>, Map<String, Field>> PARAM_CLASS_FIELD_NAME_MAP_CACHE = new HashMap<>();
+    private static final Map<Class<?>, Map<String, Field>> PARAM_CLASS_FIELD_NAME_MAP_CACHE = new ConcurrentHashMap<>();
 
     /**
      * 加载所有存储源类型的 Service Bean。
@@ -111,7 +113,7 @@ public class StorageSourceContext {
      * @throws  InvalidStorageSourceBizException
      *          当指定 ID 的存储源不存在或未初始化时抛出
      */
-    public static AbstractBaseFileService<IStorageParam> getByStorageId(Integer storageId) {
+    public static synchronized AbstractBaseFileService<IStorageParam> getByStorageId(Integer storageId) {
         AbstractBaseFileService<IStorageParam> abstractBaseFileService = DRIVES_SERVICE_MAP.get(storageId);
         if (abstractBaseFileService == null) {
             throw new InvalidStorageSourceBizException(storageId);
@@ -127,7 +129,7 @@ public class StorageSourceContext {
      *
      * @return  存储源对应的文件服务实例，如果 key 不存在则返回 null
      */
-    public static AbstractBaseFileService<?> getByStorageKey(String key) {
+    public static synchronized AbstractBaseFileService<?> getByStorageKey(String key) {
         Integer storageId = STORAGE_KEY_ID_MAP.get(key);
         if (storageId == null) {
             return null;
@@ -183,9 +185,33 @@ public class StorageSourceContext {
      *          存储源初始化数据传输对象，包含存储源 ID、key、类型和配置参数
      */
     public static void init(StorageSourceInitDTO storageSourceInitDTO) {
+        AbstractBaseFileService<IStorageParam> prepared = prepare(storageSourceInitDTO);
+        // Never expose a context whose configuration/grants might still roll back.
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            try {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    private boolean published;
+                    @Override public void afterCommit() {
+                        publish(storageSourceInitDTO, prepared);
+                        published = true;
+                    }
+                    @Override public void afterCompletion(int status) {
+                        if (!published) closeQuietly(prepared);
+                    }
+                });
+            } catch (RuntimeException exception) {
+                closeQuietly(prepared);
+                throw exception;
+            }
+        } else {
+            publish(storageSourceInitDTO, prepared);
+        }
+    }
+
+    /** Builds and validates an independent candidate. Does not register or destroy the active context. */
+    static AbstractBaseFileService<IStorageParam> prepare(StorageSourceInitDTO storageSourceInitDTO) {
         Integer storageId = storageSourceInitDTO.getId();
         String storageName = storageSourceInitDTO.getName();
-        String key = storageSourceInitDTO.getKey();
         StorageTypeEnum storageTypeEnum = storageSourceInitDTO.getType();
 
         // 获取对应存储类型的未初始化 Service Bean
@@ -198,12 +224,30 @@ public class StorageSourceContext {
         IStorageParam initParam = getInitParam(baseFileService, storageSourceInitDTO.getStorageSourceConfigList());
 
         // 进行初始化并测试与存储源的连接
-        baseFileService.init(storageName, storageId, initParam);
-        baseFileService.testConnection();
+        try {
+            baseFileService.init(storageName, storageId, initParam);
+            baseFileService.testConnection();
+            return baseFileService;
+        } catch (RuntimeException exception) {
+            closeQuietly(baseFileService);
+            throw exception;
+        }
+    }
 
-        // 注册到缓存中
-        DRIVES_SERVICE_MAP.put(storageId, baseFileService);
-        STORAGE_KEY_ID_MAP.put(key, storageId);
+    private static void publish(StorageSourceInitDTO source, AbstractBaseFileService<IStorageParam> prepared) {
+        AbstractBaseFileService<IStorageParam> previous;
+        synchronized (StorageSourceContext.class) {
+            previous = DRIVES_SERVICE_MAP.put(source.getId(), prepared);
+            STORAGE_KEY_ID_MAP.entrySet().removeIf(entry -> Objects.equals(entry.getValue(), source.getId()));
+            STORAGE_KEY_ID_MAP.put(source.getKey(), source.getId());
+        }
+        if (previous != prepared) closeQuietly(previous);
+    }
+
+    private static void closeQuietly(AbstractBaseFileService<?> service) {
+        if (service == null) return;
+        try { service.destroy(); }
+        catch (RuntimeException exception) { log.warn("存储连接资源释放失败，storageId: {}", service.getStorageId()); }
     }
 
     /**
@@ -301,7 +345,8 @@ public class StorageSourceContext {
                 ReflectUtil.setFieldValue(iStorageParam, field, value);
                 fieldMapCopy.remove(name); // 标记为已填充
             } catch (Exception e) {
-                log.warn("存储源 {} 从数据库获取存储源参数进行初始化时为字段 {} 初始化值 {} 失败", baseFileService, name, value, e);
+                log.warn("存储源参数解析失败，字段: {}", name);
+                throw new IllegalArgumentException("存储源参数格式不正确");
             }
         }
 
@@ -369,18 +414,25 @@ public class StorageSourceContext {
      *          要销毁的存储源实体
      */
     public static void destroy(StorageSource storageSource) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { remove(storageSource); }
+            });
+        } else remove(storageSource);
+    }
+
+    private static void remove(StorageSource storageSource) {
         Integer id = storageSource.getId();
         String key = storageSource.getKey();
         log.info("清理存储源上下文对象, storageId: {}, storageKey: {}", id, key);
 
         // 从缓存中移除并调用 destroy 释放资源
-        AbstractBaseFileService<IStorageParam> abstractBaseFileService = DRIVES_SERVICE_MAP.remove(id);
-        if (abstractBaseFileService != null) {
-            abstractBaseFileService.destroy();
+        AbstractBaseFileService<IStorageParam> abstractBaseFileService;
+        synchronized (StorageSourceContext.class) {
+            abstractBaseFileService = DRIVES_SERVICE_MAP.remove(id);
+            STORAGE_KEY_ID_MAP.entrySet().removeIf(entry -> Objects.equals(entry.getValue(), id));
         }
-
-        // 移除 key 到 ID 的映射
-        STORAGE_KEY_ID_MAP.remove(key);
+        closeQuietly(abstractBaseFileService);
     }
 
 }

@@ -1,0 +1,27 @@
+# Maven 已经生成的文件不要传给 Docker
+target
+
+# Git
+.git
+.gitignore
+
+# IDEA
+.idea
+*.iml
+
+# VS Code
+.vscode
+
+# 日志
+*.log
+logs
+application-local-secrets.properties
+**/application-local-secrets.properties
+# 不把电脑上的数据库密码或本地 profile 打包进镜像。
+**/application-local*.properties
+**/.env
+**/.env.*
+**/*.secret
+**/*.secrets
+.local-data
+.codex-run

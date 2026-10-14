@@ -35,7 +35,7 @@ public class SaveUserRequest {
     @Schema(title="是否启用")
     private Boolean enable;
 
-    @Schema(title = "用户角色")
+    @Schema(title = "用户角色", type = "string", implementation = String.class, allowableValues = {"ADMIN", "TENANT_ADMIN", "USER"})
     @com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = UserRoleEnum.Deserializer.class)
     private UserRoleEnum role;
 

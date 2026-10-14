@@ -99,7 +99,7 @@ class AiSecurityContractTest {
 
     @Test
     void directoryPathRejectsParentTraversal() throws Exception {
-        AiAgentToolService service = new AiAgentToolService(null, null, null, null);
+        AiAgentToolService service = new AiAgentToolService(null, null, null, null, null, null);
         Method normalizePath = AiAgentToolService.class.getDeclaredMethod("normalizePath", String.class);
         normalizePath.setAccessible(true);
 
@@ -113,7 +113,7 @@ class AiSecurityContractTest {
 
     @Test
     void fileDetailPathAlsoRejectsParentTraversalAndRootPath() throws Exception {
-        AiAgentToolService service = new AiAgentToolService(null, null, null, null);
+        AiAgentToolService service = new AiAgentToolService(null, null, null, null, null, null);
         Method normalizeItemPath = AiAgentToolService.class.getDeclaredMethod("normalizeItemPath", String.class);
         normalizeItemPath.setAccessible(true);
 

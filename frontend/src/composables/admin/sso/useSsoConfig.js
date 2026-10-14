@@ -1,16 +1,15 @@
-import { ElMessage } from "element-plus";
-import { baseSsoConfig } from "~/composables/admin/sso/baseSsoConfig";
+import { ElMessage } from 'element-plus'
+import { baseSsoConfig } from '~/composables/admin/sso/baseSsoConfig'
 import {
 	listReq,
 	deleteReq,
 	saveOrUpdateReq,
 	checkProviderDuplicateReq,
-} from "~/api/admin/admin-sso";
+} from '~/api/admin/admin-sso'
 
 const currentSsoProvider = ref()
 
 export default function useSsoConfig() {
-
 	const ssoConfigList = ref([])
 	const autoId = ref(-1)
 
@@ -20,7 +19,7 @@ export default function useSsoConfig() {
 
 	const loadList = () => {
 		listReq().then((res) => {
-			ssoConfigList.value = res.data.map(item => {
+			ssoConfigList.value = res.data.map((item) => {
 				return {
 					...item,
 				}
@@ -32,7 +31,9 @@ export default function useSsoConfig() {
 	}
 
 	const saveOrUpdate = () => {
-		const item = ssoConfigList.value.find(item => item.id === currentSsoProvider.value)
+		const item = ssoConfigList.value.find(
+			(item) => item.id === currentSsoProvider.value
+		)
 		if (item.id < 0) {
 			item.id = null
 		}
@@ -53,61 +54,59 @@ export default function useSsoConfig() {
 			{ required: true, message: '请输入服务商简称', trigger: ['change'] },
 			{
 				validator: (rule, value, callback) => {
-					let reg = /^[a-z0-9_-]+$/;
+					let reg = /^[a-z0-9_-]+$/
 					if (!reg.test(value)) {
-						callback(new Error('只允许使用小写字母、数字、下划线、横杠。'));
+						callback(new Error('只允许使用小写字母、数字、下划线、横杠。'))
 						return
 					}
 
 					let params = {
 						id: currentSsoProvider.value,
-						provider: value
-					};
+						provider: value,
+					}
 
 					checkProviderDuplicateReq(params).then((res) => {
 						if (res.data) {
-							callback(new Error("该服务商简称已存在，请修改。"));
+							callback(new Error('该服务商简称已存在，请修改。'))
 						} else {
-							callback();
+							callback()
 						}
-					});
-				}
+					})
+				},
 			},
 		],
 		name: [
-			{required: true, message: '请输入服务商名称', trigger: ['change']},
+			{ required: true, message: '请输入服务商名称', trigger: ['change'] },
 		],
 		icon: [
-			{required: true, message: '请输入服务商图标', trigger: ['change']},
+			{ required: true, message: '请输入服务商图标', trigger: ['change'] },
 		],
 		clientId: [
-			{required: true, message: '请输入 ClientId', trigger: ['change']},
+			{ required: true, message: '请输入 ClientId', trigger: ['change'] },
 		],
 		clientSecret: [
-			{required: true, message: '请输入 ClientSecret', trigger: ['change']},
+			{ required: true, message: '请输入 ClientSecret', trigger: ['change'] },
 		],
 		authUrl: [
-			{required: true, message: '请输入授权端点', trigger: ['change']},
+			{ required: true, message: '请输入授权端点', trigger: ['change'] },
 		],
 		tokenUrl: [
-			{required: true, message: '请输入 Token 端点', trigger: ['change']},
+			{ required: true, message: '请输入 Token 端点', trigger: ['change'] },
 		],
 		userInfoUrl: [
-			{required: true, message: '请输入用户信息端点', trigger: ['change']},
+			{ required: true, message: '请输入用户信息端点', trigger: ['change'] },
 		],
-		scope: [
-			{required: true, message: '请输入授权范围', trigger: ['change']},
-		],
+		scope: [{ required: true, message: '请输入授权范围', trigger: ['change'] }],
 		bindingField: [
-			{required: true, message: '请输入绑定字段', trigger: ['change']},
+			{ required: true, message: '请输入绑定字段', trigger: ['change'] },
 		],
 		enabled: [
-			{required: true, message: '请选择是否启用', trigger: ['change']},
+			{ required: true, message: '请选择是否启用', trigger: ['change'] },
 		],
-	});
+	})
 
 	const addTab = (provider) => {
-		const index = autoId.value--;
+		const index = autoId.value--
 		if (provider) {
 			const providerConfig = baseSsoConfig[provider]
 			if (providerConfig) {
@@ -115,7 +114,7 @@ export default function useSsoConfig() {
 				newProvider.id = index
 				ssoConfigList.value.push(newProvider)
 				currentSsoProvider.value = index
-				return;
+				return
 			}
 		}
 
@@ -143,7 +142,7 @@ export default function useSsoConfig() {
 			type: 'warning',
 		}).then(() => {
 			if (delId < 0) {
-				const index = ssoConfigList.value.findIndex(item => item.id === delId)
+				const index = ssoConfigList.value.findIndex((item) => item.id === delId)
 				if (index === -1) {
 					return
 				}
@@ -152,7 +151,7 @@ export default function useSsoConfig() {
 					currentSsoProvider.value = ssoConfigList.value[0]?.id
 				}
 			} else {
-				deleteReq(delId).then((res) => {
+				deleteReq(delId).then(() => {
 					ElMessage({
 						type: 'success',
 						message: '删除成功',
@@ -168,9 +167,11 @@ export default function useSsoConfig() {
 	}
 
 	return {
-		ssoConfigList, currentSsoProvider,
-		formRules, addTab, removeTab,
-		saveOrUpdate
+		ssoConfigList,
+		currentSsoProvider,
+		formRules,
+		addTab,
+		removeTab,
+		saveOrUpdate,
 	}
-
 }

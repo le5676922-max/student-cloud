@@ -3,7 +3,9 @@ package im.tlgxy.cloud.module.storage.service.base;
 import cn.hutool.core.net.url.UrlBuilder;
 import im.tlgxy.cloud.core.util.FileUtils;
 import im.tlgxy.cloud.core.util.ProxyDownloadUrlUtils;
+import im.tlgxy.cloud.core.util.ShareDownloadTokenUtils;
 import im.tlgxy.cloud.core.util.StringUtils;
+import im.tlgxy.cloud.module.share.context.ShareAccessContext;
 import im.tlgxy.cloud.module.config.service.SystemConfigService;
 import im.tlgxy.cloud.module.storage.model.param.ProxyTransferParam;
 import im.tlgxy.cloud.module.storage.service.StorageSourceService;
@@ -115,7 +117,9 @@ public abstract class AbstractProxyTransferService<P extends ProxyTransferParam>
 		// 无论是否为私有空间, 代理下载链接都必须携带签名,
 		// 公开模式使用永久签名, 私有模式使用带过期时间的签名.
 		// 这样可以从密码学层面阻止通过修改 URL 中的路径访问其他用户/路径的文件 (#821).
-		String signature = param.isProxyPrivate()
+		String signature = ShareAccessContext.isShareAccess()
+				? ShareDownloadTokenUtils.generate(storageId, pathAndName, ShareAccessContext.getShareKey(), param.getProxyTokenTime())
+				: param.isProxyPrivate()
 				? ProxyDownloadUrlUtils.generatorSignature(storageId, pathAndName, param.getProxyTokenTime())
 				: ProxyDownloadUrlUtils.generatorPermanentSignature(storageId, pathAndName);
 		urlBuilder.addQuery("signature", signature);

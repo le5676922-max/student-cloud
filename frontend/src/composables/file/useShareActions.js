@@ -1,6 +1,6 @@
 import { toClipboard } from '@soerenmartius/vue3-clipboard'
 import { concatPath, getFileType, buildShareBasePath } from '~/utils'
-import { getShareFileDownloadUrlReq } from '~/api/home/share'
+import { shareDownloadUrl } from '~/utils/share-download.mjs'
 
 import useRouterData from '~/composables/useRouterData'
 const { routeRef, routerRef } = useRouterData()
@@ -29,10 +29,7 @@ export default function useShareActions() {
 	const currentPath = () => routeRef.value?.query?.path || '/'
 
 	const buildDownloadUrl = (row) => {
-		const key = shareKey()
-		if (!key || !row?.name) return ''
-		const fullPath = concatPath(row.path, row.name)
-		return getShareFileDownloadUrlReq(key, fullPath, pwd())
+		return shareDownloadUrl(row)
 	}
 
 	const openFolder = (row) => {
@@ -48,6 +45,7 @@ export default function useShareActions() {
 
 	const previewFile = (row) => {
 		const url = buildDownloadUrl(row)
+		if (!url) return
 		const rowWithUrl = { ...row, url }
 		updateCurrentClickRow(rowWithUrl)
 		const ft = getFileType(row.name)

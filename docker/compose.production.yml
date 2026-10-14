@@ -1,0 +1,153 @@
+# 单实例完整部署。先复制 .env.production.example 为 .env.production 并修改。
+# 所有命令在项目根目录执行；数据库、Redis、后端不发布任何宿主机端口。
+name: student-cloud
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: student_cloud
+      MYSQL_USER: student_cloud
+      MYSQL_PASSWORD: ${STUDENT_CLOUD_DB_PASSWORD:?请填写数据库应用用户密码}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请填写独立的数据库root密码}
+      TZ: Asia/Shanghai
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--max-connections=100"]
+    volumes: ["mysql-data:/var/lib/mysql"]
+    networks: [data]
+    mem_limit: 1g
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysql --host=127.0.0.1 --user=root --batch --skip-column-names -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 90s
+      retries: 12
+    logging: *logging
+  redis-cache:
+    image: redis:7-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${STUDENT_CLOUD_REDIS_PASSWORD:?请填写Redis密码}
+    # 不持久化可丢弃缓存和限流计数。真正的验证码记录仍在 MySQL。
+    # 与限流共享实例时不可 LRU 提前淘汰计数；内存满时写入报错，限流按 closed 拒发。
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --maxmemory 192mb --maxmemory-policy noeviction --save '' --appendonly no"]
+    tmpfs: ["/data:size=16m"]
+    networks: [data]
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -qx PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging: *logging
+  backend:
+    build: {context: ../backend, dockerfile: Dockerfile}
+    image: student-cloud-backend:local
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 45s
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis-cache: {condition: service_healthy}
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/student_cloud?characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: student_cloud
+      SPRING_DATASOURCE_PASSWORD: ${STUDENT_CLOUD_DB_PASSWORD:?请填写数据库应用用户密码}
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "12"
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "2"
+      SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT: "3000"
+      # 保留 raw peer，只信任唯一 Nginx 地址，不接受客户端伪造代理头。
+      SERVER_FORWARD_HEADERS_STRATEGY: none
+      STUDENT_CLOUD_TRUSTED_PROXY_CIDRS: 10.77.0.10/32
+      TLGXY_CLOUD_CORS_ALLOWED_ORIGINS: ${APP_ORIGIN:?请填写网站完整访问地址}
+      STUDENT_CLOUD_WORKSPACE_STORAGE_ROOT: /app/data/workspaces
+      # 分片续传暂存与用户可浏览云盘根目录分离。
+      STUDENT_CLOUD_UPLOAD_STAGING_ROOT: /app/upload-staging
+      STUDENT_CLOUD_RESUMABLE_UPLOAD_ENABLED: ${STUDENT_CLOUD_RESUMABLE_UPLOAD_ENABLED:-true}
+      STUDENT_CLOUD_UPLOAD_STAGING_QUOTA_BYTES: ${STUDENT_CLOUD_UPLOAD_STAGING_QUOTA_BYTES:-21474836480}
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=60 -XX:+ExitOnOutOfMemoryError -Duser.home=/app/data -Dtongligong-student-cloud.log.path=/app/data/logs
+      STUDENT_CLOUD_CACHE_TYPE: redis
+      STUDENT_CLOUD_CACHE_NAMESPACE: ${STUDENT_CLOUD_CACHE_NAMESPACE:-student-cloud-production}
+      STUDENT_CLOUD_CACHE_TTL: 120s
+      STUDENT_CLOUD_OVERVIEW_CACHE_TTL: 10s
+      STUDENT_CLOUD_REDIS_HOST: redis-cache
+      STUDENT_CLOUD_REDIS_PORT: "6379"
+      STUDENT_CLOUD_REDIS_DATABASE: "1"
+      STUDENT_CLOUD_REDIS_PASSWORD: ${STUDENT_CLOUD_REDIS_PASSWORD:?请填写Redis密码}
+      STUDENT_CLOUD_REDIS_TIMEOUT: 800ms
+      STUDENT_CLOUD_RATE_LIMIT_TYPE: redis
+      STUDENT_CLOUD_RATE_LIMIT_FAILURE_MODE: closed
+      STUDENT_CLOUD_RATE_LIMIT_LOCAL_MAX_KEYS: "10000"
+      MAIL_ENABLED: ${MAIL_ENABLED:-false}
+      MAIL_HOST: ${MAIL_HOST:-smtp.qq.com}
+      MAIL_PORT: ${MAIL_PORT:-465}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_CODE_SECRET: ${MAIL_CODE_SECRET:-}
+      MAIL_AUTH: "true"
+      MAIL_SSL: "true"
+      MAIL_STARTTLS: "false"
+      TLGXY_CLOUD_AI_ENABLED: ${TLGXY_CLOUD_AI_ENABLED:-false}
+      TLGXY_CLOUD_AI_API_KEY: ${TLGXY_CLOUD_AI_API_KEY:-}
+      TLGXY_CLOUD_AI_BASE_URL: ${TLGXY_CLOUD_AI_BASE_URL:-https://api.deepseek.com}
+      TLGXY_CLOUD_AI_MODEL: ${TLGXY_CLOUD_AI_MODEL:-deepseek-flash}
+      STUDENT_CLOUD_OCR_ENABLED: ${STUDENT_CLOUD_OCR_ENABLED:-false}
+      STUDENT_CLOUD_OCR_EXECUTABLE: /usr/bin/tesseract
+      STUDENT_CLOUD_OCR_LANGUAGE: ${STUDENT_CLOUD_OCR_LANGUAGE:-chi_sim+eng}
+      STUDENT_CLOUD_OCR_MAX_PAGES: ${STUDENT_CLOUD_OCR_MAX_PAGES:-10}
+      STUDENT_CLOUD_OCR_DPI: ${STUDENT_CLOUD_OCR_DPI:-120}
+      STUDENT_CLOUD_OCR_MAX_CHARS: ${STUDENT_CLOUD_OCR_MAX_CHARS:-60000}
+      STUDENT_CLOUD_OCR_PAGE_TIMEOUT_SECONDS: ${STUDENT_CLOUD_OCR_PAGE_TIMEOUT_SECONDS:-15}
+      STUDENT_CLOUD_OCR_TOTAL_TIMEOUT_SECONDS: ${STUDENT_CLOUD_OCR_TOTAL_TIMEOUT_SECONDS:-90}
+      STUDENT_CLOUD_OCR_MAX_CONCURRENT: "1"
+      # 独立语义嵌入配置，不复用聊天模型密钥；失败由知识库明确退回关键词检索。
+      STUDENT_CLOUD_EMBEDDING_ENABLED: ${STUDENT_CLOUD_EMBEDDING_ENABLED:-false}
+      STUDENT_CLOUD_EMBEDDING_BASE_URL: ${STUDENT_CLOUD_EMBEDDING_BASE_URL:-}
+      STUDENT_CLOUD_EMBEDDING_API_KEY: ${STUDENT_CLOUD_EMBEDDING_API_KEY:-}
+      STUDENT_CLOUD_EMBEDDING_MODEL: ${STUDENT_CLOUD_EMBEDDING_MODEL:-}
+      STUDENT_CLOUD_EMBEDDING_DIMENSIONS: ${STUDENT_CLOUD_EMBEDDING_DIMENSIONS:-1024}
+      STUDENT_CLOUD_EMBEDDING_MIN_SIMILARITY: ${STUDENT_CLOUD_EMBEDDING_MIN_SIMILARITY:-0.25}
+      STUDENT_CLOUD_EMBEDDING_TIMEOUT_SECONDS: "10"
+      STUDENT_CLOUD_EMBEDDING_MAX_CONCURRENT: "2"
+    volumes: ["business-data:/app/data", "upload-staging:/app/upload-staging"]
+    read_only: true
+    tmpfs: ["/tmp:size=256m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [data, edge]
+    mem_limit: 2g
+    cpus: 2.0
+    logging: *logging
+  frontend:
+    build: {context: ../frontend, dockerfile: Dockerfile.deploy}
+    image: student-cloud-frontend:local
+    restart: unless-stopped
+    depends_on:
+      backend: {condition: service_healthy}
+    ports: ["${WEB_BIND_ADDRESS:-0.0.0.0}:${WEB_HTTP_PORT:-80}:8080"]
+    networks:
+      edge: {ipv4_address: 10.77.0.10}
+    read_only: true
+    # 仅有限4MiB的续传分片落 /tmp；location 全局最多12个，48MiB正文加余量。
+    tmpfs: ["/var/cache/nginx:size=64m", "/var/run:size=1m", "/tmp:size=64m,mode=1777"]
+    cap_drop: [NET_RAW]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    cpus: 1.0
+    logging: *logging
+networks:
+  data: {internal: true}
+  # 后端需访问邮件和对象存储。更换子网时同步修改 Nginx IP 和可信 CIDR。
+  edge:
+    ipam:
+      config: [{subnet: 10.77.0.0/24}]
+volumes:
+  mysql-data:
+  business-data:
+  upload-staging:

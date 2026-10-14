@@ -52,7 +52,14 @@ public class ProjectKnowledgeService {
             Set.of("密码文件夹", "加密文件夹", "密码保护", "文件加密"),
             Set.of("删除", "移除", "清除"),
             Set.of("登录", "登陆", "登入"),
-            Set.of("管理员", "后台", "管理端")
+            Set.of("管理员", "后台", "管理端"),
+            Set.of("小芽", "助手", "agent"),
+            Set.of("知识库", "rag", "检索增强"),
+            Set.of("课程资料", "学习资料", "课程库"),
+            Set.of("整理", "归类", "分类"),
+            Set.of("批量归档", "批量索引", "归档资料"),
+            Set.of("重新索引", "刷新索引", "更新索引"),
+            Set.of("响应慢", "延迟", "卡顿")
     );
 
     private final AiRagProperties properties;
@@ -105,7 +112,11 @@ public class ProjectKnowledgeService {
 
     /** Builds model context without allowing knowledge to cross account boundaries. */
     public String buildContext(String question, KnowledgeAudience audience) {
-        List<AiKnowledgeResult> results = search(question, audience);
+        return buildContext(search(question, audience), audience);
+    }
+
+    public String buildContext(List<AiKnowledgeResult> results, KnowledgeAudience audience) {
+        results = results.stream().filter(result -> result != null && audience.getKey().equals(result.getAudience())).toList();
         if (results.isEmpty()) {
             return audience.getDescription() + "知识库中没有检索到与本次问题直接相关的内容。";
         }
@@ -114,7 +125,7 @@ public class ProjectKnowledgeService {
                 .append(audience.getDescription())
                 .append("知识库，请优先依据这些资料回答：");
         for (AiKnowledgeResult result : results) {
-            String section = "\n\n【知识库：" + result.getTitle() + "】\n" + result.getContent();
+            String section = "\n\n[K:" + result.getId() + "] " + result.getTitle() + "\n来源：" + result.getSource() + "\n" + result.getContent();
             int remaining = properties.getMaxContextChars() - context.length();
             if (remaining <= 0) {
                 break;
@@ -148,8 +159,9 @@ public class ProjectKnowledgeService {
 
         Set<String> ids = new HashSet<>();
         for (KnowledgeDocument document : loaded) {
-            if (StringUtils.isAnyBlank(document.getId(), document.getTitle(), document.getContent())) {
-                throw new IllegalStateException("AI RAG 知识条目的 id、title 和 content 不能为空");
+            if (StringUtils.isAnyBlank(document.getId(), document.getTitle(), document.getContent(), document.getSource())
+                    || document.getTags() == null || document.getTags().isEmpty()) {
+                throw new IllegalStateException("AI RAG 知识条目的 id、title、content、source、tags 不能为空");
             }
             if (!audience.getKey().equals(document.getAudience())) {
                 throw new IllegalStateException("知识条目受众错误：" + document.getId());
@@ -248,11 +260,8 @@ public class ProjectKnowledgeService {
     private void addChineseTerms(String text, Set<String> terms) {
         List<String> characters = new ArrayList<>();
         text.codePoints().forEach(codePoint -> characters.add(new String(Character.toChars(codePoint))));
-        for (String character : characters) {
-            if (!STOP_TERMS.contains(character)) {
-                terms.add(character);
-            }
-        }
+        // Avoid accumulating relevance from unrelated single Chinese characters.
+        if (characters.size() == 1 && !STOP_TERMS.contains(text)) terms.add(text);
         for (int i = 0; i < characters.size() - 1; i++) {
             terms.add(characters.get(i) + characters.get(i + 1));
         }

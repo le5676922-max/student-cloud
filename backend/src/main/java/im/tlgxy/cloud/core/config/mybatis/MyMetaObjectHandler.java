@@ -1,11 +1,14 @@
 package im.tlgxy.cloud.core.config.mybatis;
 
 import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
+import im.tlgxy.cloud.module.user.model.entity.User;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ibatis.reflection.MetaObject;
 import org.springframework.stereotype.Component;
 
 import java.util.Date;
+import java.util.HexFormat;
+import java.security.SecureRandom;
 
 /**
  * MyBatis-Plus 自动填充处理器。
@@ -33,6 +36,8 @@ import java.util.Date;
 @Component
 public class MyMetaObjectHandler implements MetaObjectHandler {
 
+    private static final SecureRandom ACCOUNT_ID_RANDOM = new SecureRandom();
+
     /**
      * 插入操作时的自动填充方法。
      * <p>
@@ -46,6 +51,12 @@ public class MyMetaObjectHandler implements MetaObjectHandler {
     public void insertFill(MetaObject metaObject) {
         // strictInsertFill 在值为 null 时才进行填充，如果已有值则保留原值
         this.strictInsertFill(metaObject, "createTime", Date.class, new Date());
+        if (metaObject.getOriginalObject() instanceof User) {
+            byte[] randomId = new byte[8];
+            ACCOUNT_ID_RANDOM.nextBytes(randomId);
+            this.strictInsertFill(metaObject, "accountId", String.class,
+                    "SC" + HexFormat.of().withUpperCase().formatHex(randomId));
+        }
     }
 
     /**

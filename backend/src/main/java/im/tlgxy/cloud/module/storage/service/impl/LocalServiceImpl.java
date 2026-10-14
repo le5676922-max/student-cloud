@@ -17,6 +17,8 @@ import im.tlgxy.cloud.module.storage.model.enums.FileTypeEnum;
 import im.tlgxy.cloud.module.storage.model.enums.StorageTypeEnum;
 import im.tlgxy.cloud.module.storage.model.param.LocalParam;
 import im.tlgxy.cloud.module.storage.model.result.FileItemResult;
+import im.tlgxy.cloud.module.storage.service.LocalUploadStagingPolicy;
+import im.tlgxy.cloud.module.storage.service.ResumableUploadProperties;
 import im.tlgxy.cloud.module.storage.service.base.AbstractProxyTransferService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
@@ -47,8 +49,19 @@ import java.util.List;
 @Slf4j
 public class LocalServiceImpl extends AbstractProxyTransferService<LocalParam> {
 
+    // The prototype is obtained from Spring in production, so this is replaced with the configured bean.
+    // Direct new-instance unit callers retain the secure default without requiring a global Spring context.
+    @jakarta.annotation.Resource
+    private LocalUploadStagingPolicy uploadStagingPolicy = new LocalUploadStagingPolicy(new ResumableUploadProperties());
+
     @Override
     public void init() {
+        try {
+            // Cover legacy saved configurations as well: fail before root listing/context publication.
+            uploadStagingPolicy.assertSeparated(param.getFilePath());
+        } catch (BizException rejected) {
+            throw new InitializeStorageSourceBizException(rejected.getMessage(), storageId);
+        }
         // 初始化存储源
         File file = new File(param.getFilePath());
         // 校验文件夹是否存在

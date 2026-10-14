@@ -1,180 +1,358 @@
+<!-- Login layout adapted from arsh342/careercompass (MIT); see public/licenses/careercompass.txt. -->
 <template>
-	<div class="h-full min-h-screen bg-gray-100 text-gray-900 flex justify-center items-center">
-		<div class="h-full lg:h-auto max-w-screen-lg bg-white shadow-xl sm:rounded-xl flex flex-1">
-			<div class="flex-1 bg-gray-50 text-center hidden lg:flex rounded-l-xl">
-				<div class="m-12 xl:m-16 w-full bg-contain bg-center bg-no-repeat student-cloud-install-logo" />
-			</div>
-			<div class="w-full lg:w-1/2 xl:w-1/2 mt-10 p-6 sm:p-12">
-				<div class="mt-0 flex flex-col items-center">
-					<BrandLogo class="box animate__animated animate__fadeInDown" />
-
-					<div class="w-full flex-1">
-						<div class="my-12 relative">
-							<div class="absolute inset-0 flex items-center" aria-hidden="true">
-								<div class="w-full border-t text-gray-600" />
-							</div>
-							<div class="relative flex justify-center text-sm">
-								<span class="px-2 bg-white text-sm leading-none text-gray-600 tracking-wide font-medium">
-									系统初始化
-								</span>
-							</div>
-						</div>
-						<el-form :rules="formRules" :model="formData" ref="installFormRef"
-								 class="student-cloud-install-form" size="large" @submit.prevent="submitForm">
-							<el-form-item class="box animate__animated animate__fadeInUp" prop="siteName">
-								<el-input tabindex="1" v-model="formData.siteName" placeholder="站点名称" :prefix-icon="DocumentTextIcon">
-									<template #suffix>
-										<el-popover
-											placement="left"
-											width="300"
-											trigger="hover">
-											<template #default>
-												这里填写站点名称，会显示在网站标题上
-											</template>
-											<template #reference>
-												<QuestionMarkCircleIcon class="inline w-4 ml-1 -mt-0.5" />
-											</template>
-										</el-popover>
-									</template>
-								</el-input>
-							</el-form-item>
-
-							<el-form-item class="box animate__animated animate__fadeInUp" prop="username">
-								<el-input tabindex="2" placeholder="管理员账号" :prefix-icon="UserIcon"
-										  v-model.trim="formData.username">
-									<template #suffix>
-										<el-popover
-											placement="left"
-											width="300"
-											trigger="hover">
-											<template #default>
-												这里填写初始化管理员账号, 一会用来登录后台
-											</template>
-											<template #reference>
-												<QuestionMarkCircleIcon class="inline w-4 ml-1 -mt-0.5" />
-											</template>
-										</el-popover>
-									</template>
-								</el-input>
-							</el-form-item>
-
-							<el-form-item class="box animate__animated animate__fadeInUp" prop="password">
-								<el-input tabindex="3" placeholder="管理员密码" type="password" show-password :prefix-icon="KeyIcon"
-										  v-model.trim="formData.password">
-									<template #suffix>
-										<el-popover
-											placement="left"
-											width="300"
-											trigger="hover">
-											<template #default>
-												这里填写初始化管理员密码, 一会用来登录后台
-											</template>
-											<template #reference>
-												<QuestionMarkCircleIcon class="inline w-4 ml-1 -mt-0.5" />
-											</template>
-										</el-popover>
-									</template>
-								</el-input>
-							</el-form-item>
-
-							<el-form-item>
-								<el-button tabindex="4" native-type="submit" :loading="loading" class="w-full" type="primary" :icon="CheckBadgeIcon">
-									系统初始化
-								</el-button>
-							</el-form-item>
-						</el-form>
-					</div>
+	<main class="career-login-page career-install-page">
+		<div class="career-login-card">
+			<section class="career-login-art" aria-label="学生云盘">
+				<div class="career-login-brand">
+					<CloudArrowUpIcon aria-hidden="true" />
+					<span>学生云盘</span>
 				</div>
-			</div>
+				<div class="career-login-stage">
+					<LoginCharacters
+						:is-typing="isTyping"
+						:show-password="passwordVisible"
+						:password-length="formData.password.length"
+						:paused="motionPaused"
+					/>
+				</div>
+				<div class="career-login-art-footer">
+					<span>首次设置</span>
+					<button
+						type="button"
+						:aria-pressed="motionPaused"
+						@click="motionPaused = !motionPaused"
+					>
+						{{ motionPaused ? '播放动画' : '暂停动画' }}
+					</button>
+				</div>
+			</section>
+
+			<section
+				class="career-login-content"
+				aria-labelledby="career-install-title"
+			>
+				<div class="career-login-form-wrap">
+					<div class="career-login-brand career-login-mobile-brand">
+						<CloudArrowUpIcon aria-hidden="true" />
+						<span>学生云盘</span>
+					</div>
+					<header class="career-login-intro">
+						<h1 id="career-install-title">初始化云盘</h1>
+						<p>设置站点名称，创建全局管理员账号</p>
+					</header>
+
+					<p v-if="checkingInstall" class="career-install-status" role="status">
+						正在检查初始化状态…
+					</p>
+					<div v-if="feedback" class="career-login-feedback" role="alert">
+						{{ feedback }}
+						<button
+							v-if="statusError"
+							type="button"
+							class="career-install-retry"
+							:disabled="checkingInstall"
+							@click="checkInstallStatus"
+						>
+							重新检查
+						</button>
+					</div>
+
+					<el-form
+						ref="installFormRef"
+						:rules="formRules"
+						:model="formData"
+						:disabled="formDisabled"
+						:validate-on-rule-change="false"
+						hide-required-asterisk
+						class="career-login-form"
+						label-position="top"
+						@submit.prevent="submitForm"
+					>
+						<el-form-item
+							prop="siteName"
+							label="站点名称"
+							for="career-install-site"
+						>
+							<el-input
+								id="career-install-site"
+								v-model.trim="formData.siteName"
+								placeholder="例如：学生云盘"
+								autocomplete="organization"
+								@focus="isTyping = true"
+								@blur="isTyping = false"
+							/>
+						</el-form-item>
+						<el-form-item
+							prop="username"
+							label="全局管理员账号"
+							for="career-install-account"
+						>
+							<el-input
+								id="career-install-account"
+								v-model.trim="formData.username"
+								placeholder="设置管理员登录账号"
+								maxlength="100"
+								autocomplete="username"
+								:spellcheck="false"
+								@focus="isTyping = true"
+								@blur="isTyping = false"
+							/>
+						</el-form-item>
+						<el-form-item
+							prop="password"
+							label="管理员密码"
+							for="career-install-password"
+						>
+							<el-input
+								id="career-install-password"
+								v-model="formData.password"
+								:type="passwordVisible ? 'text' : 'password'"
+								placeholder="设置 6–128 位密码"
+								maxlength="128"
+								autocomplete="new-password"
+								@keyup="updateCapsLock"
+								@blur="capsLock = false"
+							>
+								<template #suffix>
+									<button
+										type="button"
+										class="career-login-password-toggle"
+										:aria-label="passwordVisible ? '隐藏密码' : '显示密码'"
+										:aria-pressed="passwordVisible"
+										:disabled="formDisabled"
+										@click="passwordVisible = !passwordVisible"
+									>
+										<EyeSlashIcon v-if="passwordVisible" aria-hidden="true" />
+										<EyeIcon v-else aria-hidden="true" />
+									</button>
+								</template>
+							</el-input>
+						</el-form-item>
+						<p v-if="capsLock" class="career-login-note" role="status">
+							大写锁定已开启
+						</p>
+						<button
+							type="submit"
+							class="career-login-submit"
+							:disabled="formDisabled"
+							:aria-busy="loading || checkingInstall"
+						>
+							<span class="career-login-submit-label">{{ submitLabel }}</span>
+							<span class="career-login-submit-hover" aria-hidden="true">
+								{{ submitLabel }}
+								<span
+									v-if="loading || checkingInstall"
+									class="career-login-spinner"
+								/>
+								<ArrowRightIcon v-else />
+							</span>
+						</button>
+					</el-form>
+
+					<p class="career-login-remember-note">
+						此账号用于管理整个站点，普通用户请在初始化后注册。
+					</p>
+					<p v-if="installed || installSucceeded" class="career-install-status">
+						站点已初始化，<router-link to="/login">前往登录</router-link>。
+					</p>
+				</div>
+			</section>
 		</div>
-	</div>
+	</main>
 </template>
 
 <script setup>
+import {
+	ArrowRightIcon,
+	CloudArrowUpIcon,
+	EyeIcon,
+	EyeSlashIcon,
+} from '@heroicons/vue/24/outline'
 import { installReq, installStatusReq } from '~/api/home/install'
-import { CheckBadgeIcon, KeyIcon, DocumentTextIcon, UserIcon } from '@heroicons/vue/24/outline'
-import { QuestionMarkCircleIcon } from "@heroicons/vue/24/solid";
-import MessageBox from "~/components/messageBox/messageBox";
-import { ElMessage } from "element-plus";
-import BrandLogo from "~/components/BrandLogo.vue";
+import LoginCharacters from '~/components/auth/LoginCharacters.vue'
+import MessageBox from '~/components/messageBox/messageBox'
+import '~/styles/login.css'
 
-let router = useRouter();
+useTitle('学生云盘 | 初始化')
 
-let formData = reactive({
-	siteName: '学生云盘',
-	username: '',
-	password: ''
-});
-
-let formRules = ref({
+const router = useRouter()
+const formData = reactive({ siteName: '学生云盘', username: '', password: '' })
+const formRules = {
 	siteName: [
-		{required: true, message: '请输入站点名称', trigger: ['change', 'blur']},
+		{
+			required: true,
+			whitespace: true,
+			message: '请输入站点名称',
+			trigger: ['change', 'blur'],
+		},
 	],
 	username: [
-		{required: true, message: '请输入管理员账号', trigger: ['change', 'blur']},
+		{
+			required: true,
+			whitespace: true,
+			message: '请输入管理员账号',
+			trigger: ['change', 'blur'],
+		},
+		{
+			max: 100,
+			message: '管理员账号不能超过 100 个字符',
+			trigger: ['change', 'blur'],
+		},
 	],
 	password: [
-		{required: true, message: '请输入管理员密码', trigger: ['change', 'blur']},
-	]
-});
+		{
+			required: true,
+			whitespace: true,
+			message: '请输入管理员密码',
+			trigger: ['change', 'blur'],
+		},
+		{
+			min: 6,
+			max: 128,
+			message: '密码长度为 6–128 位',
+			trigger: ['change', 'blur'],
+		},
+	],
+}
+const installFormRef = ref()
+const loading = ref(false)
+const checkingInstall = ref(true)
+const installStatusChecked = ref(false)
+const installed = ref(false)
+const installSucceeded = ref(false)
+const statusError = ref('')
+const formError = ref('')
+const passwordVisible = ref(false)
+const isTyping = ref(false)
+const capsLock = ref(false)
+const motionPaused = ref(
+	window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+)
+const formDisabled = computed(
+	() =>
+		checkingInstall.value ||
+		loading.value ||
+		installSucceeded.value ||
+		!installStatusChecked.value ||
+		installed.value
+)
+const feedback = computed(() => statusError.value || formError.value)
+const submitLabel = computed(() => {
+	if (checkingInstall.value) return '正在检查…'
+	if (installSucceeded.value || installed.value) return '初始化完成'
+	return loading.value ? '正在初始化…' : '初始化云盘'
+})
+let disposed = false
+let statusRequest = 0
 
-let loading = ref(false);
-let installFormRef = ref();
-const submitForm = async () => {
-	await installFormRef.value.validate((checked) => {
-		if (checked) {
-			loading.value = true;
-			installReq(formData).then(() => {
-				MessageBox.confirm('系统初始化成功, 点击确定跳转到登录页面。', '提示', {
-				  confirmButtonText: '确定',
-				  showCancelButton: false,
-				  showCloseButton: false,
-				  closeOnClickModal: false,
-				  closeOnPressEscape: false,
-				  type: 'success'
-				}).then(() => {
-				  router.push('/login')
-				});
-			}).finally(() => {
-				loading.value = false;
-			})
-		} else {
-			ElMessage.warning("请正确输入初始化值!")
-		}
-	})
+const updateCapsLock = (event) => {
+	capsLock.value = Boolean(event.getModifierState?.('CapsLock'))
 }
 
-onBeforeMount(() => {
-	installStatusReq().then((response) => {
-		if (response.data) {
-			router.push('/')
+const checkInstallStatus = async () => {
+	if (disposed || loading.value || installSucceeded.value) return
+	const request = ++statusRequest
+	checkingInstall.value = true
+	installStatusChecked.value = false
+	statusError.value = ''
+	try {
+		const response = await installStatusReq()
+		if (disposed || request !== statusRequest) return
+		if (typeof response?.data !== 'boolean')
+			throw new Error('Invalid initialization status')
+		installed.value = response.data
+		installStatusChecked.value = true
+		if (installed.value) await router.replace('/login')
+	} catch {
+		if (!disposed && request === statusRequest) {
+			statusError.value = installed.value
+				? '站点已初始化，请点击下方链接前往登录。'
+				: '无法检查初始化状态，请检查后端连接后重试。'
 		}
-	});
+	} finally {
+		if (!disposed && request === statusRequest) checkingInstall.value = false
+	}
+}
+
+const submitForm = async () => {
+	if (disposed || formDisabled.value || !installFormRef.value) return
+	// 在异步校验前锁定表单，避免点击或回车触发重复初始化。
+	loading.value = true
+	formError.value = ''
+	try {
+		const valid = await installFormRef.value.validate().catch(() => false)
+		if (disposed) return
+		if (!valid) {
+			formError.value = '请检查并填写初始化信息。'
+			return
+		}
+		await installReq({
+			siteName: formData.siteName.trim(),
+			username: formData.username.trim(),
+			// 密码保留用户实际输入，不静默删除前后空格。
+			password: formData.password,
+		})
+		if (disposed) return
+		installSucceeded.value = true
+		installed.value = true
+		formData.password = ''
+		passwordVisible.value = false
+		capsLock.value = false
+		await MessageBox.confirm('系统初始化成功，点击确定前往登录。', '提示', {
+			confirmButtonText: '确定',
+			showCancelButton: false,
+			showCloseButton: false,
+			closeOnClickModal: false,
+			closeOnPressEscape: false,
+			type: 'success',
+		})
+		if (!disposed) await router.replace('/login')
+	} catch (error) {
+		if (!disposed) {
+			formError.value = installSucceeded.value
+				? '初始化已完成，请点击下方链接前往登录。'
+				: error?.response?.data?.msg ||
+				  error?.data?.msg ||
+				  '初始化失败，请检查后端连接后重试。'
+		}
+	} finally {
+		if (!disposed) loading.value = false
+	}
+}
+
+onBeforeMount(checkInstallStatus)
+onBeforeUnmount(() => {
+	disposed = true
+	statusRequest++
 })
 </script>
 
-<style lang="scss" scoped>
-
-.student-cloud-install-logo {
-	background-image: url('~/assets/icons/install-step.svg');
+<style scoped>
+.career-install-page .career-login-submit:disabled .career-login-submit-label {
+	opacity: 1;
 }
 
-.student-cloud-install-form {
-	--student-cloud-install-input-height: 45px;
+.career-install-status {
+	margin: 16px 0;
+	color: #686b73;
+	font-size: 12px;
+	line-height: 1.7;
+	text-align: center;
+}
 
-	:deep(.el-input__inner) {
-		height: var(--student-cloud-install-input-height);
-	}
+.career-install-status a,
+.career-install-retry {
+	color: inherit;
+	text-decoration: underline;
+	text-underline-offset: 3px;
+}
 
-	:deep(.el-button--large) {
-		--el-button-size: var(--student-cloud-install-input-height);
-		height: var(--el-button-size);
-	}
-
-	// 防止谷歌浏览器记住密码后样式错乱
-	:deep(input:-internal-autofill-selected) {
-		-webkit-text-fill-color: var(--el-input-text-color, var(--el-text-color-regular));
-		transition: background-color 1000s ease-out 0.5s;
-	}
+.career-install-retry {
+	display: block;
+	margin-top: 8px;
+	border: 0;
+	padding: 0;
+	background: transparent;
+	cursor: pointer;
 }
 </style>

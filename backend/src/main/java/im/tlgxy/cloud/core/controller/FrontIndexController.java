@@ -107,20 +107,4 @@ public class FrontIndexController {
 		return ResponseEntity.status(404).body("static index.html not found");
 	}
 
-	/**
-	 * 获取访客模式的首页内容
-	 * <p>
-	 * 当系统配置了访客模式时，返回访客专属的首页 HTML 内容。
-	 * 访客首页与普通首页可能展示不同的界面元素和功能入口。
-	 * </p>
-	 *
-	 * @return 访客模式的首页 HTML 内容字符串
-	 */
-	@RequestMapping(value = { "/guest"})
-	@ResponseBody
-	public String guest() {
-		SystemConfigDTO systemConfig = systemConfigService.getSystemConfig();
-		return systemConfig.getGuestIndexHtml();
-	}
-
 }

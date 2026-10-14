@@ -223,8 +223,11 @@ public class SystemConfigDTO implements Serializable {
     @Schema(title = "WebDAV 服务器中转下载", example = "true")
     private Boolean webdavProxy;
 
-    @Schema(title = "WebDAV 匿名用户访问", example = "true")
-    private Boolean webdavAllowAnonymous;
+    /** Retained only so legacy configuration rows are forced off on updates. */
+    @Deprecated
+    @JsonIgnore
+    @Schema(hidden = true)
+    private Boolean webdavAllowAnonymous = false;
 
     @Schema(title = "WebDAV 账号", example = "admin")
     private String webdavUsername;
@@ -234,8 +237,10 @@ public class SystemConfigDTO implements Serializable {
 
     // ==================== 访问控制 ====================
 
-    @Schema(title = "是否允许路径直链可直接访问", example = "true", requiredMode = Schema.RequiredMode.REQUIRED)
-    private Boolean allowPathLinkAnonAccess;
+    @Deprecated
+    @JsonIgnore
+    @Schema(hidden = true)
+    private Boolean allowPathLinkAnonAccess = false;
 
     // ==================== 文件列表 ====================
 
@@ -315,10 +320,21 @@ public class SystemConfigDTO implements Serializable {
     @Schema(title = "访问 ua 黑名单", example = "Mozilla/5.0 (Linux; Android) AppleWebKit/537.36*")
     private String accessUaBlocklist;
 
-    // ==================== 访客首页 ====================
+    public Boolean getWebdavAllowAnonymous() {
+        return false;
+    }
 
-    @Schema(title = "匿名用户首页显示内容")
-    private String guestIndexHtml;
+    public void setWebdavAllowAnonymous(Boolean ignored) {
+        this.webdavAllowAnonymous = false;
+    }
+
+    public Boolean getAllowPathLinkAnonAccess() {
+        return false;
+    }
+
+    public void setAllowPathLinkAnonAccess(Boolean ignored) {
+        this.allowPathLinkAnonAccess = false;
+    }
 
     /**
      * 获取公告内容，为空时返回空字符串。

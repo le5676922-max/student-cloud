@@ -40,6 +40,11 @@ public class LearningController {
     @PostMapping("/materials/{id}/refresh")
     @ApiLimit(timeout = 60, maxCount = 20)
     public AjaxJson<LearningMaterial> refresh(@PathVariable int id) { return AjaxJson.getSuccessData(library.refresh(id)); }
+    @PostMapping("/materials/{id}/relink")
+    @ApiLimit(timeout = 60, maxCount = 20)
+    public AjaxJson<LearningMaterial> relink(@PathVariable int id, @Valid @RequestBody LearningRequests.Relink request) {
+        return AjaxJson.getSuccessData(library.relink(id, request));
+    }
     @DeleteMapping("/materials/{id}")
     public AjaxJson<Void> deleteMaterial(@PathVariable int id) { library.deleteMaterial(id); return AjaxJson.getSuccess(); }
     @GetMapping("/search")

@@ -39,7 +39,7 @@ class AiAgentToolServiceTest {
         UserService userService = mock(UserService.class);
         FileChain fileChain = mock(FileChain.class);
         AbstractBaseFileService<?> fileService = mock(AbstractBaseFileService.class);
-        AiAgentToolService service = new AiAgentToolService(storageSourceService, userService, fileChain, null);
+        AiAgentToolService service = new AiAgentToolService(storageSourceService, userService, fileChain, null, null, null);
 
         User user = new User();
         user.setId(4);
@@ -92,7 +92,7 @@ class AiAgentToolServiceTest {
         AiAgentToolService service = new AiAgentToolService(
                 storageSourceService,
                 userService,
-                mock(FileChain.class), null
+                mock(FileChain.class), null, null, null
         );
 
         User user = new User();
