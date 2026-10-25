@@ -11,6 +11,8 @@ import {
 import { concatPath, fileSizeFormat, removeDuplicateSeparator } from '~/utils'
 import { calculateUploadProgress } from './upload-progress.mjs'
 import { effectScope, getCurrentInstance, onBeforeUnmount, watch } from 'vue'
+import { useEventBus } from '@vueuse/core'
+import { completedUploadFileChanges } from '~/utils/file-change-refresh.mjs'
 import {
 	captureUploadTarget,
 	uploadAccountIdentity,
@@ -50,6 +52,11 @@ const cancelTokenSourceMap = new Map()
 
 // An operation exists before the first async request, including signing and folder creation.
 const uploadOperationMap = new Map()
+const fileChanges = useEventBus('cloud-files-changed')
+const publishFileChanges = (target, path) => {
+	for (const change of completedUploadFileChanges(target, path))
+		fileChanges.emit(change)
+}
 const uploadWatchScope = effectScope(true)
 let detachDropListeners = null
 
@@ -835,12 +842,15 @@ export default function useFileUpload() {
 		onError
 	) => {
 		if (!isUploadOperationActive(fileIndex)) return
-		const uploader = {
-			PROXY: fileProxyUpload,
-			S3: s3FileUpload,
-			MICROSOFT: onedriveUpload,
-			UPYUN: upyunFileUpload,
-		}[uploadType]
+		const uploader =
+			typeof uploadUrl === 'string' && uploadUrl.startsWith('/file/upload/')
+				? fileProxyUpload
+				: {
+						PROXY: fileProxyUpload,
+						S3: s3FileUpload,
+						MICROSOFT: onedriveUpload,
+						UPYUN: upyunFileUpload,
+				  }[uploadType]
 		if (!uploader) throw new Error('目标存储源暂不支持当前上传方式')
 		return uploader(file, uploadUrl, fileIndex, silentMode, onSuccess, onError)
 	}
@@ -884,6 +894,7 @@ export default function useFileUpload() {
 				if (settled || !isUploadOperationActive(fileIndex)) return
 				settled = true
 				cleanup()
+				publishFileChanges(target, param.path)
 				if (showFeedback) {
 					ElMessage.success('保存成功')
 				}
@@ -966,6 +977,14 @@ export default function useFileUpload() {
 			config: {
 				headers: {
 					'Content-Type': 'multipart/form-data',
+					'X-Upload-Directory-Password': encodeURIComponent(
+						getPathPwd(
+							uploadingFileMap.get(fileIndex)?.uploadPath ||
+								uploadOperationMap.get(fileIndex)?.target.directory,
+							false,
+							uploadOperationMap.get(fileIndex)?.target
+						) || ''
+					),
 				},
 				cancelToken: cancelTokenSourceMap.get(fileIndex)?.token,
 				signal: uploadOperationMap.get(fileIndex)?.controller.signal,
@@ -1334,6 +1353,7 @@ export default function useFileUpload() {
 		uploadFileInfo.endTime = Date.now()
 		uploadFileInfo.msg = '上传成功'
 		releaseUploadOperation(fileIndex)
+		publishFileChanges(uploadFileInfo.target, uploadFileInfo.uploadPath)
 	}
 
 	// 通用上传进度条处理

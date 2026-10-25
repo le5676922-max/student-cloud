@@ -133,15 +133,56 @@ export function reorderStorageItems(items, oldIndex, newIndex) {
 	return reordered
 }
 
-export function filterStorageItems(items, query) {
+export const storageStatusFilters = Object.freeze([
+	{ value: 'all', label: '全部' },
+	{ value: 'enabled', label: '已启用' },
+	{ value: 'disabled', label: '已停用' },
+	{ value: 'token-error', label: '令牌异常' },
+])
+
+export function normalizeStorageStatusFilter(status) {
+	return storageStatusFilters.some((filter) => filter.value === status)
+		? status
+		: 'all'
+}
+
+function matchesStorageStatus(item, status) {
+	if (status === 'enabled') return item.enable === true
+	if (status === 'disabled') return item.enable === false
+	if (status === 'token-error') return item.refreshTokenInfo?.success === false
+	return true
+}
+
+/** Counts describe saved configuration and explicit token failures, not live health. */
+export function storageStatusCounts(items) {
+	return Object.fromEntries(
+		storageStatusFilters.map(({ value }) => [
+			value,
+			items.filter((item) => matchesStorageStatus(item, value)).length,
+		])
+	)
+}
+
+export function filterStorageItems(items, query, status = 'all') {
 	const normalized = String(query || '')
 		.trim()
 		.toLowerCase()
-	if (!normalized) return items
-	return items.filter((item) =>
-		[item.name, item.remark, item.type?.description, item.type?.key].some(
-			(value) =>
-				typeof value === 'string' && value.toLowerCase().includes(normalized)
-		)
+	const selectedStatus = normalizeStorageStatusFilter(status)
+	if (!normalized && selectedStatus === 'all') return items
+	return items.filter(
+		(item) =>
+			matchesStorageStatus(item, selectedStatus) &&
+			(!normalized ||
+				[
+					item.name,
+					item.remark,
+					item.type?.description,
+					item.type?.key,
+					item.tenantName,
+				].some(
+					(value) =>
+						typeof value === 'string' &&
+						value.toLowerCase().includes(normalized)
+				))
 	)
 }

@@ -42,6 +42,16 @@ class LocalUploadStagingPolicyTest {
         assertDoesNotThrow(() -> policy(staging, true).assertSeparated(temporary.resolve("private-files")));
     }
 
+    @Test void courseMaterialStoreIsNeverExposedThroughLocalCloudInEitherContainmentDirection() {
+        var properties = new ResumableUploadProperties(); properties.setStagingRoot(temporary.resolve("upload-staging").toString());
+        Path courses = temporary.resolve("private-courses");
+        var policy = new LocalUploadStagingPolicy(properties, courses.toString());
+        for (Path publicRoot : java.util.List.of(courses, courses.resolve("assets"), temporary))
+            assertThrows(BizException.class, () -> policy.assertSeparated(publicRoot));
+        assertDoesNotThrow(() -> policy.assertSeparated(temporary.resolve("workspace-cloud")));
+        assertFalse(Files.exists(courses));
+    }
+
     @Test void relativeTraversalNetworkShareAndNullPathsFailClosed() {
         var policy = policy(temporary.resolve("private"), true);
         for (var value : new String[]{"relative", temporary.resolve("..").toString(), "\\\\host\\share", "//host/share", "bad\npath"})

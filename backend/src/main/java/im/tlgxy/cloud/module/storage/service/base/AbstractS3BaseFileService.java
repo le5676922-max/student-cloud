@@ -259,7 +259,8 @@ public abstract class AbstractS3BaseFileService<P extends S3BaseParam> extends A
         if (Boolean.TRUE.equals(response.isTruncated()) && (next == null || next.isBlank() || next.length() > 8192)) {
             throw new BizException("存储源分页游标异常，请刷新或切换普通浏览");
         }
-        return new DirectoryMetadataProvider.NativePage(files, next);
+        return new DirectoryMetadataProvider.NativePage(files, next,
+                response.contents().size() + response.commonPrefixes().size());
     }
 
     private static boolean safeImmediateName(String name) {

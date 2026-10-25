@@ -1,0 +1,86 @@
+/* Shared operational feedback; authentication and previews keep their own layout. */
+:is(
+		.cloud-workspace,
+		.admin-shell,
+		.workspace-page,
+		.learning-page,
+		.agent-tasks-page
+	)
+	.el-button {
+	border-radius: 999px;
+	transition: transform 180ms var(--cloud-ease), box-shadow 180ms ease,
+		background-color 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+
+:is(
+		.cloud-workspace,
+		.admin-shell,
+		.workspace-page,
+		.learning-page,
+		.agent-tasks-page
+	)
+	.el-button:not(.is-disabled):not(.is-loading):active {
+	transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+	:is(
+			.cloud-workspace,
+			.admin-shell,
+			.workspace-page,
+			.learning-page,
+			.agent-tasks-page
+		)
+		.el-button:not(.is-disabled):not(.is-loading):not(.is-text):not(
+			.is-link
+		):hover {
+		transform: translateY(-1px);
+		box-shadow: 0 4px 10px #24242812;
+	}
+
+	:is(
+			.cloud-workspace,
+			.admin-shell,
+			.workspace-page,
+			.learning-page,
+			.agent-tasks-page
+		)
+		.el-button:not(.is-disabled):not(.is-loading):active {
+		transform: translateY(0) scale(0.97);
+	}
+}
+
+/* A single bounded entrance, never stagger every row in a long directory. */
+@keyframes cloud-panel-arrive {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.cloud-drive-heading,
+	.cloud-file-panel {
+		animation: cloud-panel-arrive 260ms var(--cloud-ease);
+	}
+
+	.cloud-directory-note[open] > :not(summary) {
+		animation: cloud-panel-arrive 180ms var(--cloud-ease);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	:is(
+			.cloud-workspace,
+			.admin-shell,
+			.workspace-page,
+			.learning-page,
+			.agent-tasks-page
+		)
+		.el-button {
+		transform: none !important;
+		transition: none !important;
+	}
+}

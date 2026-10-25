@@ -7,6 +7,7 @@
 				<p>把讲义、笔记和参考资料，整理成容易找到的课程档案。</p>
 			</div>
 			<nav class="heading-links" aria-label="学习资料快捷入口">
+				<router-link to="/courses">共享课程</router-link>
 				<router-link to="/agent-tasks">批量整理</router-link>
 				<router-link to="/">返回云盘</router-link>
 			</nav>
@@ -49,7 +50,11 @@
 				</h2>
 				<el-empty
 					v-if="!visibleCourses.length"
-					description="还没有课程，先创建一门吧"
+					:description="
+						courses.length
+							? '此学期没有课程，请调整学期筛选'
+							: '还没有课程，先创建一门吧'
+					"
 					:image-size="70"
 				/>
 				<button
@@ -81,6 +86,7 @@
 							>
 						</div>
 					</div>
+					<LearningIndexOverview v-model="indexFilter" :materials="materials" />
 					<div class="learning-toolbar">
 						<el-input
 							v-model="tagFilter"
@@ -95,9 +101,20 @@
 					</div>
 					<el-empty
 						v-if="!visibleMaterials.length"
-						description="暂无资料，请先上传文件到云盘，再添加索引"
+						:description="
+							materials.length
+								? '当前筛选条件下没有资料'
+								: '暂无资料，请先上传文件到云盘，再添加索引'
+						"
 						:image-size="80"
-					/>
+					>
+						<el-button
+							v-if="tagFilter || indexFilter !== 'all'"
+							@click="clearMaterialFilters"
+						>
+							清除筛选
+						</el-button>
+					</el-empty>
 					<article
 						v-for="item in visibleMaterials"
 						:key="item.id"
@@ -277,6 +294,8 @@
 
 <script setup>
 import { ElMessage, ElMessageBox } from 'element-plus'
+import LearningIndexOverview from '~/components/learning/LearningIndexOverview.vue'
+import { filterLearningIndex } from '~/utils/learning-index-overview.mjs'
 import {
 	learningRequest,
 	learningStorageList,
@@ -284,7 +303,6 @@ import {
 } from '~/api/home/learning'
 import {
 	supportedLearningFile,
-	filterLearningMaterials,
 	learningFileRoute,
 	learningCoverage,
 } from '~/utils/learning.mjs'
@@ -295,6 +313,7 @@ const materials = ref([])
 const selected = ref(null)
 const semester = ref('')
 const tagFilter = ref('')
+const indexFilter = ref('all')
 const busy = ref(false)
 const courseDialog = ref(false)
 const courseForm = ref({ id: null, name: '', semester: '' })
@@ -316,8 +335,13 @@ const currentCourse = computed(() =>
 	courses.value.find((c) => c.id === selected.value)
 )
 const visibleMaterials = computed(() =>
-	filterLearningMaterials(materials.value, tagFilter.value)
+	filterLearningIndex(materials.value, tagFilter.value, indexFilter.value)
 )
+function clearMaterialFilters() {
+	tagFilter.value = ''
+	indexFilter.value = 'all'
+}
+watch(selected, clearMaterialFilters, { flush: 'sync' })
 const fileFolderRoute = (item) =>
 	learningFileRoute(
 		item.storageKey,
@@ -513,9 +537,14 @@ watch(
 <style scoped>
 .learning-page {
 	max-width: 1240px;
-	margin: 0 auto;
-	padding: 36px 24px 90px;
-	color: var(--cloud-ink, #273936);
+	width: calc(100% - 40px);
+	height: calc(100% - 40px);
+	margin: 20px auto;
+	padding: 28px 28px 90px;
+	overflow-y: auto;
+	border-radius: 24px;
+	background: var(--cloud-canvas, #efeff0);
+	color: var(--cloud-ink, #242428);
 }
 .index-coverage {
 	font-size: 12px;
@@ -538,6 +567,11 @@ watch(
 	margin: 4px 0 8px;
 	font-weight: 650;
 }
+.learning-heading {
+	padding: 26px 28px;
+	border-radius: var(--cloud-radius, 20px);
+	background: var(--cloud-panel, #dedede);
+}
 .learning-heading p,
 .learning-search p {
 	color: var(--cloud-muted, #6d7974);
@@ -547,7 +581,7 @@ watch(
 .eyebrow {
 	letter-spacing: 0.12em;
 	font-size: 12px;
-	color: var(--cloud-primary, #277566) !important;
+	color: var(--cloud-accent-ink, #5830bc) !important;
 }
 a {
 	color: var(--cloud-primary, #277566);
@@ -561,22 +595,23 @@ a {
 	padding: 10px 13px;
 	border: 1px solid var(--cloud-line, #e1e6df);
 	background: var(--cloud-surface, #fff);
-	border-radius: 9px;
+	border-radius: 999px;
 	font-size: 13px;
 }
 .heading-links a:hover {
-	background: var(--cloud-soft, #e8f1ec);
+	background: var(--cloud-lilac, #f0ebff);
+	transform: translateY(-2px);
 }
 .learning-notice {
-	border: 1px solid #d9e5dd;
-	border-radius: 10px;
-	background: #eef4ef;
+	border: 1px solid var(--cloud-line, #dddde1);
+	border-radius: 14px;
+	background: var(--cloud-surface, #fff);
 	padding: 14px 16px;
 	font-size: 12px;
 }
 .learning-notice summary {
 	cursor: pointer;
-	color: #41604f;
+	color: var(--cloud-ink, #242428);
 }
 .learning-notice summary::marker {
 	color: var(--cloud-primary, #277566);
@@ -599,7 +634,7 @@ a {
 }
 .learning-notice p {
 	margin: 12px 0 0;
-	color: #5d7064;
+	color: var(--cloud-muted, #686870);
 	line-height: 1.8;
 }
 .learning-page a:focus-visible,
@@ -626,7 +661,7 @@ a {
 .learning-card {
 	background: var(--cloud-surface, #fff);
 	border: 1px solid var(--cloud-line, #e1e6df);
-	border-radius: 12px;
+	border-radius: var(--cloud-radius, 20px);
 	padding: 22px;
 	min-width: 0;
 }
@@ -677,11 +712,12 @@ small {
 	width: 100%;
 	text-align: left;
 	padding: 12px;
-	border-radius: 8px;
+	border-radius: 12px;
 	margin-top: 8px;
 	overflow-wrap: anywhere;
 	border: 1px solid transparent;
-	transition: background 140ms ease, border-color 140ms ease;
+	transition: background-color 180ms ease, border-color 180ms ease,
+		transform 200ms var(--cloud-ease, ease), box-shadow 180ms ease;
 }
 .course-button strong {
 	font-size: 13px;
@@ -694,16 +730,17 @@ small {
 	margin-top: 5px;
 }
 .active {
-	background: var(--cloud-soft, #e8f1ec);
-	color: var(--cloud-primary-dark, #1e5e52);
-	border-color: #d5e4da;
+	background: var(--cloud-lilac, #f0ebff);
+	color: var(--cloud-ink, #242428);
+	border-color: #c5b7f7;
 }
 .course-button:hover,
-.file-picker button:hover {
-	background: #f1f5ef;
+.file-picker button:not(:disabled):hover {
+	background: var(--cloud-soft, #f1f1f3);
+	transform: translateX(3px);
 }
 .course-button.active:hover {
-	background: #dcebe1;
+	background: #e7dfff;
 }
 .file-picker button:disabled {
 	opacity: 0.45;
@@ -713,6 +750,10 @@ small {
 	padding: 18px 0;
 	border-bottom: 1px solid var(--cloud-line, #e1e6df);
 	overflow-wrap: anywhere;
+	transition: background-color 180ms ease;
+}
+.material-row:hover {
+	background: var(--cloud-soft, #f1f1f3);
 }
 .material-row p {
 	color: var(--cloud-muted, #6d7974);
@@ -737,9 +778,9 @@ small {
 .learning-search {
 	margin-top: 28px;
 	padding: 20px;
-	border-radius: 10px;
-	background: #f6f7f2;
-	border: 1px solid #e6e9df;
+	border-radius: 16px;
+	background: var(--cloud-soft, #f1f1f3);
+	border: 1px solid var(--cloud-line, #dddde1);
 }
 .learning-search h2 {
 	font-size: 16px;
@@ -754,10 +795,23 @@ small {
 .citation-card {
 	margin-top: 16px;
 	padding: 16px;
-	background: #faf8f3;
+	background: var(--cloud-warm, #fff0e7);
 	border-left: 3px solid var(--cloud-accent, #ba7657);
 	border-radius: 0 8px 8px 0;
 	font-size: 13px;
+}
+.learning-notice[open] p {
+	animation: learning-disclose 180ms var(--cloud-ease, ease);
+}
+@keyframes learning-disclose {
+	from {
+		opacity: 0;
+		transform: translateY(-4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
 }
 .citation-card p {
 	white-space: pre-wrap;
@@ -782,13 +836,18 @@ small {
 		flex-wrap: wrap;
 	}
 	.learning-page {
-		padding: 20px 12px 80px;
+		width: calc(100% - 16px);
+		height: calc(100% - 16px);
+		margin: 8px auto;
+		padding: 12px 12px 80px;
+		border-radius: 18px;
 	}
 	.learning-card {
 		padding: 18px 16px;
 	}
 	.learning-heading {
 		gap: 14px;
+		padding: 22px 18px;
 	}
 	.learning-heading h1 {
 		font-size: 25px;
@@ -812,8 +871,17 @@ small {
 }
 @media (prefers-reduced-motion: reduce) {
 	.course-button,
-	.file-picker button {
+	.course-button:hover,
+	.file-picker button,
+	.file-picker button:not(:disabled):hover,
+	.material-row,
+	.heading-links a,
+	.heading-links a:hover {
 		transition: none;
+		transform: none;
+	}
+	.learning-notice[open] p {
+		animation: none;
 	}
 }
 </style>

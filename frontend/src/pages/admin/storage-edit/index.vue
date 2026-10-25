@@ -421,7 +421,7 @@
 					</p>
 					<Cors v-model="storageItem.storageSourceAllParam['corsConfigList']" />
 					<el-button
-						v-if="isEditMode"
+						v-if="isEditMode && isAdmin"
 						:disabled="!!safetyBusy || loading || initialLoading"
 						@click="applySavedCors"
 						>应用已保存的跨域规则</el-button
@@ -696,6 +696,9 @@
 				@click="checkSetup"
 				>检查填写</el-button
 			>
+			<el-checkbox v-model="verifyWrite" :disabled="!!safetyBusy"
+				>同时验证写入、回读和清理测试文件</el-checkbox
+			>
 			<el-button
 				class="ml-auto"
 				:loading="safetyBusy === 'test'"
@@ -710,7 +713,7 @@
 					isApplyingDetection
 				"
 				@click="testConnection"
-				>只读测试连接</el-button
+				>{{ verifyWrite ? '测试读写并清理' : '只读测试连接' }}</el-button
 			>
 			<el-button
 				type="primary"
@@ -788,6 +791,7 @@ const saveError = ref('')
 const safetyBusy = ref('')
 const safetyNotice = ref('')
 const safetyPassed = ref(false)
+const verifyWrite = ref(false)
 const safetyRequests = createLatestRequest()
 const connectionAddress = ref('')
 const addressNotice = ref('')
@@ -985,7 +989,10 @@ let useInitData = () => {
 					showDefaultMsg: false,
 				}).then((response) => {
 					if (request.isCurrent() && !storageDisposed)
-						supportStorageType.value = response.data
+						supportStorageType.value =
+							storageConfigStore.loginInfo.role === 'TENANT_ADMIN'
+								? response.data.filter((item) => item.key !== 'local')
+								: response.data
 				}),
 			]
 			if (isEditMode.value)
@@ -1212,7 +1219,10 @@ async function testConnection() {
 		await storageEditForm.value.validate()
 		if (!isCurrent()) return
 		const response = await testStorageConnectionReq(
-			JSON.parse(JSON.stringify(storageItem.value)),
+			{
+				...JSON.parse(JSON.stringify(storageItem.value)),
+				verifyWrite: verifyWrite.value,
+			},
 			{ signal: request.signal, showDefaultMsg: false }
 		)
 		if (!isCurrent()) return

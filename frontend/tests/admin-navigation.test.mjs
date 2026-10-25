@@ -4,16 +4,28 @@ import {
 	adminPrimaryNavigation,
 	adminNavigationGroups,
 	activeAdminNavigationGroup,
+	adminNavigationExpansionForPath,
+	toggleAdminNavigationGroup,
 	isAdminNavigationActive,
 	workspaceManagerPreset,
 	managedWorkspaceGrantDefaults,
 } from '../src/utils/admin-navigation.mjs'
-test('global console keeps only three primary governance entries', () => {
+test('global console keeps daily entries including support and groups infrequent tools', () => {
 	assert.deepEqual(
 		adminPrimaryNavigation.map((item) => item.href),
-		['/admin/overview', '/admin/tenant-list', '/admin/user-list']
+		[
+			'/admin/overview',
+			'/admin/tenant-list',
+			'/admin/user-list',
+			'/admin/storage-list',
+			'/admin/support',
+		]
 	)
 	assert.equal(adminNavigationGroups.length, 3)
+	assert.deepEqual(
+		adminNavigationGroups.map((group) => group.name),
+		['分享与链接', '站点设置', '日志诊断']
+	)
 	assert.equal(
 		adminNavigationGroups
 			.flatMap((group) => group.items)
@@ -63,10 +75,86 @@ test('exact advanced route expands only its own group', () => {
 	assert.equal(activeAdminNavigationGroup('/admin/overview'), undefined)
 	assert.equal(activeAdminNavigationGroup('/admin/user-edit/2'), undefined)
 	assert.equal(activeAdminNavigationGroup('/admin/user-edit/1'), 'security')
-	assert.equal(
-		activeAdminNavigationGroup('/admin/storage-edit/12'),
-		'resources'
+	assert.equal(activeAdminNavigationGroup('/admin/storage-edit/12'), undefined)
+})
+
+test('account-specific management routes remain reachable while the global default template entry is retired', () => {
+	const entries = [
+		...adminPrimaryNavigation,
+		...adminNavigationGroups.flatMap((group) => group.items),
+	]
+	assert.equal(new Set(entries.map((item) => item.id)).size, entries.length)
+	assert.deepEqual(
+		entries
+			.filter((item) => item.href)
+			.map((item) => item.href)
+			.sort(),
+		[
+			'/admin/overview',
+			'/admin/tenant-list',
+			'/admin/user-list',
+			'/admin/storage-list',
+			'/admin/support',
+			'/admin/share-link',
+			'/admin/download-link',
+			'/admin/download-link/setting',
+			'/admin/site-setting',
+			'/admin/view-setting',
+			'/admin/security-setting',
+			'/admin/access',
+			'/admin/sso',
+			'/admin/user-edit/1',
+			'/admin/login-log',
+			'/admin/download-link/log',
+			'/admin/ai-feedback',
+		].sort()
 	)
+	assert.equal(
+		entries.filter((item) => item.action === 'download-log').length,
+		1
+	)
+	assert.equal(
+		entries.some((item) => item.href === '/admin/user-edit/0'),
+		false
+	)
+})
+
+test('route expansion opens only its exact section and common pages start with more management closed', () => {
+	assert.deepEqual(adminNavigationExpansionForPath('/admin/security-setting'), [
+		'more',
+		'security',
+	])
+	assert.deepEqual(
+		adminNavigationExpansionForPath('/admin/download-link/log'),
+		['more', 'logs']
+	)
+	assert.deepEqual(
+		adminNavigationExpansionForPath('/admin/download-link/setting'),
+		['more', 'resources']
+	)
+	for (const path of [
+		'/admin/overview',
+		'/admin/tenant-list',
+		'/admin/user-edit/12',
+		'/admin/storage-edit/12',
+		'/unknown',
+	])
+		assert.deepEqual(adminNavigationExpansionForPath(path), [])
+})
+
+test('more management is an in-memory accordion with one inner group and no mutation of previous state', () => {
+	const closed = []
+	const settings = adminNavigationExpansionForPath('/admin/security-setting')
+	assert.deepEqual(toggleAdminNavigationGroup(closed, 'more'), ['more'])
+	assert.deepEqual(toggleAdminNavigationGroup(settings, 'logs'), [
+		'more',
+		'logs',
+	])
+	assert.deepEqual(toggleAdminNavigationGroup(settings, 'security'), ['more'])
+	assert.deepEqual(toggleAdminNavigationGroup(settings, 'more'), [])
+	assert.deepEqual(toggleAdminNavigationGroup(settings, 'unknown'), settings)
+	assert.deepEqual(settings, ['more', 'security'])
+	assert.deepEqual(closed, [])
 })
 test('user editor belongs to space personnel, action buttons are not links', () => {
 	assert.equal(

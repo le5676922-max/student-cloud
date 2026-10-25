@@ -21,13 +21,14 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+
 // markdown editor 组件懒加载, 节约首屏打开时间
 const VMdEditor = defineAsyncComponent(() =>
 	import('~/components/md-preview/MarkdownEditor.vue')
 )
 
 const readmeText = ref('')
-const isShow = true
 
 const props = defineProps({
 	visible: {
@@ -45,18 +46,24 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue', 'update:visible'])
+const isShow = computed({
+	get: () => props.visible,
+	set: (visible) => {
+		if (visible !== props.visible) emit('update:visible', visible)
+	},
+})
 
 onMounted(() => {
 	readmeText.value = props.modelValue
 })
 
 const closeDialog = () => {
-	emit('update:visible', false)
+	if (props.visible) emit('update:visible', false)
 }
 
 const saveDialog = () => {
 	emit('update:modelValue', readmeText.value)
-	emit('update:visible', false)
+	closeDialog()
 }
 </script>
 

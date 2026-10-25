@@ -59,12 +59,24 @@ public class TenantSecurityService {
 
     public StorageSource requireManageStorage(Integer storageId) {
         User operator = currentUser();
-        requireAdministrator(operator);
+        requireStorageAdministrator(operator);
         StorageSource storageSource = storageSourceMapper.selectById(storageId);
-        if (storageSource == null) {
+        if (storageSource == null || (!isSystemAdmin(operator)
+                && !java.util.Objects.equals(operator.getTenantId(), storageSource.getTenantId()))) {
             throw new BizException("存储源不存在");
         }
         return storageSource;
+    }
+
+    public User requireStorageAdministrator() {
+        User actor = currentUser();
+        requireStorageAdministrator(actor);
+        return actor;
+    }
+
+    private void requireStorageAdministrator(User user) {
+        if (!isSystemAdmin(user) && (user.getRole() != UserRoleEnum.TENANT_ADMIN || user.getTenantId() == null))
+            throw new ForbiddenAccessException(ErrorCode.NO_FORBIDDEN);
     }
 
     private void requireAdministrator(User user) {

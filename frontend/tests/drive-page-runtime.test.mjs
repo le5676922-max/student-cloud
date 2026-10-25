@@ -8,6 +8,7 @@ import * as latestRequest from '../src/utils/latest-request.mjs'
 import * as headerLoad from '../src/utils/header-storage-load.mjs'
 import * as presentation from '../src/utils/drive-presentation.mjs'
 import * as automation from '../src/utils/automation-context.mjs'
+import * as fileChanges from '../src/utils/file-change-refresh.mjs'
 import { uploadAccountIdentity } from '../src/composables/file/upload-lifecycle.mjs'
 
 const [pageSource, headerSource] = await Promise.all([
@@ -78,6 +79,8 @@ function setupPage({
 	const notices = [],
 		cleanups = [],
 		events = []
+	const timers = new Map()
+	let timerIndex = 0
 	const route = vue.reactive({
 		path: key ? `/${key}/notes` : '/',
 		params: key ? { storageKey: key, fullpath: ['notes'] } : {},
@@ -181,6 +184,19 @@ function setupPage({
 		'~/utils/latest-request.mjs': latestRequest,
 		'~/utils/drive-presentation.mjs': presentation,
 		'~/utils/automation-context.mjs': automation,
+		'~/utils/file-change-refresh.mjs': {
+			...fileChanges,
+			createFileChangeRefresh: (options) =>
+				fileChanges.createFileChangeRefresh({
+					...options,
+					schedule: (callback) => {
+						const id = ++timerIndex
+						timers.set(id, callback)
+						return id
+					},
+					unschedule: (id) => timers.delete(id),
+				}),
+		},
 		'~/composables/file/upload-lifecycle.mjs': { uploadAccountIdentity },
 		'~/utils': { isMobile: vue.ref(false) },
 		'element-plus': { ElMessage: message },
@@ -269,6 +285,15 @@ function setupPage({
 		storage,
 		calls,
 		notices,
+		emitFileChange(change) {
+			for (const callback of events) callback(change)
+		},
+		timers,
+		tick() {
+			const callbacks = [...timers.values()]
+			timers.clear()
+			for (const callback of callbacks) callback()
+		},
 		dispose() {
 			for (const callback of cleanups) callback()
 			scope.stop()
@@ -361,7 +386,7 @@ test('same-route header/bootstrap calls share one promise and preserve real succ
 	const parallel = h.header.loadStorageSourceList()
 	assert.equal(first, parallel)
 	assert.equal(h.calls.lists.length, 1)
-	assert.equal(h.calls.lists[0].config.timeout, 30000)
+	assert.equal(h.calls.lists[0].config.timeout, 10000)
 	assert.equal(h.calls.lists[0].config.showDefaultMsg, false)
 	const response = { data: [] }
 	h.calls.lists[0].resolve(response)
@@ -491,4 +516,103 @@ test('same-account nickname refresh preserves and shares the pending storage-lis
 	h.calls.lists[0].resolve({ data: [sourceItem('source-one')] })
 	await first
 	assert.equal(h.header.storageList.value[0].key, 'source-one')
+})
+
+test('real page coalesces successful upload and Agent changes for the current directory only', async (t) => {
+	const h = setupPage({ key: 'source-one' })
+	t.after(h.dispose)
+	const change = {
+		storageKey: 'source-one',
+		path: '/notes',
+		accountIdentity: uploadAccountIdentity(h.storage.loginInfo),
+	}
+	h.emitFileChange({ ...change, storageKey: 'source-two' })
+	h.emitFileChange({ ...change, path: '/elsewhere' })
+	h.emitFileChange({ ...change, accountIdentity: '["old-account",1]' })
+	assert.equal(h.timers.size, 0)
+	h.emitFileChange(change)
+	h.emitFileChange({ storageKey: 'source-one', path: '/notes/' })
+	h.emitFileChange(change)
+	assert.equal(h.calls.files.length, 0)
+	assert.equal(h.timers.size, 1)
+	h.tick()
+	await flush()
+	assert.equal(h.calls.files.length, 1)
+	assert.equal(h.calls.files[0].key, 'source-one')
+	assert.equal(h.timers.size, 0)
+})
+
+test('real page waits for loading and operation dialogs before refreshing a completed upload', async (t) => {
+	const h = setupPage({ key: 'source-one' })
+	t.after(h.dispose)
+	h.loading.value = true
+	h.emitFileChange({ storageKey: 'source-one', path: '/notes' })
+	h.tick()
+	assert.equal(h.calls.files.length, 0)
+	h.loading.value = false
+	h.operationBusy.value = true
+	h.tick()
+	assert.equal(h.calls.files.length, 0)
+	h.operationBusy.value = false
+	h.tick()
+	await flush()
+	assert.equal(h.calls.files.length, 1)
+})
+
+test('real page cancels queued changes on navigation away and back without refreshing the next directory', async (t) => {
+	const h = setupPage({ key: 'source-one' })
+	t.after(h.dispose)
+	h.emitFileChange({ storageKey: 'source-one', path: '/notes' })
+	const stale = [...h.timers.values()][0]
+	h.route.path = '/source-two/different'
+	h.route.path = '/source-one/notes'
+	assert.equal(h.timers.size, 0)
+	stale()
+	h.tick()
+	await flush()
+	assert.equal(h.calls.files.length, 0)
+})
+
+test('real page cancels queued changes on account/workspace/logout changes but retains same-account metadata refresh', async (t) => {
+	for (const change of [
+		(h) => {
+			h.storage.loginInfo.username = 'other'
+		},
+		(h) => {
+			h.storage.loginInfo.tenantId = 2
+		},
+		(h) => {
+			h.storage.loginInfo.isLogin = false
+		},
+	]) {
+		const h = setupPage({ key: 'source-one' })
+		t.after(h.dispose)
+		h.emitFileChange({ storageKey: 'source-one', path: '/notes' })
+		change(h)
+		assert.equal(h.timers.size, 0)
+		h.tick()
+		await flush()
+		assert.equal(h.calls.files.length, 0)
+	}
+	const h = setupPage({ key: 'source-one' })
+	t.after(h.dispose)
+	h.emitFileChange({ storageKey: 'source-one', path: '/notes' })
+	h.storage.loginInfo = { ...h.storage.loginInfo, nickname: 'Updated name' }
+	assert.equal(h.timers.size, 1)
+	h.tick()
+	await flush()
+	assert.equal(h.calls.files.length, 1)
+})
+
+test('real page unmount disposes pending refresh and ignores a late successful upload event', async () => {
+	const h = setupPage({ key: 'source-one' })
+	h.emitFileChange({ storageKey: 'source-one', path: '/notes' })
+	const stale = [...h.timers.values()][0]
+	h.dispose()
+	stale()
+	h.emitFileChange({ storageKey: 'source-one', path: '/notes' })
+	h.tick()
+	await flush()
+	assert.equal(h.calls.files.length, 0)
+	assert.equal(h.timers.size, 0)
 })

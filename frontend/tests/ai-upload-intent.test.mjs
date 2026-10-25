@@ -7,6 +7,8 @@ test('only explicit upload commands open the file picker', () => {
 	assert.equal(isUploadCommand('把文件存入云盘'), true)
 	assert.equal(isUploadCommand('怎么上传文件？'), false)
 	assert.equal(isUploadCommand('可以上传文件吗'), false)
+	for (const text of ['请继续排查上传失败', '上传报错请帮我分析', '文件上传卡住了', '无法上传文件', '修复上传接口'])
+		assert.equal(isUploadCommand(text), false, text)
 })
 
 test('explicit paths and exact duplicate names are extracted conservatively', () => {

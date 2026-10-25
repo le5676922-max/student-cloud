@@ -766,10 +766,15 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .agent-tasks-page {
-	max-width: 1100px;
-	margin: auto;
-	padding: 36px 24px 80px;
-	color: var(--cloud-ink, #273936);
+	max-width: 1160px;
+	width: calc(100% - 40px);
+	height: calc(100% - 40px);
+	margin: 20px auto;
+	padding: 28px 28px 80px;
+	overflow-y: auto;
+	border-radius: 24px;
+	background: var(--cloud-canvas, #efeff0);
+	color: var(--cloud-ink, #242428);
 }
 .page-heading {
 	display: flex;
@@ -777,6 +782,9 @@ onBeforeUnmount(() => {
 	align-items: center;
 	justify-content: space-between;
 	margin-bottom: 24px;
+	padding: 26px 28px;
+	border-radius: var(--cloud-radius, 20px);
+	background: var(--cloud-panel, #dedede);
 }
 h1 {
 	font-size: 27px;
@@ -791,7 +799,7 @@ h2 {
 .eyebrow {
 	font-size: 12px;
 	letter-spacing: 0.12em;
-	color: var(--cloud-primary, #277566);
+	color: var(--cloud-accent-ink, #5830bc);
 }
 .heading-description {
 	font-size: 13px;
@@ -807,11 +815,12 @@ h2 {
 	padding: 10px 13px;
 	border: 1px solid var(--cloud-line, #e1e6df);
 	background: var(--cloud-surface, #fff);
-	border-radius: 9px;
+	border-radius: 999px;
 	font-size: 13px;
 }
 .heading-links a:hover {
-	background: var(--cloud-soft, #e8f1ec);
+	background: var(--cloud-lilac, #f0ebff);
+	transform: translateY(-2px);
 }
 .task-builder,
 .schedule-section,
@@ -819,7 +828,7 @@ h2 {
 .duplicate-report {
 	padding: 24px;
 	border: 1px solid var(--cloud-line, #e1e6df);
-	border-radius: 12px;
+	border-radius: var(--cloud-radius, 20px);
 	background: var(--cloud-surface, #fff);
 	margin-bottom: 18px;
 }
@@ -838,9 +847,9 @@ h2 {
 	flex-shrink: 0;
 	font-size: 11px;
 	padding: 5px 9px;
-	border-radius: 6px;
-	color: var(--cloud-primary-dark, #1e5e52);
-	background: var(--cloud-soft, #e8f1ec);
+	border-radius: 999px;
+	color: #5833b6;
+	background: var(--cloud-lilac, #f0ebff);
 }
 .task-choices {
 	display: grid;
@@ -853,20 +862,21 @@ h2 {
 	gap: 8px;
 	text-align: left;
 	padding: 18px 16px;
-	border-radius: 10px;
+	border-radius: 16px;
 	border: 1px solid var(--cloud-line, #e1e6df);
-	background: #fafbf8;
+	background: var(--cloud-soft, #f1f1f3);
 	cursor: pointer;
-	transition: border-color 0.15s, background 0.15s;
+	transition: border-color 180ms ease, background-color 180ms ease,
+		transform 220ms var(--cloud-ease, ease), box-shadow 180ms ease;
 	color: inherit;
 }
 .task-choice:hover {
-	border-color: #9cafaa;
+	border-color: #c5b7f7;
 }
 .task-choice.selected {
-	border-color: var(--cloud-primary, #277566);
-	background: var(--cloud-soft, #e8f1ec);
-	box-shadow: inset 0 0 0 1px var(--cloud-primary, #277566);
+	border-color: var(--cloud-accent, #6d42f6);
+	background: var(--cloud-lilac, #f0ebff);
+	box-shadow: inset 0 0 0 1px var(--cloud-accent, #6d42f6);
 }
 .task-choice strong {
 	font-size: 14px;
@@ -879,7 +889,7 @@ h2 {
 .choice-symbol {
 	width: 29px;
 	height: 29px;
-	color: var(--cloud-primary, #277566);
+	color: var(--cloud-accent, #6d42f6);
 }
 .choice-symbol svg {
 	width: 100%;
@@ -930,11 +940,11 @@ h2 {
 	gap: 8px 12px;
 	flex-wrap: wrap;
 	border: 1px solid var(--cloud-line, #e1e6df);
-	border-radius: 8px;
+	border-radius: 12px;
 	padding: 12px 14px;
 	margin: 0 0 18px;
 	font-size: 12px;
-	background: #f8faf6;
+	background: var(--cloud-soft, #f1f1f3);
 }
 .target-summary > span {
 	color: var(--cloud-muted, #6d7974);
@@ -1001,13 +1011,13 @@ a {
 .task-tabs button {
 	padding: 8px 12px;
 	font-size: 13px;
-	border-radius: 7px;
+	border-radius: 999px;
 	color: var(--cloud-muted, #6d7974);
 	cursor: pointer;
 }
 .task-tabs button[aria-selected='true'] {
-	background: var(--cloud-soft, #e8f1ec);
-	color: var(--cloud-primary-dark, #1e5e52);
+	background: var(--cloud-primary, #262629);
+	color: white;
 	font-weight: 600;
 }
 .task-tabs span {
@@ -1055,9 +1065,9 @@ a {
 .schedule-list li {
 	margin: 12px 0 0;
 	padding: 16px;
-	border-radius: 9px;
+	border-radius: 14px;
 	border: 1px solid var(--cloud-line, #e1e6df);
-	background: #f8faf6;
+	background: var(--cloud-soft, #f1f1f3);
 	font-size: 12px;
 	line-height: 1.8;
 	overflow-wrap: anywhere;
@@ -1080,10 +1090,10 @@ a {
 	align-items: center;
 }
 .schedule-status {
-	color: var(--cloud-primary, #277566);
+	color: #5833b6;
 	font-size: 10px;
 	padding: 0 7px;
-	background: var(--cloud-soft, #e8f1ec);
+	background: var(--cloud-lilac, #f0ebff);
 	border-radius: 4px;
 }
 .schedule-status.paused {
@@ -1096,14 +1106,45 @@ a {
 	line-height: 1.8;
 	overflow-wrap: anywhere;
 }
+.schedule-section[open] > :not(summary) {
+	animation: task-disclose 180ms var(--cloud-ease, ease);
+}
+.task-tabs button:active,
+.task-choice:active {
+	transform: scale(0.985);
+}
+@media (hover: hover) {
+	.task-choice:hover {
+		transform: translateY(-3px);
+		box-shadow: 0 8px 18px rgb(28 29 32 / 7%);
+	}
+	.task-tabs button:not([aria-selected='true']):hover {
+		background: var(--cloud-soft, #f1f1f3);
+	}
+}
+@keyframes task-disclose {
+	from {
+		opacity: 0;
+		transform: translateY(-4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
 @media (max-width: 640px) {
 	.agent-tasks-page {
-		padding: 22px 12px 70px;
+		width: calc(100% - 16px);
+		height: calc(100% - 16px);
+		margin: 8px auto;
+		padding: 12px 12px 70px;
+		border-radius: 18px;
 	}
 	.page-heading {
 		align-items: flex-start;
 		flex-direction: column;
 		gap: 14px;
+		padding: 22px 18px;
 	}
 	.task-builder,
 	.schedule-section,
@@ -1145,8 +1186,18 @@ a {
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.task-choice {
+	.task-choice,
+	.task-choice:hover,
+	.task-choice:active,
+	.task-tabs button,
+	.task-tabs button:active,
+	.heading-links a,
+	.heading-links a:hover {
 		transition: none;
+		transform: none;
+	}
+	.schedule-section[open] > :not(summary) {
+		animation: none;
 	}
 }
 </style>

@@ -179,18 +179,29 @@ onMounted(() => {
 	@apply relative flex flex-col items-center p-4 rounded-lg cursor-pointer;
 	gap: 6px;
 	min-height: 128px;
-	border: 1px solid #e8ece4;
-	background: #fcfdf9;
+	border: 1px solid var(--cloud-line);
+	border-radius: 16px;
+	background: #fafafa;
 	transition: border-color 160ms ease, background-color 160ms ease,
-		transform 160ms ease;
-	&:hover {
-		transform: translateY(-2px);
-		border-color: #a8beb0;
-		background: #f3f7f0;
+		transform 180ms var(--cloud-ease), box-shadow 180ms ease;
+	@media (hover: hover) and (pointer: fine) {
+		&:hover {
+			transform: translateY(-3px);
+			border-color: #c9c0e4;
+			background: var(--cloud-lilac);
+			box-shadow: 0 8px 16px #2424280a;
+		}
+	}
+	&:active {
+		transform: scale(0.98);
+	}
+	&:focus-visible {
+		outline: 2px solid var(--cloud-accent);
+		outline-offset: 3px;
 	}
 	.student-cloud-card-file-icon {
 		@apply w-12 h-12 rounded-lg flex items-center justify-center;
-		background: #f1f4eb;
+		background: var(--cloud-soft);
 		:deep(svg) {
 			width: 32px;
 			height: 32px;
@@ -229,7 +240,15 @@ onMounted(() => {
 
 // 文件行选中效果
 .select-row {
-	border-color: #82a99a;
-	background: var(--cloud-soft);
+	border-color: var(--cloud-accent);
+	background: var(--cloud-lilac);
+	box-shadow: inset 0 0 0 1px var(--cloud-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.student-cloud-card-file-item {
+		transform: none !important;
+		transition: none;
+	}
 }
 </style>

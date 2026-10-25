@@ -56,8 +56,9 @@ class CloudWorkflowTest {
 
     @DynamicPropertySource
     static void configuration(DynamicPropertyRegistry properties) {
+        properties.add("tongligong-student-cloud.courses.storage-root", () -> WORK.resolve("course-files").toString());
         boolean mysql = MYSQL_URL != null && !MYSQL_URL.isBlank();
-        if (mysql && !MYSQL_URL.matches("jdbc:mysql://(?:127\\.0\\.0\\.1|localhost):3306/student_cloud_role_test_[a-z0-9_]+(?:\\?.*)?")) {
+        if (mysql && !MYSQL_URL.matches("jdbc:mysql://(?:127\\.0\\.0\\.1|localhost):[0-9]{1,5}/student_cloud_role_test_[a-z0-9_]+(?:\\?.*)?")) {
             throw new IllegalArgumentException("Only a dedicated local student_cloud_role_test_* database may be used");
         }
         properties.add("spring.datasource.driver-class-name", () -> mysql ? "com.mysql.cj.jdbc.Driver" : "org.sqlite.JDBC");
@@ -170,7 +171,7 @@ class CloudWorkflowTest {
     void protectBuiltInAdminAndRestrictAgentAndReadOnlyUser() {
         assertNotEquals("0", request(HttpMethod.POST, "/admin/user/copy", Map.of("fromId", 1, "toUsername", "extra-admin", "toNickname", "extra", "toPassword", "Test-password-123"), adminToken).path("code").asText());
         assertNotEquals("0", request(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", 1, "username", "test-admin", "enable", false), adminToken).path("code").asText());
-        ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", "reader", "nickname", "Reader", "password", "Test-password-123", "enable", true, "role", "USER", "tenantId", 1, "userStorageSourceList", List.of(Map.of("storageSourceId", storageId, "rootPath", "/documents/", "enable", true, "permissions", List.of("preview", "download")))), adminToken);
+        fixtureAccount(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", "reader", "nickname", "Reader", "password", "Test-password-123", "enable", true, "role", "USER", "tenantId", 1, "userStorageSourceList", List.of(Map.of("storageSourceId", storageId, "rootPath", "/documents/", "enable", true, "permissions", List.of("preview", "download")))), adminToken);
         String token = ok(HttpMethod.POST, "/user/login", Map.of("username", "reader", "password", "Test-password-123"), null).path("token").asText();
         assertNotEquals("0", request(HttpMethod.GET, "/admin/user/list", null, token).path("code").asText());
         assertTrue(ok(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "workflow", "path", "/"), token).toString().contains("renamed.txt"));
@@ -297,7 +298,7 @@ class CloudWorkflowTest {
                 "storageKey", "workflow", "path", "/../outside.txt", "tags", ""), token).path("code").asText());
         assertEquals(0, ok(HttpMethod.GET, "/api/learning/search?query=no-such-topic", null, token).path("citations").size());
 
-        Path file = WORK.resolve("files/documents/renamed.txt");
+        Path file = WORK.resolve("files/members/u" + readerId + "/documents/renamed.txt");
         var modified = Files.getLastModifiedTime(file);
         Files.writeString(file, "hello world"); // Same byte count and restored timestamp must still invalidate the index.
         Files.setLastModifiedTime(file, modified);
@@ -305,19 +306,19 @@ class CloudWorkflowTest {
         ok(HttpMethod.POST, "/api/learning/materials/" + id + "/refresh", null, token);
         assertEquals("hello world", ok(HttpMethod.GET, "/api/learning/search?query=hello", null, token).path("citations").get(0).path("excerpt").asText());
 
-        ok(HttpMethod.POST, "/admin/storage/" + storageId + "/filters", List.of(Map.of("expression", "/documents/", "description", "hide parent", "mode", "inaccessible")), adminToken);
+        ok(HttpMethod.POST, "/admin/storage/" + storageId + "/filters", List.of(Map.of("expression", "/members/u" + readerId + "/documents/", "description", "hide parent", "mode", "inaccessible")), adminToken);
         assertSkipped(token);
         ok(HttpMethod.POST, "/admin/storage/" + storageId + "/filters", List.of(), adminToken);
-        ok(HttpMethod.POST, "/admin/storage/" + storageId + "/password", List.of(Map.of("expression", "/documents/", "password", "test-folder-only", "description", "protected")), adminToken);
+        ok(HttpMethod.POST, "/admin/storage/" + storageId + "/password", List.of(Map.of("expression", "/members/u" + readerId + "/documents/", "password", "test-folder-only", "description", "protected")), adminToken);
         assertSkipped(token);
         ok(HttpMethod.POST, "/admin/storage/" + storageId + "/password", List.of(), adminToken);
 
-        ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", readerId, "username", "reader", "nickname", "Reader",
+        fixtureAccount(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", readerId, "username", "reader", "nickname", "Reader",
                 "enable", true, "role", "USER", "tenantId", 1, "userStorageSourceList", List.of(Map.of(
                         "storageSourceId", storageId, "rootPath", "/documents/", "enable", true, "permissions", List.of()))), adminToken);
         assertSkipped(token);
         assertNotEquals("0", request(HttpMethod.POST, "/api/learning/materials/" + id + "/refresh", null, token).path("code").asText());
-        ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", readerId, "username", "reader", "nickname", "Reader",
+        fixtureAccount(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", readerId, "username", "reader", "nickname", "Reader",
                 "enable", true, "role", "USER", "tenantId", 1, "userStorageSourceList", List.of(Map.of(
                         "storageSourceId", storageId, "rootPath", "/documents/", "enable", true, "permissions", List.of("preview")))), adminToken);
         Files.delete(file);
@@ -348,13 +349,14 @@ class CloudWorkflowTest {
         int user = ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", "automation-user", "nickname", "Automation",
                 "password", "Test-password-123", "enable", true, "role", "USER", "tenantId", 1), adminToken).path("id").asInt();
         automationGrant(user, List.of("preview", "move", "newFolder"), "/automation/");
+        root = WORK.resolve("files/members/u" + user + "/automation");
         String token = ok(HttpMethod.POST, "/user/login", Map.of("username", "automation-user", "password", "Test-password-123"), null).path("token").asText();
         var request = Map.of("type", "ORGANIZE_FILES", "storageKey", "workflow", "path", "/");
         assertNotEquals("0", request(HttpMethod.POST, "/api/ai/tasks", Map.of("type", "ORGANIZE_FILES", "storageKey", "workflow", "path", "/../documents"), token).path("code").asText());
-        ok(HttpMethod.POST, "/admin/storage/" + storageId + "/filters", List.of(Map.of("expression", "/automation/", "description", "protect parent", "mode", "inaccessible")), adminToken);
+        ok(HttpMethod.POST, "/admin/storage/" + storageId + "/filters", List.of(Map.of("expression", "/members/u" + user + "/automation/", "description", "protect parent", "mode", "inaccessible")), adminToken);
         assertNotEquals("0", request(HttpMethod.POST, "/api/ai/tasks", request, token).path("code").asText());
         ok(HttpMethod.POST, "/admin/storage/" + storageId + "/filters", List.of(), adminToken);
-        ok(HttpMethod.POST, "/admin/storage/" + storageId + "/password", List.of(Map.of("expression", "/automation/", "password", "folder-test-only", "description", "protected")), adminToken);
+        ok(HttpMethod.POST, "/admin/storage/" + storageId + "/password", List.of(Map.of("expression", "/members/u" + user + "/automation/", "password", "folder-test-only", "description", "protected")), adminToken);
         assertNotEquals("0", request(HttpMethod.POST, "/api/ai/tasks", request, token).path("code").asText());
         ok(HttpMethod.POST, "/admin/storage/" + storageId + "/password", List.of(), adminToken);
         JsonNode preview = ok(HttpMethod.POST, "/api/ai/tasks", request, token);
@@ -373,6 +375,7 @@ class CloudWorkflowTest {
         assertEquals("FAILED", confirmAndAwaitTask(id, token).path("status").asText());
         assertTrue(Files.exists(root.resolve("01-notes.txt")));
         automationGrant(user, List.of("preview", "move", "newFolder"), "/automation/");
+        root = WORK.resolve("files/members/u" + user + "/automation");
 
         id = ok(HttpMethod.POST, "/api/ai/tasks", request, token).path("id").asText();
         jdbc.update("UPDATE ai_task SET expires_at = 1 WHERE id = ?", id);
@@ -386,6 +389,7 @@ class CloudWorkflowTest {
         assertEquals("FAILED", confirmAndAwaitTask(id, token).path("status").asText());
         assertTrue(Files.exists(differentRoot.resolve("01-notes.txt")), "Changing the user's root invalidates the old plan");
         automationGrant(user, List.of("preview", "move", "newFolder"), "/automation/");
+        root = WORK.resolve("files/members/u" + user + "/automation");
 
         id = ok(HttpMethod.POST, "/api/ai/tasks", request, token).path("id").asText();
         Files.createDirectory(root.resolve("文档"));
@@ -512,6 +516,7 @@ class CloudWorkflowTest {
         int user = ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", "automation-user", "nickname", "Automation",
                 "password", "Test-password-123", "enable", true, "role", "USER", "tenantId", 1), adminToken).path("id").asInt();
         automationGrant(user, List.of("preview", "rename", "move", "newFolder"), "/agent-extension/");
+        root = WORK.resolve("files/members/u" + user + "/agent-extension");
         String token = ok(HttpMethod.POST, "/user/login", Map.of("username", "automation-user", "password", "Test-password-123"), null).path("token").asText();
 
         JsonNode duplicate = ok(HttpMethod.GET, "/api/ai/tasks/duplicates?storageKey=workflow&path=/", null, token);
@@ -558,7 +563,7 @@ class CloudWorkflowTest {
         int managedStorage = ok(HttpMethod.POST, "/admin/storage", Map.of("name", "Managed storage", "key", "managed-storage",
                 "type", "local", "tenantId", firstTenant, "enable", true, "orderNum", 3,
                 "storageSourceAllParam", Map.of("filePath", managedFiles.toString(), "domain", "", "proxyPrivate", true, "proxyTokenTime", 1800)), adminToken).asInt();
-        ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", firstManager, "username", "tenant-manager-a",
+        fixtureAccount(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", firstManager, "username", "tenant-manager-a",
                 "nickname", "Manager A", "enable", true, "role", "TENANT_ADMIN", "tenantId", firstTenant,
                 "defaultPermissions", List.of("preview"), "userStorageSourceList", List.of(Map.of("storageSourceId", managedStorage,
                         "rootPath", "/", "enable", true, "permissions", List.of("preview")))), adminToken);
@@ -568,7 +573,7 @@ class CloudWorkflowTest {
         assertEquals("TENANT_ADMIN", login.path("role").asText());
         assertFalse(login.path("isAdmin").asBoolean());
         assertEquals(firstTenant, login.path("tenantId").asInt());
-        for (String path : List.of("/admin/overview", "/admin/user/list", "/admin/storages", "/admin/tenants")) {
+        for (String path : List.of("/admin/overview", "/admin/user/list", "/admin/tenants")) {
             assertNotEquals("0", request(HttpMethod.GET, path, null, firstToken).path("code").asText(), path);
         }
         assertEquals("Managed workspace A", ok(HttpMethod.GET, "/api/workspace-admin/summary", null, firstToken).path("tenantName").asText());
@@ -580,14 +585,47 @@ class CloudWorkflowTest {
                 "nickname", "Member B", "password", "Member-password-123"), secondToken).path("id").asInt();
         assertEquals("USER", ok(HttpMethod.GET, "/admin/user/" + firstMember, null, adminToken).path("role").asText());
         assertEquals(firstTenant, ok(HttpMethod.GET, "/admin/user/" + firstMember, null, adminToken).path("tenantId").asInt());
-        assertEquals(managedStorage, ok(HttpMethod.GET, "/admin/user/" + firstMember, null, adminToken)
-                .path("userStorageSourceList").get(0).path("storageSourceId").asInt());
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE user_id=?", Integer.class, firstMember));
         assertTrue(ok(HttpMethod.GET, "/api/workspace-admin/members?page=1", null, firstToken).toString().contains("managed-member-a"));
         assertFalse(ok(HttpMethod.GET, "/api/workspace-admin/members?page=1", null, firstToken).toString().contains("managed-member-b"));
         assertNotEquals("0", request(HttpMethod.POST, "/api/workspace-admin/members/" + secondMember + "/enabled?value=false", null, firstToken).path("code").asText());
         assertNotEquals("0", request(HttpMethod.POST, "/api/workspace-admin/members/" + secondManager + "/enabled?value=false", null, firstToken).path("code").asText());
         assertNotEquals("0", request(HttpMethod.POST, "/api/workspace-admin/members/1/enabled?value=false", null, firstToken).path("code").asText());
         String memberToken = ok(HttpMethod.POST, "/user/login", Map.of("username", "managed-member-a", "password", "Member-password-123"), null).path("token").asText();
+        String permissionPath = "/api/workspace-admin/members/" + firstMember + "/permissions";
+        JsonNode editable = ok(HttpMethod.GET, permissionPath, null, firstToken);
+        assertEquals(firstMember, editable.path("userId").asInt());
+        assertEquals(managedStorage, editable.path("storages").get(0).path("storageSourceId").asInt());
+        for (String forbiddenToken : java.util.Arrays.asList(adminToken, secondToken, memberToken, null)) {
+            assertNotEquals("0", request(HttpMethod.GET, permissionPath, null, forbiddenToken).path("code").asText());
+        }
+        assertNotEquals("0", request(HttpMethod.GET, "/api/workspace-admin/members/" + firstManager + "/permissions", null, firstToken).path("code").asText());
+        assertNotEquals("0", request(HttpMethod.GET, "/api/workspace-admin/members/1/permissions", null, firstToken).path("code").asText());
+        Map<String, Object> revoke = Map.of("defaultPermissions", List.of(), "storages", List.of(Map.of(
+                "storageSourceId", managedStorage, "rootPath", "/", "enable", false, "permissions", List.of())));
+        assertNotEquals("0", request(HttpMethod.PUT, permissionPath, revoke, adminToken).path("code").asText());
+        assertNotEquals("0", request(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", firstMember,
+                "username", "managed-member-a", "defaultPermissions", List.of()), adminToken).path("code").asText());
+        for (Map<String, Object> invalid : List.<Map<String, Object>>of(
+                Map.of("defaultPermissions", List.of("delete"), "storages", List.of()),
+                Map.of("defaultPermissions", List.of(), "storages", List.of(Map.of("storageSourceId", managedStorage, "rootPath", "/", "enable", true, "permissions", List.of("delete")))),
+                Map.of("defaultPermissions", List.of(), "storages", List.of(Map.of("storageSourceId", storageId, "rootPath", "/", "enable", true, "permissions", List.of("preview")))),
+                Map.of("defaultPermissions", List.of(), "storages", List.of(Map.of("storageSourceId", managedStorage, "rootPath", "/../", "enable", true, "permissions", List.of("preview")))))) {
+            assertNotEquals("0", request(HttpMethod.PUT, permissionPath, invalid, firstToken).path("code").asText());
+        }
+        ok(HttpMethod.PUT, permissionPath, Map.of("defaultPermissions", List.of("preview"), "storages", List.of(Map.of("storageSourceId", managedStorage, "rootPath", "/members/u" + firstMember, "enable", true, "permissions", List.of("preview")))), firstToken);
+        ok(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "managed-storage", "path", "/"), memberToken);
+        ok(HttpMethod.PUT, permissionPath, revoke, firstToken);
+        assertNotEquals("0", request(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "managed-storage", "path", "/"), memberToken).path("code").asText());
+        ok(HttpMethod.PUT, permissionPath, Map.of("defaultPermissions", List.of("preview"), "storages", List.of(Map.of(
+                "storageSourceId", managedStorage, "rootPath", "/members/u" + firstMember, "enable", true, "permissions", List.of("preview")))), firstToken);
+        ok(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "managed-storage", "path", "/"), memberToken);
+        var prior = jdbc.queryForList("SELECT storage_source_id,root_path,enable,permissions FROM user_storage_source WHERE user_id=? ORDER BY storage_source_id", firstMember);
+        String priorDefaults = jdbc.queryForObject("SELECT default_permissions FROM `user` WHERE id=?", String.class, firstMember);
+        ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", firstMember, "username", "managed-member-a",
+                "nickname", "Profile only", "enable", true), adminToken);
+        assertEquals(priorDefaults, jdbc.queryForObject("SELECT default_permissions FROM `user` WHERE id=?", String.class, firstMember));
+        assertEquals(prior, jdbc.queryForList("SELECT storage_source_id,root_path,enable,permissions FROM user_storage_source WHERE user_id=? ORDER BY storage_source_id", firstMember));
         assertNotEquals("0", request(HttpMethod.GET, "/api/workspace-admin/summary", null, memberToken).path("code").asText());
         assertFalse(ok(HttpMethod.POST, "/api/workspace-admin/members/" + firstMember + "/enabled?value=false", null, firstToken).path("enabled").asBoolean());
         assertNotEquals("0", request(HttpMethod.GET, "/api/learning/courses", null, memberToken).path("code").asText());
@@ -614,7 +652,7 @@ class CloudWorkflowTest {
         Files.writeString(folder.resolve("allowed/sub/deep.txt"), "deep synthetic content");
         Files.createDirectories(folder.resolve("hidden"));
         Files.writeString(folder.resolve("hidden/hidden.txt"), "hidden synthetic content");
-        int owner = ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", "share-owner",
+        int owner = fixtureAccount(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", "share-owner",
                 "password", "Test-password-123", "enable", true, "role", "USER", "tenantId", 1,
                 "userStorageSourceList", List.of(Map.of("storageSourceId", storageId, "rootPath", "/share-scope",
                         "enable", true, "permissions", List.of("createShareLink", "download", "preview")))), adminToken).path("id").asInt();
@@ -644,7 +682,7 @@ class CloudWorkflowTest {
         assertFalse(disabledOffice.getBody().contains("synthetic content"));
         assertShareDenied(HttpMethod.POST, "/api/share/files", Map.of("shareKey", key, "path", "/", "password", "a&+?=b"));
         assertShareDenied(HttpMethod.GET, issued, null);
-        ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", owner, "username", "share-owner", "enable", true,
+        fixtureAccount(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", owner, "username", "share-owner", "enable", true,
                 "role", "USER", "tenantId", 1, "userStorageSourceList", List.of(Map.of("storageSourceId", storageId,
                         "rootPath", "/share-scope", "enable", true, "permissions", List.of("createShareLink", "download", "preview")))), adminToken);
         assertEquals("selected synthetic content", downloadBody(issued, adminToken));
@@ -652,7 +690,7 @@ class CloudWorkflowTest {
         assertShareDenied(HttpMethod.GET, issued, null);
         jdbc.update("UPDATE user_storage_source SET enable = 1, root_path = '/different' WHERE user_id = ? AND storage_source_id = ?", owner, storageId);
         assertShareDenied(HttpMethod.GET, issued, null);
-        jdbc.update("UPDATE user_storage_source SET root_path = '/share-scope' WHERE user_id = ? AND storage_source_id = ?", owner, storageId);
+        jdbc.update("UPDATE user_storage_source SET root_path = ? WHERE user_id = ? AND storage_source_id = ?", "/members/u" + owner + "/share-scope", owner, storageId);
         jdbc.update("UPDATE share_link SET share_item = 'broken' WHERE share_key = ?", key);
         assertShareDenied(HttpMethod.POST, "/api/share/files", Map.of("shareKey", key, "path", "/", "password", "a&+?=b"));
         assertShareDenied(HttpMethod.GET, issued, null);
@@ -753,6 +791,542 @@ class CloudWorkflowTest {
         }
     }
 
+    @Test
+    @Order(17)
+    void longTermMemoryHttpCrudSettingsAndAccountDeletionRemainOwnerScoped() {
+        String endpoint = "/api/ai/memories";
+        for (HttpMethod method : List.of(HttpMethod.GET, HttpMethod.POST, HttpMethod.DELETE)) {
+            assertNotEquals("0", request(method, endpoint,
+                    method == HttpMethod.POST ? Map.of("content", "匿名请求不应保存记忆") : null, null).path("code").asText());
+        }
+        assertNotEquals("0", request(HttpMethod.PUT, endpoint + "/settings", Map.of("enabled", false), null)
+                .path("code").asText());
+
+        JsonNode adminState = ok(HttpMethod.PUT, endpoint + "/settings", Map.of("enabled", true), adminToken);
+        assertTrue(adminState.path("enabled").asBoolean());
+        assertTrue(adminState.path("maxEntries").asInt() > 0);
+        assertTrue(adminState.path("maxChars").asInt() > 0);
+        assertTrue(adminState.path("items").isArray());
+        ok(HttpMethod.DELETE, endpoint, null, adminToken);
+        JsonNode savedAdmin = ok(HttpMethod.POST, endpoint, Map.of("content", "我正在学习数据库系统。"), adminToken);
+        assertEquals(1, savedAdmin.path("items").size(), savedAdmin.toString());
+        String adminMemoryId = savedAdmin.path("items").get(0).path("id").asText();
+        assertFalse(adminMemoryId.isBlank());
+        assertTrue(java.time.Instant.parse(savedAdmin.path("items").get(0).path("createdAt").asText()).toEpochMilli() > 0);
+
+        int tenantId = ok(HttpMethod.POST, "/admin/tenant", Map.of("name", "Memory isolation workspace", "enable", true),
+                adminToken).path("id").asInt();
+        int memberId = ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", "memory-isolation-member",
+                "nickname", "Memory isolation member", "password", "Test-password-123", "enable", true,
+                "role", "USER", "tenantId", tenantId), adminToken).path("id").asInt();
+        String memberToken = ok(HttpMethod.POST, "/user/login", Map.of("username", "memory-isolation-member",
+                "password", "Test-password-123"), null).path("token").asText();
+        JsonNode memberState = ok(HttpMethod.GET, endpoint, null, memberToken);
+        assertTrue(memberState.path("enabled").asBoolean());
+        assertEquals(0, memberState.path("items").size());
+        JsonNode savedMember = ok(HttpMethod.POST, endpoint, Map.of("content", "我更喜欢先给结论再给步骤。"), memberToken);
+        assertEquals(1, savedMember.path("items").size());
+        String memberMemoryId = savedMember.path("items").get(0).path("id").asText();
+        assertNotEquals(adminMemoryId, memberMemoryId);
+        assertFalse(ok(HttpMethod.GET, endpoint, null, adminToken).toString().contains("先给结论"));
+        assertFalse(ok(HttpMethod.GET, endpoint, null, memberToken).toString().contains("数据库系统"));
+
+        assertNotEquals("0", request(HttpMethod.DELETE, endpoint + "/" + adminMemoryId, null, memberToken)
+                .path("code").asText());
+        assertNotEquals("0", request(HttpMethod.DELETE, endpoint + "/" + memberMemoryId, null, adminToken)
+                .path("code").asText());
+        assertNotEquals("0", request(HttpMethod.DELETE, endpoint + "/" + adminMemoryId, null, null)
+                .path("code").asText());
+        assertEquals(adminMemoryId, ok(HttpMethod.GET, endpoint, null, adminToken).path("items").get(0).path("id").asText());
+
+        assertFalse(ok(HttpMethod.PUT, endpoint + "/settings", Map.of("enabled", false), memberToken)
+                .path("enabled").asBoolean());
+        assertFalse(ok(HttpMethod.GET, endpoint, null, memberToken).path("enabled").asBoolean());
+        assertNotEquals("0", request(HttpMethod.POST, endpoint, Map.of("content", "关闭后不应写入"), memberToken)
+                .path("code").asText());
+        assertEquals(1, ok(HttpMethod.GET, endpoint, null, memberToken).path("items").size());
+        // Turning memory off must not trap private data: its owner can still remove it.
+        assertEquals(0, ok(HttpMethod.DELETE, endpoint, null, memberToken).path("items").size());
+        assertEquals(1, ok(HttpMethod.GET, endpoint, null, adminToken).path("items").size());
+        assertTrue(ok(HttpMethod.PUT, endpoint + "/settings", Map.of("enabled", true), memberToken)
+                .path("enabled").asBoolean());
+        ok(HttpMethod.POST, endpoint, Map.of("content", "账号删除时应同步清理这条测试记忆。"), memberToken);
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM ai_long_term_memory WHERE owner_user_id = ?",
+                Integer.class, memberId));
+        ok(HttpMethod.DELETE, "/admin/user/delete/" + memberId, null, adminToken);
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM ai_long_term_memory WHERE owner_user_id = ?",
+                Integer.class, memberId));
+        assertNotEquals("0", request(HttpMethod.GET, endpoint, null, memberToken).path("code").asText());
+        assertEquals(1, ok(HttpMethod.GET, endpoint, null, adminToken).path("items").size());
+        assertEquals(0, ok(HttpMethod.DELETE, endpoint + "/" + adminMemoryId, null, adminToken).path("items").size());
+    }
+
+    @Test
+    @Order(18)
+    void explicitRememberWorksWithoutModelForJsonAndStreamingButNeverCollectsHistory() throws Exception {
+        assertFalse(aiProperties.isEnabled(), "This workflow must not contact a real model provider");
+        int adminEntries = ok(HttpMethod.GET, "/api/ai/memories", null, adminToken).path("items").size();
+        int tenantId = ok(HttpMethod.POST, "/admin/tenant", Map.of("name", "Memory command workspace", "enable", true),
+                adminToken).path("id").asInt();
+        int memberId = ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", "memory-command-member",
+                "nickname", "Memory command member", "password", "Test-password-123", "enable", true,
+                "role", "USER", "tenantId", tenantId), adminToken).path("id").asInt();
+        String token = ok(HttpMethod.POST, "/user/login", Map.of("username", "memory-command-member",
+                "password", "Test-password-123"), null).path("token").asText();
+
+        JsonNode remembered = ok(HttpMethod.POST, "/api/ai/chat", Map.of("message", "请记住：回答时优先使用简洁中文。",
+                "history", List.of()), token);
+        assertTrue(remembered.path("answer").asText().contains("已记住"), remembered.toString());
+        for (String field : List.of("tools", "citations", "knowledge", "plans")) {
+            assertTrue(remembered.path(field).isArray(), remembered.toString());
+            assertEquals(0, remembered.path(field).size(), field);
+        }
+        JsonNode saved = ok(HttpMethod.GET, "/api/ai/memories", null, token);
+        assertEquals(1, saved.path("items").size());
+        assertEquals("回答时优先使用简洁中文。", saved.path("items").get(0).path("content").asText());
+
+        var response = http.exchange("/api/ai/chat/stream/" + java.util.UUID.randomUUID(), HttpMethod.POST,
+                new HttpEntity<>(Map.of("message", "帮我记住：我正在准备操作系统课程。", "history", List.of()), headers(token)), String.class);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getHeaders().getContentType());
+        assertTrue(response.getHeaders().getContentType().isCompatibleWith(MediaType.TEXT_EVENT_STREAM));
+        String body = response.getBody();
+        assertNotNull(body);
+        assertTrue(body.contains("event: accepted\n"), body);
+        assertTrue(body.contains("event: progress\n"), body);
+        assertTrue(body.contains("event: done\n"), body);
+        assertFalse(body.contains("event: error\n"), body);
+        String done = body.lines().filter(line -> line.startsWith("data: ") && line.contains("\"answer\""))
+                .map(line -> line.substring("data: ".length())).findFirst().orElseThrow();
+        JsonNode streamed = json.readTree(done);
+        assertTrue(streamed.path("answer").asText().contains("已记住"));
+        for (String field : List.of("tools", "citations", "knowledge", "plans")) assertEquals(0, streamed.path(field).size(), field);
+        assertEquals(2, ok(HttpMethod.GET, "/api/ai/memories", null, token).path("items").size());
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM ai_long_term_memory WHERE owner_user_id = ?", Integer.class, memberId));
+
+        JsonNode notRemembered = request(HttpMethod.POST, "/api/ai/chat", Map.of("message", "你好，请介绍文件上传功能。",
+                "history", List.of(Map.of("role", "user", "content", "请记住：不能自动保存这条历史描述。"),
+                        Map.of("role", "assistant", "content", "用户偏好自动执行任务。"))), token);
+        assertNotEquals("0", notRemembered.path("code").asText());
+        assertEquals(2, ok(HttpMethod.GET, "/api/ai/memories", null, token).path("items").size());
+        assertFalse(ok(HttpMethod.GET, "/api/ai/memories", null, token).toString().contains("历史描述"));
+        for (String question : List.of("记住了什么？", "记住功能怎么用？")) {
+            JsonNode ambiguous = request(HttpMethod.POST, "/api/ai/chat",
+                    Map.of("message", question, "history", List.of()), token);
+            if (question.equals("记住了什么？")) {
+                assertEquals("0", ambiguous.path("code").asText(), "An exact listing command is read-only and needs no model");
+                assertTrue(ambiguous.path("data").path("answer").asText().contains("当前保存了 2 条"));
+            } else {
+                assertNotEquals("0", ambiguous.path("code").asText(), "A help question must use normal chat, not save itself");
+            }
+            assertEquals(2, ok(HttpMethod.GET, "/api/ai/memories", null, token).path("items").size());
+        }
+        JsonNode naturalRemember = ok(HttpMethod.POST, "/api/ai/chat",
+                Map.of("message", "请帮我记住我正在学习数据库", "history", List.of()), token);
+        assertTrue(naturalRemember.path("answer").asText().contains("已记住"));
+        JsonNode naturalState = ok(HttpMethod.GET, "/api/ai/memories", null, token);
+        assertEquals(3, naturalState.path("items").size());
+        assertEquals("我正在学习数据库", naturalState.path("items").get(2).path("content").asText());
+        assertEquals(adminEntries, ok(HttpMethod.GET, "/api/ai/memories", null, adminToken).path("items").size());
+        ok(HttpMethod.DELETE, "/admin/user/delete/" + memberId, null, adminToken);
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM ai_long_term_memory WHERE owner_user_id = ?", Integer.class, memberId));
+    }
+
+    @Test
+    @Order(19)
+    void memoryEditsPreserveIdentityAndRejectForeignInvalidOrStaleWrites() {
+        String endpoint = "/api/ai/memories";
+        int adminEntries = ok(HttpMethod.GET, endpoint, null, adminToken).path("items").size();
+        int tenantId = ok(HttpMethod.POST, "/admin/tenant",
+                Map.of("name", "Memory edit workspace", "enable", true), adminToken).path("id").asInt();
+        int ownerId = ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", "memory-edit-owner",
+                "nickname", "Memory edit owner", "password", "Test-password-123", "enable", true,
+                "role", "USER", "tenantId", tenantId), adminToken).path("id").asInt();
+        int otherId = ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", "memory-edit-other",
+                "nickname", "Memory edit other", "password", "Test-password-123", "enable", true,
+                "role", "USER", "tenantId", tenantId), adminToken).path("id").asInt();
+        String ownerToken = ok(HttpMethod.POST, "/user/login", Map.of("username", "memory-edit-owner",
+                "password", "Test-password-123"), null).path("token").asText();
+        String otherToken = ok(HttpMethod.POST, "/user/login", Map.of("username", "memory-edit-other",
+                "password", "Test-password-123"), null).path("token").asText();
+
+        JsonNode first = ok(HttpMethod.POST, endpoint, Map.of("content", "我希望回答简洁。"), ownerToken)
+                .path("items").get(0);
+        String id = first.path("id").asText();
+        String createdAt = first.path("createdAt").asText();
+        assertTrue(java.time.Instant.parse(createdAt).toEpochMilli() > 0);
+        ok(HttpMethod.POST, endpoint, Map.of("content", "我希望解释术语。"), ownerToken);
+        String itemEndpoint = endpoint + "/" + id;
+
+        for (String foreignToken : java.util.Arrays.asList(otherToken, adminToken, null)) {
+            assertNotEquals("0", request(HttpMethod.PUT, itemEndpoint,
+                    Map.of("content", "不属于此账号的修改"), foreignToken).path("code").asText());
+        }
+        assertEquals("我希望回答简洁。", ok(HttpMethod.GET, endpoint, null, ownerToken)
+                .path("items").get(0).path("content").asText());
+        assertTrue(ok(HttpMethod.GET, endpoint, null, otherToken).path("items").isEmpty());
+
+        String editedContent = "我希望回答详细，并提供一个示例。";
+        JsonNode edited = ok(HttpMethod.PUT, itemEndpoint,
+                Map.of("content", editedContent, "expectedContent", "我希望回答简洁。"), ownerToken);
+        assertEquals(2, edited.path("items").size());
+        assertEquals(id, edited.path("items").get(0).path("id").asText());
+        assertEquals(createdAt, edited.path("items").get(0).path("createdAt").asText());
+        assertEquals(editedContent, edited.path("items").get(0).path("content").asText());
+        assertEquals("我希望解释术语。", edited.path("items").get(1).path("content").asText());
+        long unchangedVersion = jdbc.queryForObject(
+                "SELECT version FROM ai_long_term_memory WHERE owner_user_id = ?", Long.class, ownerId);
+        JsonNode staleEditor = request(HttpMethod.PUT, itemEndpoint,
+                Map.of("content", "旧窗口想覆盖的新内容", "expectedContent", "我希望回答简洁。"), ownerToken);
+        assertNotEquals("0", staleEditor.path("code").asText());
+        assertTrue(staleEditor.path("msg").asText().contains("请刷新"));
+        assertEquals(edited, ok(HttpMethod.GET, endpoint, null, ownerToken));
+        assertEquals(edited, ok(HttpMethod.PUT, itemEndpoint,
+                Map.of("content", editedContent, "expectedContent", "我希望回答简洁。"), ownerToken));
+        assertEquals(unchangedVersion, jdbc.queryForObject(
+                "SELECT version FROM ai_long_term_memory WHERE owner_user_id = ?", Long.class, ownerId).longValue());
+
+        for (String invalid : List.of("", "学".repeat(501), "我的密码是 synthetic", "我希望解释术语。")) {
+            assertNotEquals("0", request(HttpMethod.PUT, itemEndpoint, Map.of("content", invalid), ownerToken)
+                    .path("code").asText());
+            assertEquals(edited, ok(HttpMethod.GET, endpoint, null, ownerToken), "Rejected edit must preserve both notes");
+        }
+        assertNotEquals("0", request(HttpMethod.PUT, endpoint + "/" + java.util.UUID.randomUUID(),
+                Map.of("content", "不存在条目不应被创建"), ownerToken).path("code").asText());
+        ok(HttpMethod.PUT, endpoint + "/settings", Map.of("enabled", false), ownerToken);
+        assertNotEquals("0", request(HttpMethod.PUT, itemEndpoint,
+                Map.of("content", "关闭后不应编辑"), ownerToken).path("code").asText());
+        JsonNode disabled = ok(HttpMethod.GET, endpoint, null, ownerToken);
+        assertFalse(disabled.path("enabled").asBoolean());
+        assertEquals(edited.path("items"), disabled.path("items"));
+        ok(HttpMethod.PUT, endpoint + "/settings", Map.of("enabled", true), ownerToken);
+
+        // Real SQL compare-and-set on both MySQL and SQLite: a stale document must not restore
+        // the user's notes after the authenticated clear operation advances its revision.
+        long staleVersion = jdbc.queryForObject(
+                "SELECT version FROM ai_long_term_memory WHERE owner_user_id = ?", Long.class, ownerId);
+        String staleEntries = jdbc.queryForObject(
+                "SELECT entries_json FROM ai_long_term_memory WHERE owner_user_id = ?", String.class, ownerId);
+        assertTrue(ok(HttpMethod.DELETE, endpoint, null, ownerToken).path("items").isEmpty());
+        assertEquals(0, jdbc.update("UPDATE ai_long_term_memory SET entries_json = ?, version = version + 1 "
+                + "WHERE owner_user_id = ? AND version = ?", staleEntries, ownerId, staleVersion));
+        assertTrue(ok(HttpMethod.GET, endpoint, null, ownerToken).path("items").isEmpty());
+        assertEquals(adminEntries, ok(HttpMethod.GET, endpoint, null, adminToken).path("items").size());
+        ok(HttpMethod.DELETE, "/admin/user/delete/" + ownerId, null, adminToken);
+        ok(HttpMethod.DELETE, "/admin/user/delete/" + otherId, null, adminToken);
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM ai_long_term_memory WHERE owner_user_id IN (?, ?)",
+                Integer.class, ownerId, otherId));
+    }
+
+    @Test
+    @Order(20)
+    void globalAdministratorUsesFixedAuthorityWhileMembersAndInternalTemplatesRemainRestricted() throws Exception {
+        // All SQL in this class targets its disposable test database, never the business database.
+        jdbc.update("DELETE FROM user_storage_source WHERE user_id = 1 AND storage_source_id = ?", storageId);
+        jdbc.update("UPDATE user SET default_permissions = '' WHERE id = 1");
+        String filename = "fixed-administrator-access.txt";
+        Files.writeString(WORK.resolve("files").resolve(filename), "Fixed administrator authority");
+        assertTrue(ok(HttpMethod.GET, "/api/storage/list", null, adminToken).toString().contains("workflow"));
+        assertTrue(ok(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "workflow", "path", "/"), adminToken)
+                .toString().contains(filename));
+        assertNotEquals("0", request(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", 1, "username", "test-admin", "nickname", "Fixed global administrator",
+                "role", "ADMIN", "enable", true, "defaultPermissions", List.of(),
+                "userStorageSourceList", List.of(Map.of("storageSourceId", storageId, "enable", false,
+                        "rootPath", "/nonexistent-restricted-root", "permissions", List.of("ignorePassword")))), adminToken).path("code").asText());
+        ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", 1, "username", "test-admin", "nickname", "Fixed global administrator", "role", "ADMIN", "enable", true), adminToken);
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE user_id = 1 AND storage_source_id = ?", Integer.class, storageId));
+        ok(HttpMethod.POST, "/api/file/operator/mkdir", Map.of("storageKey", "workflow", "path", "/", "name", "fixed-administrator-folder"), adminToken);
+
+        assertNotEquals("0", request(HttpMethod.GET, "/admin/user/0", null, adminToken).path("code").asText());
+        assertNotEquals("0", request(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", 0, "username", "template"), adminToken).path("code").asText());
+        assertNotEquals("0", request(HttpMethod.POST, "/admin/user/enable/0", null, adminToken).path("code").asText());
+        assertNotEquals("0", request(HttpMethod.POST, "/admin/user/disable/1", null, adminToken).path("code").asText());
+
+        int member = ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", "fixed-authority-member", "nickname", "Member",
+                "password", "Test-password-123", "enable", true, "role", "USER", "tenantId", 1), adminToken).path("id").asInt();
+        String memberToken = ok(HttpMethod.POST, "/user/login", Map.of("username", "fixed-authority-member", "password", "Test-password-123"), null).path("token").asText();
+        assertFalse(ok(HttpMethod.GET, "/api/storage/list", null, memberToken).toString().contains("workflow"));
+        assertNotEquals("0", request(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "workflow", "path", "/"), memberToken).path("code").asText());
+        ok(HttpMethod.DELETE, "/admin/user/delete/" + member, null, adminToken);
+
+        jdbc.update("UPDATE storage_source SET enable = 0 WHERE id = ?", storageId);
+        try {
+            assertFalse(ok(HttpMethod.GET, "/api/storage/list", null, adminToken).toString().contains("workflow"));
+            assertNotEquals("0", request(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "workflow", "path", "/"), adminToken).path("code").asText());
+        } finally {
+            jdbc.update("UPDATE storage_source SET enable = 1 WHERE id = ?", storageId);
+        }
+    }
+
+    @Test @Order(21)
+    void businessApprovalsCoursesAndReviewedKnowledgeWorkTogetherWithoutSharingPrivateRoots() throws Exception {
+        int manager = ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username","governance-manager","password","Test-password-123",
+                "enable",true,"role","TENANT_ADMIN","tenantId",1),adminToken).path("id").asInt();
+        String managerToken = ok(HttpMethod.POST,"/user/login",Map.of("username","governance-manager","password","Test-password-123"),null).path("token").asText();
+        Path root = Files.createDirectory(WORK.resolve("governance-files"));
+        Map<String,Object> source = Map.of("name","Governance cloud","key","governance","type","local","tenantId",1,"enable",true,
+                "storageSourceAllParam",Map.of("filePath",root.toString(),"domain","","proxyPrivate",true,"proxyTokenTime",1800));
+        assertNotEquals("0",request(HttpMethod.POST,"/admin/storage",source,managerToken).path("code").asText());
+        int storage = ok(HttpMethod.POST,"/admin/storage",source,adminToken).asInt();
+        int member = ok(HttpMethod.POST,"/api/workspace-admin/members",Map.of("username","governance-member","nickname","Member","password","Test-password-123"),managerToken).path("id").asInt();
+        String memberToken = ok(HttpMethod.POST,"/user/login",Map.of("username","governance-member","password","Test-password-123"),null).path("token").asText();
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE user_id=?",Integer.class,member));
+        String application = ok(HttpMethod.POST,"/api/workspace-cloud/"+storage+"/apply",Map.of("reason","study"),memberToken).asText();
+        assertNotEquals("0",request(HttpMethod.POST,"/api/workspace-cloud/requests/"+application+"/review",Map.of("approve",true),adminToken).path("code").asText());
+        ok(HttpMethod.POST,"/api/workspace-cloud/requests/"+application+"/review",Map.of("approve",true,"quotaBytes",64,"permissions",List.of("upload","newFolder","preview","download")),managerToken);
+        String upload = ok(HttpMethod.POST,"/api/file/operator/upload/file",Map.of("storageKey","governance","path","/","name","personal.txt","size",12),memberToken).asText();
+        assertTrue(upload.startsWith("/file/upload/"));
+        assertEquals("0",multipart(upload,"personal.txt","private-data",memberToken).path("code").asText());
+        assertTrue(Files.exists(root.resolve("members/u"+member+"/personal.txt")));
+        assertNotEquals("0",multipart("/file/upload/governance/over-limit.txt","over-limit.txt","x".repeat(65),memberToken).path("code").asText());
+        assertFalse(Files.exists(root.resolve("members/u"+member+"/over-limit.txt")));
+        String oldToken=memberToken;
+        ok(HttpMethod.POST,"/api/workspace-admin/members/"+member+"/password",Map.of("password","Governance-password-123","confirmPassword","Governance-password-123"),managerToken);
+        assertNotEquals("0",request(HttpMethod.GET,"/api/workspace-cloud",null,oldToken).path("code").asText());
+        memberToken=ok(HttpMethod.POST,"/user/login",Map.of("username","governance-member","password","Governance-password-123"),null).path("token").asText();
+
+        JsonNode created=ok(HttpMethod.POST,"/api/courses",Map.of("name","共享课程","description","隔离验证","quotaBytes",1024),managerToken);
+        String course=created.path("course").path("id").asText(), code=created.path("joinCode").asText();
+        String guest=ok(HttpMethod.POST,"/user/login",Map.of("username","tenant-manager-b","password","Test-password-123"),null).path("token").asText();
+        int guestId=jdbc.queryForObject("SELECT id FROM `user` WHERE username='tenant-manager-b'",Integer.class);
+        ok(HttpMethod.POST,"/api/courses/join",Map.of("code",code),guest);
+        ok(HttpMethod.POST,"/api/courses/join",Map.of("code",code),memberToken);
+        ok(HttpMethod.POST,"/api/courses/"+course+"/upload-request",null,guest);
+        assertNotEquals("0",request(HttpMethod.POST,"/api/courses/"+course+"/members/"+guestId+"/upload",Map.of("approve",true),guest).path("code").asText());
+        ok(HttpMethod.POST,"/api/courses/"+course+"/members/"+guestId+"/upload",Map.of("approve",true),managerToken);
+        assertEquals("0",multipart("/api/courses/"+course+"/materials","课件.txt","course-content",guest).path("code").asText());
+        JsonNode material=ok(HttpMethod.GET,"/api/courses/"+course+"/materials",null,memberToken).get(0);
+        String download="/api/courses/"+course+"/materials/"+material.path("id").asText()+"/download";
+        assertEquals("course-content",downloadBody(download,memberToken));
+        ok(HttpMethod.POST,"/api/courses/"+course+"/members/"+guestId+"/upload",Map.of("approve",false),managerToken);
+        assertNotEquals("0",multipart("/api/courses/"+course+"/materials","blocked.txt","blocked",guest).path("code").asText());
+
+        String question="课程资料审批与交换验证方法", corrected="课程专用标准答案：加入课程后向创建者申请持续上传权限。";
+        String feedback=ok(HttpMethod.POST,"/api/ai/feedback",Map.of("clientMessageId","governance-course","question",question,"answer","错误答案不得作为知识","pagePath","/courses","courseId",course),memberToken).path("id").asText();
+        JsonNode reviewed=ok(HttpMethod.PUT,"/admin/ai-feedback/"+feedback,Map.of("status","RESOLVED","correctedAnswer",corrected,"note","reviewed"),adminToken);
+        ok(HttpMethod.POST,"/admin/ai-knowledge/publish",Map.of("entries",List.of(Map.of("feedbackId",feedback,"expectedUpdatedAt",reviewed.path("updatedAt").asLong(),"expectedVersion",0,"title","课程审批说明","answer",corrected,"tags","课程","scope","COURSE","confirmGlobal",false))),adminToken);
+        String search="/api/ai/knowledge/search?question="+question;
+        assertTrue(ok(HttpMethod.GET,search,null,guest).toString().contains("课程专用标准答案"));
+        ok(HttpMethod.POST,"/api/courses/"+course+"/leave",null,guest);
+        assertNotEquals("0",request(HttpMethod.GET,"/api/courses/"+course+"/materials",null,guest).path("code").asText());
+        assertFalse(ok(HttpMethod.GET,search,null,guest).toString().contains("课程专用标准答案"));
+        ok(HttpMethod.POST,"/admin/ai-knowledge/withdraw",Map.of("feedbackId",feedback,"expectedVersion",1),adminToken);
+        assertFalse(ok(HttpMethod.GET,search,null,memberToken).toString().contains("课程专用标准答案"));
+        JsonNode metrics=ok(HttpMethod.GET,"/admin/business-metrics?tenantId=1",null,adminToken);
+        assertTrue(metrics.path("courses").path("materials").asInt()>=1);assertTrue(metrics.path("courses").path("usedBytes").asLong()>=14);
+        assertTrue(metrics.path("personalStorageUsedBytes").isNull());
+        assertNotEquals("0",request(HttpMethod.GET,"/admin/business-metrics",null,managerToken).path("code").asText());
+    }
+
+    @Test @Order(22)
+    void courseInvitationSharesOnlyCourseFilesAndKeepsUploadApprovalWithTheCreator() {
+        int ownerTenant = ok(HttpMethod.POST, "/admin/tenant",
+                Map.of("name", "Course invitation owner workspace", "enable", true), adminToken).path("id").asInt();
+        int recipientTenant = ok(HttpMethod.POST, "/admin/tenant",
+                Map.of("name", "Course invitation recipients", "enable", true), adminToken).path("id").asInt();
+        Map<String, String> roles = Map.of("course-invite-owner", "TENANT_ADMIN", "course-invite-manager", "TENANT_ADMIN",
+                "course-invite-member", "USER", "course-invite-outsider", "USER");
+        Map<String, Integer> userIds = new java.util.HashMap<>();
+        Map<String, String> tokens = new java.util.HashMap<>();
+        for (var account : roles.entrySet()) {
+            int tenant = "course-invite-owner".equals(account.getKey()) ? ownerTenant : recipientTenant;
+            int userId = ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", account.getKey(),
+                    "nickname", "Invitation test " + account.getValue(), "password", "Test-password-123", "enable", true,
+                    "role", account.getValue(), "tenantId", tenant), adminToken).path("id").asInt();
+            userIds.put(account.getKey(), userId);
+            tokens.put(account.getKey(), ok(HttpMethod.POST, "/user/login", Map.of("username", account.getKey(),
+                    "password", "Test-password-123"), null).path("token").asText());
+        }
+        String owner = tokens.get("course-invite-owner"), visitingManager = tokens.get("course-invite-manager"),
+                member = tokens.get("course-invite-member"), outsider = tokens.get("course-invite-outsider");
+        int memberId = userIds.get("course-invite-member");
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE user_id=?", Integer.class, memberId));
+        assertNotEquals("0", request(HttpMethod.POST, "/api/courses",
+                Map.of("name", "Unauthorized creation", "description", "", "quotaBytes", 1024), member).path("code").asText());
+
+        JsonNode created = ok(HttpMethod.POST, "/api/courses", Map.of("name", "Invited shared course",
+                "description", "Only course materials are shared", "quotaBytes", 4096), owner);
+        String courseId = created.path("course").path("id").asText();
+        String invitationsPath = "/api/courses/" + courseId + "/invitations";
+        JsonNode invitation = ok(HttpMethod.POST, invitationsPath, null, owner);
+        String invitationId = invitation.path("id").asText(), code = invitation.path("code").asText();
+        assertTrue(code.matches("[a-f0-9]{32}"), invitation.toString());
+        assertTrue(invitation.path("expiresAt").isNull(), invitation.toString());
+        assertTrue(invitation.path("maxMembers").isNull(), invitation.toString());
+        assertNotEquals(code, jdbc.queryForObject("SELECT code_hash FROM shared_course_invitation WHERE id=?", String.class, invitationId));
+        // Generating another independent invitation must not silently invalidate the first link.
+        long secondExpiresAt = System.currentTimeMillis() + java.util.concurrent.TimeUnit.DAYS.toMillis(3);
+        JsonNode second = ok(HttpMethod.POST, invitationsPath, Map.of("expiresAt", secondExpiresAt), owner);
+        assertNotEquals(code, second.path("code").asText());
+        assertEquals(secondExpiresAt, second.path("expiresAt").asLong());
+        assertNotEquals("0", request(HttpMethod.POST, invitationsPath, null, visitingManager).path("code").asText());
+        assertNotEquals("0", request(HttpMethod.GET, invitationsPath, null, member).path("code").asText());
+        assertNotEquals("0", request(HttpMethod.DELETE, invitationsPath + "/" + invitationId, null, visitingManager).path("code").asText());
+        assertNotEquals("0", request(HttpMethod.POST, "/api/courses/invitation-preview", Map.of("code", code), null).path("code").asText());
+
+        String materialsPath = "/api/courses/" + courseId + "/materials";
+        JsonNode ownerUpload = multipart(materialsPath, "owner-course-notes.txt", "shared course notes", owner);
+        assertEquals("0", ownerUpload.path("code").asText(), ownerUpload.toString());
+        String download = materialsPath + "/" + ownerUpload.path("data").path("id").asText() + "/download";
+        assertNotEquals("0", request(HttpMethod.GET, materialsPath, null, member).path("code").asText());
+        assertNotEquals("0", request(HttpMethod.GET, download, null, outsider).path("code").asText());
+
+        JsonNode preview = ok(HttpMethod.POST, "/api/courses/invitation-preview", Map.of("code", code), member);
+        assertEquals(courseId, preview.path("id").asText());
+        assertEquals("Invited shared course", preview.path("name").asText());
+        assertFalse(preview.path("joined").asBoolean());
+        assertFalse(preview.path("creator").asBoolean());
+        preview.fieldNames().forEachRemaining(field -> assertTrue(
+                List.of("id", "name", "description", "joined", "creator", "expiresAt").contains(field), field));
+        assertFalse(preview.toString().contains("course-invite-member"));
+        assertFalse(preview.toString().contains("course-invite-owner"));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM shared_course_member WHERE course_id=?", Integer.class, courseId));
+        // Looking at an invitation does not grant access or create membership.
+        assertNotEquals("0", request(HttpMethod.GET, materialsPath, null, member).path("code").asText());
+
+        JsonNode joined = ok(HttpMethod.POST, "/api/courses/join", Map.of("code", code), member);
+        assertEquals("NONE", joined.path("uploadStatus").asText());
+        ok(HttpMethod.POST, "/api/courses/join", Map.of("code", code), member);
+        ok(HttpMethod.POST, "/api/courses/join", Map.of("code", code), visitingManager);
+        assertEquals(2, jdbc.queryForObject("SELECT used_count FROM shared_course_invitation WHERE id=?", Integer.class, invitationId));
+        assertTrue(ok(HttpMethod.POST, "/api/courses/invitation-preview", Map.of("code", code), member).path("joined").asBoolean());
+        assertEquals("shared course notes", downloadBody(download, member));
+        assertEquals("shared course notes", downloadBody(download, visitingManager));
+        assertNotEquals("0", multipart(materialsPath, "not-approved.txt", "blocked", member).path("code").asText());
+        assertNotEquals("0", multipart(materialsPath, "manager-not-approved.txt", "blocked", visitingManager).path("code").asText());
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE user_id=?", Integer.class, memberId));
+        assertEquals(recipientTenant, jdbc.queryForObject("SELECT tenant_id FROM `user` WHERE id=?", Integer.class, memberId));
+        assertNotEquals("0", request(HttpMethod.POST, "/api/storage/files",
+                Map.of("storageKey", "workflow", "path", "/"), member).path("code").asText());
+
+        ok(HttpMethod.POST, "/api/courses/" + courseId + "/upload-request", null, member);
+        String memberApproval = "/api/courses/" + courseId + "/members/" + memberId + "/upload";
+        assertNotEquals("0", request(HttpMethod.POST, memberApproval, Map.of("approve", true), visitingManager).path("code").asText());
+        ok(HttpMethod.POST, memberApproval, Map.of("approve", true), owner);
+        assertEquals("0", multipart(materialsPath, "approved-member-notes.txt", "member shared notes", member).path("code").asText());
+        assertEquals("0", multipart(materialsPath, "approved-member-notes-again.txt", "another shared note", member).path("code").asText());
+        assertEquals(3, ok(HttpMethod.GET, materialsPath, null, visitingManager).size());
+
+        JsonNode listed = ok(HttpMethod.GET, invitationsPath, null, owner);
+        assertEquals(2, listed.size());
+        for (JsonNode item : listed) {
+            assertFalse(item.has("code"));
+            assertFalse(item.has("codeHash"));
+            assertFalse(item.has("code_hash"));
+        }
+        JsonNode firstPage = ok(HttpMethod.GET, invitationsPath + "?offset=0&limit=1", null, owner);
+        JsonNode secondPage = ok(HttpMethod.GET, invitationsPath + "?offset=1&limit=1", null, owner);
+        assertEquals(1, firstPage.size());
+        assertEquals(1, secondPage.size());
+        assertNotEquals(firstPage.get(0).path("id").asText(), secondPage.get(0).path("id").asText());
+        ok(HttpMethod.DELETE, invitationsPath + "/" + invitationId, null, owner);
+        assertNotEquals("0", request(HttpMethod.POST, "/api/courses/invitation-preview", Map.of("code", code), outsider).path("code").asText());
+        assertNotEquals("0", request(HttpMethod.POST, "/api/courses/join", Map.of("code", code), outsider).path("code").asText());
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM shared_course_member WHERE course_id=? AND user_id=?", Integer.class,
+                courseId, userIds.get("course-invite-outsider")));
+        assertFalse(ok(HttpMethod.POST, "/api/courses/invitation-preview", Map.of("code", second.path("code").asText()), outsider).path("joined").asBoolean());
+        ok(HttpMethod.POST, "/api/courses/join", Map.of("code", second.path("code").asText()), outsider);
+        assertEquals("shared course notes", downloadBody(download, outsider));
+        // Revoking the invitation revokes future admission, not existing members' material access.
+        assertEquals("shared course notes", downloadBody(download, member));
+        ok(HttpMethod.DELETE, "/api/courses/" + courseId + "/members/" + memberId, null, owner);
+        assertNotEquals("0", request(HttpMethod.GET, download, null, member).path("code").asText());
+        assertNotEquals("0", request(HttpMethod.POST, "/api/courses/join", Map.of("code", second.path("code").asText()), member).path("code").asText());
+    }
+
+    @Test @Order(23)
+    void courseInvitationMemberLimitSurvivesConcurrentJoinsAndCountsDistinctPeople() throws Exception {
+        int ownerTenant = ok(HttpMethod.POST, "/admin/tenant",
+                Map.of("name", "Course seat owner workspace", "enable", true), adminToken).path("id").asInt();
+        int recipientTenant = ok(HttpMethod.POST, "/admin/tenant",
+                Map.of("name", "Course seat recipients", "enable", true), adminToken).path("id").asInt();
+        Map<String, String> roles = Map.of("course-seat-owner", "TENANT_ADMIN", "course-seat-first", "USER", "course-seat-second", "USER");
+        Map<String, String> tokens = new java.util.HashMap<>();
+        for (var account : roles.entrySet()) {
+            int tenant = "course-seat-owner".equals(account.getKey()) ? ownerTenant : recipientTenant;
+            ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", account.getKey(), "password", "Test-password-123",
+                    "enable", true, "role", account.getValue(), "tenantId", tenant), adminToken);
+            tokens.put(account.getKey(), ok(HttpMethod.POST, "/user/login", Map.of("username", account.getKey(),
+                    "password", "Test-password-123"), null).path("token").asText());
+        }
+        String owner = tokens.get("course-seat-owner"), first = tokens.get("course-seat-first"), second = tokens.get("course-seat-second");
+        String courseId = ok(HttpMethod.POST, "/api/courses", Map.of("name", "Limited invitation course",
+                "description", "Concurrent admission test", "quotaBytes", 4096), owner).path("course").path("id").asText();
+        String invitationsPath = "/api/courses/" + courseId + "/invitations";
+        JsonNode limited = ok(HttpMethod.POST, invitationsPath, Map.of("maxMembers", 1), owner);
+        JsonNode independent = ok(HttpMethod.POST, invitationsPath, Map.of("maxMembers", 1), owner);
+        String limitedCode = limited.path("code").asText(), limitedId = limited.path("id").asText();
+        assertEquals(1, limited.path("maxMembers").asInt());
+        assertEquals(1, independent.path("maxMembers").asInt());
+
+        var ready = new java.util.concurrent.CountDownLatch(2);
+        var start = new java.util.concurrent.CountDownLatch(1);
+        var source = (com.zaxxer.hikari.HikariDataSource) jdbc.getDataSource();
+        assertNotNull(source);
+        int previousMaximum = source.getMaximumPoolSize();
+        JsonNode firstResult, secondResult;
+        // The other workflows retain their single-connection deadlock regression coverage.
+        // This isolated scenario allows genuinely concurrent database transactions for admission.
+        try {
+            source.setMaximumPoolSize(4);
+            try (var pool = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+                var firstJoin = pool.submit(() -> {
+                    ready.countDown();
+                    assertTrue(start.await(5, java.util.concurrent.TimeUnit.SECONDS));
+                    return request(HttpMethod.POST, "/api/courses/join", Map.of("code", limitedCode), first);
+                });
+                var secondJoin = pool.submit(() -> {
+                    ready.countDown();
+                    assertTrue(start.await(5, java.util.concurrent.TimeUnit.SECONDS));
+                    return request(HttpMethod.POST, "/api/courses/join", Map.of("code", limitedCode), second);
+                });
+                assertTrue(ready.await(5, java.util.concurrent.TimeUnit.SECONDS));
+                start.countDown();
+                firstResult = firstJoin.get(15, java.util.concurrent.TimeUnit.SECONDS);
+                secondResult = secondJoin.get(15, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        } finally {
+            start.countDown();
+            source.setMaximumPoolSize(previousMaximum);
+        }
+        boolean firstWon = "0".equals(firstResult.path("code").asText());
+        assertNotEquals(firstWon, "0".equals(secondResult.path("code").asText()),
+                "Exactly one one-seat invitation must succeed: " + firstResult + " / " + secondResult);
+        JsonNode denied = firstWon ? secondResult : firstResult;
+        assertTrue(denied.path("msg").asText().contains("人数") || denied.path("msg").asText().contains("名额"), denied.toString());
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM shared_course_member WHERE course_id=? AND status='JOINED'", Integer.class, courseId));
+        assertEquals(1, jdbc.queryForObject("SELECT used_count FROM shared_course_invitation WHERE id=?", Integer.class, limitedId));
+        String winner = firstWon ? first : second, loser = firstWon ? second : first;
+        assertEquals(courseId, ok(HttpMethod.POST, "/api/courses/join", Map.of("code", limitedCode), winner).path("id").asText());
+        assertEquals(1, jdbc.queryForObject("SELECT used_count FROM shared_course_invitation WHERE id=?", Integer.class, limitedId));
+        ok(HttpMethod.POST, "/api/courses/" + courseId + "/leave", null, winner);
+        assertEquals(courseId, ok(HttpMethod.POST, "/api/courses/join", Map.of("code", limitedCode), winner).path("id").asText());
+        assertEquals(1, jdbc.queryForObject("SELECT used_count FROM shared_course_invitation WHERE id=?", Integer.class, limitedId));
+        assertNotEquals("0", request(HttpMethod.POST, "/api/courses/join", Map.of("code", limitedCode), loser).path("code").asText());
+        assertEquals(courseId, ok(HttpMethod.POST, "/api/courses/join", Map.of("code", independent.path("code").asText()), loser).path("id").asText());
+        assertEquals(1, jdbc.queryForObject("SELECT used_count FROM shared_course_invitation WHERE id=?", Integer.class, limitedId));
+        assertEquals(1, jdbc.queryForObject("SELECT used_count FROM shared_course_invitation WHERE id=?", Integer.class, independent.path("id").asText()));
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM shared_course_member WHERE course_id=? AND status='JOINED'", Integer.class, courseId));
+        for (JsonNode invite : ok(HttpMethod.GET, invitationsPath, null, owner)) {
+            assertEquals(1, invite.path("maxMembers").asInt());
+            assertEquals(1, invite.path("usedCount").asInt());
+        }
+        String materials = "/api/courses/" + courseId + "/materials";
+        JsonNode uploaded = multipart(materials, "one-seat-course-notes.txt", "admitted students can still read", owner);
+        assertEquals("0", uploaded.path("code").asText(), uploaded.toString());
+        String download = materials + "/" + uploaded.path("data").path("id").asText() + "/download";
+        assertEquals("admitted students can still read", downloadBody(download, winner));
+        assertEquals("admitted students can still read", downloadBody(download, loser));
+    }
+
+    private JsonNode multipart(String url,String filename,String text,String token) {
+        LinkedMultiValueMap<String,Object> form=new LinkedMultiValueMap<>();
+        form.add("file",new ByteArrayResource(text.getBytes(StandardCharsets.UTF_8)) { @Override public String getFilename(){return filename;} });
+        HttpHeaders header=headers(token);header.setContentType(MediaType.MULTIPART_FORM_DATA);
+        var response=http.exchange(url,url.startsWith("/api/courses/") ? HttpMethod.POST : HttpMethod.PUT,new HttpEntity<>(form,header),JsonNode.class);
+        assertNotNull(response.getBody());return response.getBody();
+    }
+
     private JsonNode awaitTask(String id, String token) throws InterruptedException {
         long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
         JsonNode result;
@@ -766,7 +1340,7 @@ class CloudWorkflowTest {
     }
 
     private void automationGrant(int user, List<String> permissions, String root) {
-        ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", user, "username", "automation-user", "nickname", "Automation", "enable", true,
+        fixtureAccount(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", user, "username", "automation-user", "nickname", "Automation", "enable", true,
                 "role", "USER", "tenantId", 1, "userStorageSourceList", List.of(Map.of("storageSourceId", storageId, "rootPath", root, "enable", true, "permissions", permissions))), adminToken);
     }
 
@@ -781,6 +1355,52 @@ class CloudWorkflowTest {
         assertEquals("0", response.path("code").asText(), method + " " + path + ": " + response);
         return response.path("data");
     }
+
+    /** Explicit fixture seeding only: production global account APIs no longer assign grants. */
+    private JsonNode fixtureAccount(HttpMethod method, String path, Map<String, Object> body, String token) {
+        assertEquals(HttpMethod.POST, method);
+        assertEquals("/admin/user/saveOrUpdate", path);
+        assertEquals(adminToken, token);
+        Map<String, Object> profile = new java.util.LinkedHashMap<>(body);
+        Object defaults = profile.remove("defaultPermissions");
+        Object access = profile.remove("userStorageSourceList");
+        JsonNode saved = ok(method, path, profile, token);
+        int id = saved.path("id").asInt();
+        if (defaults != null) jdbc.update("UPDATE `user` SET default_permissions=? WHERE id=?",
+                String.join(",", json.convertValue(defaults, List.class)), id);
+        if (access != null) {
+            jdbc.update("DELETE FROM user_storage_source WHERE user_id=?", id);
+            for (JsonNode grant : json.valueToTree(access)) {
+                String root = grant.path("rootPath").asText();
+                if ("USER".equals(saved.path("role").asText()) || "USER".equals(body.get("role"))) {
+                    String original = root;
+                    root = "/members/u" + id + (root.equals("/") ? "" : root);
+                    Path target = WORK.resolve("files").resolve(root.substring(1));
+                    if (!Files.exists(target)) {
+                        try {
+                            Path source = WORK.resolve("files").resolve(original.replaceAll("^/+", ""));
+                            Files.createDirectories(target);
+                            if (Files.exists(source)) try (var tree = Files.walk(source)) {
+                                for (Path file : tree.toList()) {
+                                    Path destination = target.resolve(source.relativize(file));
+                                    if (Files.isDirectory(file)) Files.createDirectories(destination);
+                                    else Files.copy(file, destination);
+                                }
+                            }
+                        } catch (IOException failure) { throw new AssertionError(failure); }
+                    }
+                }
+                jdbc.update("INSERT INTO user_storage_source(user_id,storage_source_id,root_path,enable,permissions) VALUES (?,?,?,?,?)",
+                        id, grant.path("storageSourceId").asInt(), root,
+                        grant.path("enable").asBoolean(), String.join(",", json.convertValue(grant.path("permissions"), List.class)));
+            }
+        }
+        // Force subsequent authenticated HTTP reads to observe this fixture mutation.
+        testCacheManager.getCacheNames().forEach(name -> { var cache = testCacheManager.getCache(name); if (cache != null) cache.clear(); });
+        return saved;
+    }
+
+    @Autowired org.springframework.cache.CacheManager testCacheManager;
 
     private JsonNode request(HttpMethod method, String path, Object body, String token) {
         JsonNode response = http.exchange(path, method, new HttpEntity<>(body, headers(token)), JsonNode.class).getBody();

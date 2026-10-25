@@ -38,6 +38,12 @@ class TenantSecurityServiceTest {
             when(users.selectById(9)).thenReturn(user(UserRoleEnum.TENANT_ADMIN, 2));
             assertEquals(2, security.currentManagedTenantId());
             assertThrows(ForbiddenAccessException.class, security::requireSystemAdmin);
+            var own = new im.tlgxy.cloud.module.storage.model.entity.StorageSource(); own.setId(10); own.setTenantId(2);
+            var foreign = new im.tlgxy.cloud.module.storage.model.entity.StorageSource(); foreign.setId(11); foreign.setTenantId(3);
+            when(storages.selectById(10)).thenReturn(own); when(storages.selectById(11)).thenReturn(foreign);
+            assertSame(own, security.requireManageStorage(10));
+            assertThrows(im.tlgxy.cloud.core.exception.core.BizException.class, () -> security.requireManageStorage(11));
+            assertThrows(ForbiddenAccessException.class, () -> security.requireManageUser(10));
         }
     }
 

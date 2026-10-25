@@ -4,7 +4,10 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import im.tlgxy.cloud.core.exception.core.BizException;
 import im.tlgxy.cloud.core.util.TlgxyCloudAuthUtil;
-import im.tlgxy.cloud.module.ai.service.AiAttachmentService;
+import im.tlgxy.cloud.module.learning.application.LearningLexicalRetriever;
+import im.tlgxy.cloud.module.learning.application.port.LearningContentExtractor;
+import im.tlgxy.cloud.module.learning.application.port.LearningFileAccess;
+import im.tlgxy.cloud.module.learning.domain.LearningDocumentPath;
 import im.tlgxy.cloud.module.learning.mapper.*;
 import im.tlgxy.cloud.module.learning.model.*;
 import im.tlgxy.cloud.module.user.service.UserService;
@@ -26,8 +29,8 @@ import java.util.function.Supplier;
 public class LearningLibraryService {
     private final LearningCourseMapper courses;
     private final LearningMaterialMapper materials;
-    private final LearningFileReader reader;
-    private final AiAttachmentService extractor;
+    private final LearningFileAccess reader;
+    private final LearningContentExtractor extractor;
     private final UserService users;
     private final TransactionTemplate transactions;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
@@ -40,6 +43,7 @@ public class LearningLibraryService {
     private static final int MAX_MATERIALS = 30;
     private static final int MAX_CITATIONS = 5;
     private static final Pattern QUERY_TERMS = Pattern.compile("[a-z0-9_]+|[\\p{IsHan}]+");
+    private static final Set<String> QUERY_FILLERS = Set.of("请问", "如何", "怎么", "怎样", "什么", "哪些", "帮我", "我想", "一下");
 
     private int currentUser() {
         Integer id = TlgxyCloudAuthUtil.getCurrentUserId();
@@ -114,7 +118,7 @@ public class LearningLibraryService {
     public LearningMaterial add(LearningRequests.Material request) {
         int owner = currentUser();
         requireCourse(request.courseId(), owner);
-        String path = LearningFileReader.normalizePath(request.path());
+        String path = LearningDocumentPath.normalize(request.path());
         if (materials.selectCount(ownedMaterials(owner)) >= MAX_MATERIALS) {
             throw new BizException("每个账号最多索引 30 份资料，请先移除不需要的索引");
         }
@@ -178,7 +182,7 @@ public class LearningLibraryService {
         String previousKey = previous.getStorageKey();
         String previousFingerprint = previous.getFingerprint();
         Date previousIndexedAt = previous.getIndexedAt();
-        String path = LearningFileReader.normalizePath(request.path());
+        String path = LearningDocumentPath.normalize(request.path());
         previous.setStorageKey(request.storageKey());
         previous.setPath(path);
         previous.setName(path.substring(path.lastIndexOf('/') + 1));
@@ -210,8 +214,8 @@ public class LearningLibraryService {
     /** Capture only this actor's private references before a file write. No content or other users' indexes. */
     public PathChangePlan preparePathChange(String storageKey, String oldPath, String newPath, boolean folder) {
         int owner = currentUser();
-        String source = LearningFileReader.normalizePath(oldPath);
-        String target = LearningFileReader.normalizePath(newPath);
+        String source = LearningDocumentPath.normalize(oldPath);
+        String target = LearningDocumentPath.normalize(newPath);
         List<LearningMaterial> indexed = materials.selectList(ownedMaterials(owner)
                 .eq(LearningMaterial::getStorageKey, storageKey)
                 .select(LearningMaterial::getId, LearningMaterial::getCourseId, LearningMaterial::getPath,
@@ -284,7 +288,7 @@ public class LearningLibraryService {
         if (!parsingSlots.tryAcquire()) throw new BizException("资料解析繁忙，请稍后重试");
         try {
         byte[] bytes = reader.read(material.getStorageKey(), material.getPath());
-        var extraction = extractor.extractLearningContent(bytes, material.getName());
+        var extraction = extractor.extract(bytes, material.getName());
         material.setContent(extraction.content());
         material.setIndexVersion(2);
         material.setCoveredChars(extraction.coveredChars());
@@ -424,34 +428,25 @@ public class LearningLibraryService {
     }
 
     SearchResult searchCandidates(List<LearningMaterial> indexed, Set<String> terms, String query) {
-        List<MaterialCitation> matches = new ArrayList<>();
+        var lexical = LearningLexicalRetriever.rankWithOrigins(indexed, terms, query);
+        List<MaterialCitation> matches = lexical.matches();
+        Set<String> metadataOnly = new HashSet<>(lexical.metadataOnlyReferences());
         Map<Integer, LearningMaterial> byId = new HashMap<>();
         for (var material : indexed) {
             byId.put(material.getId(), material);
-            String content = material.getContent();
-            if (content == null || terms.isEmpty()) continue;
-            for (int start = 0, segment = 1; start < content.length(); start += 600, segment++) {
-                String excerpt = content.substring(start, Math.min(start + 700, content.length()));
-                String searchable = (material.getName() + " " + material.getTags() + " " + excerpt).toLowerCase(Locale.ROOT);
-                int score = (int) terms.stream().filter(searchable::contains).count();
-                if (score == 0) continue;
-                matches.add(new MaterialCitation("M" + material.getId() + "-S" + segment, material.getId(),
-                        material.getCourseId(), material.getName(), material.getStorageKey(), material.getPath(), segment, excerpt, score));
-            }
         }
-        matches.sort(Comparator.comparingInt(MaterialCitation::score).reversed()
-                .thenComparing(MaterialCitation::materialId).thenComparingInt(MaterialCitation::segment));
         String retrievalNotice = "当前使用关键词检索。";
         if (semantic != null && query != null) {
             var ranking = semantic.rank(indexed, query, matches);
             matches = ranking.matches();
             retrievalNotice = ranking.notice();
+            metadataOnly.removeAll(ranking.semanticReferences());
         }
         // Only memoize within this request. Never reuse permissions or file hashes across requests.
         Map<FileLocation, Optional<String>> fingerprints = new HashMap<>();
         Set<Integer> skipped = new HashSet<>();
         List<MaterialCitation> verified = new ArrayList<>();
-        for (var candidate : matches) {
+        for (var candidate : LearningLexicalRetriever.diversify(matches, metadataOnly)) {
             var material = byId.get(candidate.materialId());
             var location = new FileLocation(material.getStorageKey(), material.getPath());
             var actual = fingerprints.computeIfAbsent(location, key -> {
@@ -469,18 +464,22 @@ public class LearningLibraryService {
             if (verified.size() == MAX_CITATIONS) break;
         }
         return new SearchResult(List.copyOf(verified), skipped.size(),
-                retrievalNotice + "仅检索本人添加的资料；返回片段均已校验当前权限和文件内容。跳过数仅统计本次校验失效的候选资料，非全库失效数。无命中不代表资料中一定没有答案。");
+                retrievalNotice + "优先展示不同文件的相关片段，空位再补充同一文件；文件名或标签命中不等于正文有答案，分数仅用于排序，不是答案准确率。仅检索本人添加的资料；返回片段均已校验当前权限和文件内容。跳过数仅统计本次校验失效的候选资料，非全库失效数。无命中不代表资料中一定没有答案。");
     }
 
     private record FileLocation(String storageKey, String path) { }
 
     static Set<String> terms(String query) {
         Set<String> tokens = new LinkedHashSet<>();
-        var matcher = QUERY_TERMS.matcher(query.toLowerCase(Locale.ROOT));
+        var matcher = QUERY_TERMS.matcher(java.text.Normalizer.normalize(query, java.text.Normalizer.Form.NFKC).toLowerCase(Locale.ROOT));
         while (matcher.find()) {
             String token = matcher.group();
-            if (token.matches("[\\p{IsHan}]+") && token.length() > 1) {
-                for (int i = 0; i < token.length() - 1; i++) tokens.add(token.substring(i, i + 2));
+            if (token.matches("[\\p{IsHan}]+") && token.codePointCount(0, token.length()) > 1) {
+                int[] points = token.codePoints().toArray();
+                for (int i = 0; i < points.length - 1; i++) {
+                    String pair = new String(points, i, 2);
+                    if (!QUERY_FILLERS.contains(pair)) tokens.add(pair);
+                }
             } else tokens.add(token);
         }
         return tokens;

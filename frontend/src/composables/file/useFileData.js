@@ -305,7 +305,7 @@ export default function useFileData() {
 			// 如果需要密码或密码错误进行提示, 并弹出输入密码的框.
 			if (data.code === constant.responseCode.INVALID_PASSWORD) {
 				directoryLoadState.value = 'password'
-				ElMessage.warning('密码错误，请重新输入！')
+				ElMessage.warning('文件夹访问密码不正确，请重新输入（不是登录密码）。')
 				popPassword(onConfirm, onCancel)
 			} else if (data.code === constant.responseCode.REQUIRED_PASSWORD) {
 				directoryLoadState.value = 'password'

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import im.tlgxy.cloud.core.exception.core.BizException;
 import im.tlgxy.cloud.core.util.TlgxyCloudAuthUtil;
 import im.tlgxy.cloud.module.ai.config.AiRagProperties;
+import im.tlgxy.cloud.module.ai.feedback.AiKnowledgePublicationService;
 import im.tlgxy.cloud.module.ai.model.knowledge.KnowledgeAudience;
 import im.tlgxy.cloud.module.ai.model.knowledge.KnowledgeDocument;
 import im.tlgxy.cloud.module.ai.model.result.AiKnowledgeResult;
@@ -16,6 +17,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -39,7 +41,8 @@ public class ProjectKnowledgeService {
     private static final Pattern TOKEN_PATTERN = Pattern.compile("[a-z0-9][a-z0-9._:/-]*|[\\p{IsHan}]+");
 
     private static final Set<String> STOP_TERMS = Set.of(
-            "的", "了", "和", "是", "我", "你", "他", "在", "有", "为", "可", "要", "吗", "呢", "请", "与"
+            "的", "了", "和", "是", "我", "你", "他", "在", "有", "为", "可", "要", "吗", "呢", "请", "与",
+            "请问", "如何", "怎么", "么办", "怎样", "什么", "哪些", "多少", "是多", "帮我", "我想", "一下"
     );
 
     private static final List<Set<String>> SITE_SYNONYM_GROUPS = List.of(
@@ -64,6 +67,13 @@ public class ProjectKnowledgeService {
 
     private final AiRagProperties properties;
     private final Map<KnowledgeAudience, List<IndexedDocument>> documents;
+    private AiKnowledgePublicationService dynamicKnowledge;
+
+    /** Optional to preserve standalone/offline knowledge consumers and existing constructor compatibility. */
+    @Autowired(required = false)
+    public void setDynamicKnowledge(AiKnowledgePublicationService dynamicKnowledge) {
+        this.dynamicKnowledge = dynamicKnowledge;
+    }
 
     public ProjectKnowledgeService(AiRagProperties properties,
                                    ObjectMapper objectMapper,
@@ -83,7 +93,8 @@ public class ProjectKnowledgeService {
     /** Maps the built-in administrator to admin knowledge and every other account to user knowledge. */
     public KnowledgeAudience resolveCurrentAudience() {
         User currentUser = TlgxyCloudAuthUtil.getCurrentUser();
-        if (currentUser == null || !Boolean.TRUE.equals(currentUser.getEnable())) {
+        if (currentUser == null || !Boolean.TRUE.equals(currentUser.getEnable())
+                || currentUser.getRole() == null || !currentUser.getRole().isLoginRole()) {
             throw new BizException("当前账号已被禁用，无法使用 AI 助手");
         }
         return currentUser.getRole() == UserRoleEnum.ADMIN
@@ -98,11 +109,16 @@ public class ProjectKnowledgeService {
         }
 
         Set<String> queryTerms = expandSiteSynonyms(tokenize(question));
+        if (queryTerms.isEmpty()) return List.of();
         String compactQuestion = compact(question);
 
-        return documents.getOrDefault(audience, List.of()).stream()
+        List<IndexedDocument> candidates = new ArrayList<>(documents.getOrDefault(audience, List.of()));
+        if (dynamicKnowledge != null) {
+            candidates.addAll(dynamicKnowledge.visibleDocuments(audience).stream().map(this::index).toList());
+        }
+        return candidates.stream()
                 .map(document -> toScoredDocument(document, queryTerms, compactQuestion))
-                .filter(result -> result.score() >= properties.getMinScore())
+                .filter(result -> result.score() > 0 && result.score() >= properties.getMinScore())
                 .sorted(Comparator.comparingDouble(ScoredDocument::score).reversed()
                         .thenComparing(result -> result.document().document().getId()))
                 .limit(properties.getTopK())
@@ -180,7 +196,7 @@ public class ProjectKnowledgeService {
         }
         return new IndexedDocument(
                 document,
-                tokenize(document.getTitle()),
+                tokenize(document.getTitle() + " " + StringUtils.defaultString(document.getQuestion())),
                 tagTerms,
                 tokenize(document.getContent()),
                 compact(document.getTitle()),
@@ -234,7 +250,7 @@ public class ProjectKnowledgeService {
 
     private Set<String> tokenize(String text) {
         Set<String> terms = new LinkedHashSet<>();
-        Matcher matcher = TOKEN_PATTERN.matcher(StringUtils.defaultString(text).toLowerCase(Locale.ROOT));
+        Matcher matcher = TOKEN_PATTERN.matcher(normalize(text));
         while (matcher.find()) {
             String token = matcher.group();
             if (isChinese(token)) {
@@ -263,7 +279,8 @@ public class ProjectKnowledgeService {
         // Avoid accumulating relevance from unrelated single Chinese characters.
         if (characters.size() == 1 && !STOP_TERMS.contains(text)) terms.add(text);
         for (int i = 0; i < characters.size() - 1; i++) {
-            terms.add(characters.get(i) + characters.get(i + 1));
+            String term = characters.get(i) + characters.get(i + 1);
+            if (!STOP_TERMS.contains(term)) terms.add(term);
         }
     }
 
@@ -273,9 +290,13 @@ public class ProjectKnowledgeService {
     }
 
     private String compact(String text) {
-        return StringUtils.defaultString(text)
-                .toLowerCase(Locale.ROOT)
+        return normalize(text)
                 .replaceAll("[^a-z0-9\\p{IsHan}]", "");
+    }
+
+    private String normalize(String text) {
+        return java.text.Normalizer.normalize(StringUtils.defaultString(text), java.text.Normalizer.Form.NFKC)
+                .toLowerCase(Locale.ROOT);
     }
 
     private record IndexedDocument(KnowledgeDocument document,

@@ -2,6 +2,8 @@ package im.tlgxy.cloud.module.storage.service;
 
 import im.tlgxy.cloud.core.exception.core.BizException;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -13,9 +15,20 @@ import java.util.List;
 @Component
 public final class LocalUploadStagingPolicy {
     private final ResumableUploadProperties properties;
+    private final Path courseRoot;
 
     public LocalUploadStagingPolicy(ResumableUploadProperties properties) {
+        this(properties, "./data/course-materials");
+    }
+
+    @Autowired
+    public LocalUploadStagingPolicy(ResumableUploadProperties properties,
+            @Value("${tongligong-student-cloud.courses.storage-root:${STUDENT_CLOUD_COURSE_STORAGE_ROOT:./data/course-materials}}") String courseRoot) {
         this.properties = properties;
+        if (courseRoot == null || courseRoot.isBlank() || isNetworkPath(courseRoot)
+                || courseRoot.length() > 2048 || courseRoot.matches("(?s).*\\p{Cntrl}.*")) throw invalid();
+        this.courseRoot = Path.of(courseRoot).toAbsolutePath().normalize();
+        if (this.courseRoot.getParent() == null) throw invalid();
     }
 
     /** Applies even when resumable uploads are disabled: old private parts can still exist. */
@@ -31,6 +44,8 @@ public final class LocalUploadStagingPolicy {
             Path staging = Path.of(configured).toAbsolutePath().normalize();
             if (staging.getParent() == null || staging.getNameCount() < 2) throw invalid();
             assertSeparated(cloudRoot, staging);
+            try { assertSeparated(cloudRoot, courseRoot); }
+            catch (BizException failure) { throw new BizException("本地存储根目录不能包含课程私有资料目录，也不能位于该目录内；请使用独立目录"); }
         } catch (java.nio.file.InvalidPathException failure) { throw invalid(); }
     }
 

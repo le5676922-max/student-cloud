@@ -6,6 +6,7 @@ import im.tlgxy.cloud.module.storage.mapper.StorageSourceMapper;
 import im.tlgxy.cloud.module.user.mapper.UserStorageSourceMapper;
 import im.tlgxy.cloud.module.user.model.entity.UserStorageSource;
 import im.tlgxy.cloud.module.user.service.UserService;
+import im.tlgxy.cloud.module.user.service.UserStoragePermissionPolicy;
 import im.tlgxy.cloud.module.user.service.UserStorageSourceService;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
@@ -21,15 +22,17 @@ public class DirectoryAccessGuard {
     @Resource private UserStorageSourceService cachedGrants;
 
     public Grant require(int user, int source, String driverRoot) {
-        users.requireLoginUser(user);
+        var actor = users.requireLoginUser(user);
         var storage = sources.selectById(source);
-        UserStorageSource current = grants.getByUserIdAndStorageId(user, source);
+        UserStorageSource current = UserStoragePermissionPolicy.effectiveGrant(actor, storage,
+                grants.getByUserIdAndStorageId(user, source));
         if (storage == null || !Boolean.TRUE.equals(storage.getEnable())
                 || current == null || !Boolean.TRUE.equals(current.getEnable())) {
             throw new BizException("当前账号无权访问此存储源");
         }
         Grant fresh = grant(current);
-        UserStorageSource cached = cachedGrants.getByUserIdAndStorageId(user, source);
+        UserStorageSource cached = UserStoragePermissionPolicy.effectiveGrant(actor, storage,
+                cachedGrants.getByUserIdAndStorageId(user, source));
         if (cached == null || !Boolean.TRUE.equals(cached.getEnable()) || !fresh.equals(grant(cached))
                 || !Objects.equals(fresh.root, driverRoot)) {
             throw new BizException(ErrorCode.BIZ_DIRECTORY_CHANGED);

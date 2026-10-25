@@ -29,11 +29,11 @@ export const loadUserRootPathReq = (storageKey, config = {}) => {
 }
 
 // 获取已启用的存储源列表
-export const getSourceListReq = (data) => {
+export const getSourceListReq = (config = {}) => {
 	return axios({
 		url: '/api/storage/list',
 		method: 'get',
-		data,
+		config: { timeout: 10000, ...config },
 	})
 }
 

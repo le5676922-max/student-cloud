@@ -142,11 +142,11 @@ export function taskCardWarning(task, status) {
 	return ''
 }
 
-/** Refresh only newly completed moves, not historical cards or unresolved operations. */
+/** Refresh a newly observed completion, including tasks finished before confirm returns. */
 export function completedFileChanges(previous, task) {
 	if (
 		previous?.id !== task?.id ||
-		previous?.status !== 'RUNNING' ||
+		!['PENDING', 'RUNNING'].includes(previous?.status) ||
 		!['SUCCEEDED', 'PARTIAL'].includes(task?.status)
 	)
 		return []

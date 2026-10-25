@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-const read = path => readFileSync(new URL(path, import.meta.url), 'utf8')
+const read = path => readFileSync(new URL(path, import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 const routes = read('../nginx/routes.conf')
 const proxy = read('../nginx/proxy.conf')
 const compose = read('../../docker/compose.production.yml')
@@ -88,7 +88,7 @@ test('shared cache and rate limiter fail closed instead of evicting counters', (
   assert.match(compose, /STUDENT_CLOUD_RATE_LIMIT_FAILURE_MODE: closed/)
   assert.match(compose, /REDIS_PASSWORD: \$\{STUDENT_CLOUD_REDIS_PASSWORD:\?/)
 })
-test('builds use source, frozen frontend lock and public base images', () => {
+test('builds use frozen frontend source and overridable public backend base images', () => {
   const frontend = read('../Dockerfile.deploy')
   const backend = read('../../backend/Dockerfile')
   assert.match(frontend, /FROM node:22-alpine AS builder/)
@@ -99,7 +99,14 @@ test('builds use source, frozen frontend lock and public base images', () => {
     'Workspace overrides and allowBuilds must be present before frozen dependency installation')
   assert.match(frontend, /COPY --from=builder \/app\/dist\//)
   assert.match(frontend, /FROM nginx:stable-alpine/)
-  assert.doesNotMatch(frontend + backend, /personal\.cr\.aliyuncs\.com/)
+  assert.doesNotMatch(frontend, /personal\.cr\.aliyuncs\.com/)
+  assert.ok(backend.includes('ARG MAVEN_IMAGE=maven:3.9.9-eclipse-temurin-21-alpine'))
+  assert.ok(backend.includes('ARG RUNTIME_IMAGE=ibm-semeru-runtimes:open-21-jre-jammy'))
+  assert.ok(backend.includes('FROM ${MAVEN_IMAGE} AS builder'))
+  assert.ok(backend.includes('FROM ${RUNTIME_IMAGE} AS runtime'))
+  assert.doesNotMatch(backend, /personal\.cr\.aliyuncs\.com/)
+  assert.match(compose, /STUDENT_CLOUD_COURSE_STORAGE_ROOT: \/app\/data\/course-materials/)
+  assert.match(backend, /mkdir -p .*\/app\/data\/course-materials/)
   assert.match(backend, /USER 10001:10001/)
   assert.match(backend, /\/internal\/ready/)
 })

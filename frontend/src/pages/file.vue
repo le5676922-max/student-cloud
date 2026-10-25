@@ -254,7 +254,7 @@
 			<CreateShareDialog ref="createShareDialogRef" />
 
 			<!-- 上传框 -->
-			<ZUpload @close="loadFile" />
+			<ZUpload />
 
 			<!-- 音频播放器 -->
 			<audio-player />
@@ -281,6 +281,11 @@ import { isMobile } from '~/utils'
 import { ElMessage } from 'element-plus'
 import { createLatestRequest } from '~/utils/latest-request.mjs'
 import { directoryCountLabel } from '~/utils/drive-presentation.mjs'
+import { uploadAccountIdentity } from '~/composables/file/upload-lifecycle.mjs'
+import {
+	createFileChangeRefresh,
+	fileChangeContextFromRoute,
+} from '~/utils/file-change-refresh.mjs'
 import {
 	automationContextFromRoute,
 	buildAutomationRoute,
@@ -419,16 +424,28 @@ function openDirectoryAutomation() {
 		buildAutomationRoute({ ...automationContext.value, type: 'ORGANIZE_FILES' })
 	)
 }
-// Refresh only the directory that received files, even if the user navigated during upload.
-useEventBus('cloud-files-changed').on((change) => {
-	const context = automationContextFromRoute(route)
-	if (
-		context.storageKey === change?.storageKey &&
-		context.path?.replace(/\/+$/, '') === change?.path?.replace(/\/+$/, '')
-	) {
-		loadFile()
-	}
+// Uploads and Agent tasks may finish together. Refresh the matching directory
+// once per short window, without interrupting navigation or an operation dialog.
+const fileChangeRefresh = createFileChangeRefresh({
+	getContext: () =>
+		fileChangeContextFromRoute(
+			route,
+			uploadAccountIdentity(storageConfigStore.loginInfo)
+		),
+	refresh: () => loadFile(),
+	isBusy: () => loading.value || operationBusy.value,
 })
+useEventBus('cloud-files-changed').on(fileChangeRefresh.notify)
+watch(
+	[
+		() => route.path,
+		() => route.params.storageKey,
+		() => JSON.stringify(route.params.fullpath),
+		() => uploadAccountIdentity(storageConfigStore.loginInfo),
+	],
+	() => fileChangeRefresh.cancel(),
+	{ flush: 'sync' }
+)
 watch(
 	() => [route.params.storageKey, route.params.fullpath],
 	() => {
@@ -504,6 +521,7 @@ const refreshDirectory = async () => {
 }
 
 onBeforeUnmount(() => {
+	fileChangeRefresh.dispose()
 	navigationRequests.cancel()
 	cancelLoadFile()
 })
@@ -513,7 +531,7 @@ onBeforeUnmount(() => {
 .student-cloud-index-body {
 	display: flex;
 	flex-direction: column;
-	gap: 18px;
+	gap: 16px;
 	min-height: 100%;
 	padding: 24px clamp(16px, 3vw, 42px);
 	box-sizing: border-box;
@@ -525,9 +543,9 @@ onBeforeUnmount(() => {
 	justify-content: space-between;
 	gap: 20px;
 	padding: 22px 26px;
-	border: 1px solid #dce6d9;
-	border-radius: 16px;
-	background: #eaf1e8;
+	border: 1px solid #d2d2d6;
+	border-radius: var(--cloud-radius);
+	background: var(--cloud-panel);
 }
 .cloud-drive-heading-copy {
 	min-width: 0;
@@ -537,12 +555,13 @@ onBeforeUnmount(() => {
 	align-items: center;
 	gap: 6px;
 	margin-bottom: 8px;
-	color: #597361;
+	color: var(--cloud-muted);
 	font-size: 12px;
 }
 .cloud-drive-eyebrow svg {
 	width: 16px;
 	height: 16px;
+	color: var(--cloud-accent);
 }
 .cloud-drive-actions {
 	display: flex;
@@ -584,7 +603,7 @@ onBeforeUnmount(() => {
 	min-height: 38px;
 	padding: 8px 13px;
 	border: 1px solid transparent;
-	border-radius: 9px;
+	border-radius: 999px;
 	color: var(--cloud-muted);
 	font-size: 13px;
 	text-decoration: none;
@@ -594,14 +613,17 @@ onBeforeUnmount(() => {
 	height: 17px;
 }
 .cloud-drive-shortcuts .is-active {
-	border-color: var(--cloud-line);
-	background: #fff;
-	color: var(--cloud-primary);
+	border-color: var(--cloud-primary);
+	background: var(--cloud-primary);
+	color: #fff;
 	font-weight: 500;
 }
-.cloud-drive-shortcuts a:hover {
-	background: var(--cloud-soft);
+.cloud-drive-shortcuts a:not(.is-active):hover {
+	background: var(--cloud-lilac);
 	color: var(--cloud-primary);
+}
+.cloud-drive-shortcuts a:active {
+	transform: scale(0.97);
 }
 
 .cloud-file-panel {
@@ -609,19 +631,19 @@ onBeforeUnmount(() => {
 	min-height: 350px;
 	padding: 18px;
 	border: 1px solid var(--cloud-line);
-	border-radius: 14px;
+	border-radius: var(--cloud-radius);
 	background: #fff;
-	box-shadow: 0 3px 14px rgba(39, 57, 54, 0.025);
+	box-shadow: 0 3px 14px #24242804;
 
 	:deep(.el-table) {
-		--el-table-header-bg-color: #f5f7f3;
-		--el-table-row-hover-bg-color: #f0f6f2;
-		--el-table-border-color: #e7ebe5;
+		--el-table-header-bg-color: #f5f5f7;
+		--el-table-row-hover-bg-color: #f4f1fc;
+		--el-table-border-color: #e9e9ec;
 		border-radius: 8px;
 	}
 
 	:deep(.el-table th.el-table__cell) {
-		color: #66736c;
+		color: var(--cloud-muted);
 		font-weight: 500;
 	}
 }
@@ -644,21 +666,21 @@ onBeforeUnmount(() => {
 .cloud-directory-count {
 	padding: 3px 8px;
 	border-radius: 6px;
-	background: #f1f3ed;
-	color: #7a8579;
+	background: var(--cloud-lilac);
+	color: #6043a5;
 	font-size: 12px;
 	font-weight: 400;
 	white-space: nowrap;
 }
 .cloud-directory-note {
 	margin: 0 0 14px;
-	color: #7a8579;
+	color: var(--cloud-muted);
 	font-size: 12px;
 }
 .cloud-directory-note summary {
 	width: fit-content;
 	cursor: pointer;
-	color: #62786b;
+	color: var(--cloud-muted);
 	padding: 5px 0;
 }
 .cloud-directory-note summary:focus-visible {
@@ -737,7 +759,7 @@ onBeforeUnmount(() => {
 	padding: 3px;
 	border: 1px solid var(--cloud-line);
 	border-radius: 9px;
-	background: #fafbf8;
+	background: var(--cloud-soft);
 }
 .cloud-view-options button {
 	display: grid;
@@ -745,19 +767,23 @@ onBeforeUnmount(() => {
 	width: 31px;
 	height: 30px;
 	border-radius: 6px;
-	color: #89938a;
+	color: var(--cloud-muted);
 }
 .cloud-view-options svg {
 	width: 18px;
 	height: 18px;
 }
 .cloud-view-options button[aria-pressed='true'] {
-	background: #fff;
-	color: var(--cloud-primary);
-	box-shadow: 0 1px 4px #27393612;
+	background: var(--cloud-primary);
+	color: #fff;
+	box-shadow: 0 1px 4px #24242812;
 }
-.cloud-view-options button:hover {
+.cloud-view-options button:not([aria-pressed='true']):hover {
 	color: var(--cloud-primary);
+	background: var(--cloud-lilac);
+}
+.cloud-view-options button:active {
+	transform: scale(0.94);
 }
 
 // 公告显示样式
@@ -805,9 +831,10 @@ onBeforeUnmount(() => {
 	}
 	.cloud-drive-actions {
 		width: 100%;
+		flex-wrap: wrap;
 	}
 	.cloud-drive-actions .el-button {
-		flex: 1;
+		flex: 1 1 120px;
 		min-width: 0;
 	}
 	.cloud-drive-shortcuts {
@@ -842,6 +869,13 @@ onBeforeUnmount(() => {
 	}
 	.cloud-drive-shortcuts::-webkit-scrollbar {
 		height: 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.cloud-drive-shortcuts a:active,
+	.cloud-view-options button:active {
+		transform: none;
 	}
 }
 </style>

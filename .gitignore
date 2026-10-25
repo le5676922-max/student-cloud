@@ -20,13 +20,34 @@ student-cloud-files/
 **/dist/
 **/node_modules/
 **/.cache/
+__pycache__/
+*.pyc
+.venv/
 
 # Secrets and machine-specific configuration
+.env
+.env.*
+!*.example
+# These tracked Vite files contain public UI/build switches only.
+!/frontend/.env
+!/frontend/.env.development
+!/frontend/.env.production
 .env.local
 .env.*.local
 *.secret
 *.secrets
 secrets.env
+*.pem
+*.key
+*.p12
+*.pfx
+/data/
+/backend/data/
+/docker/certbot/
+/docker/v4/certbot/
+/docker/v5/certbot/
+/docker/v4/data/
+/docker/v5/data/
 docker/.env.production
 backend/data/upload-staging/
 data/upload-staging/

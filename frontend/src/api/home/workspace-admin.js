@@ -21,6 +21,28 @@ export const setWorkspaceMemberEnabledReq = (id, value) =>
 		method: 'post',
 	})
 
+export const getWorkspaceMemberPermissionsReq = (id, config = {}) =>
+	axios({
+		url: `/api/workspace-admin/members/${id}/permissions`,
+		method: 'get',
+		config,
+	})
+
+export const resetWorkspaceMemberPasswordReq = (id, data, config = {}) =>
+	axios({
+		url: `/api/workspace-admin/members/${id}/password`,
+		method: 'post',
+		data,
+		config: { showDefaultMsg: false, ...config },
+	})
+export const saveWorkspaceMemberPermissionsReq = (id, data, config = {}) =>
+	axios({
+		url: `/api/workspace-admin/members/${id}/permissions`,
+		method: 'put',
+		data,
+		config,
+	})
+
 export const getWorkspaceInvitationsReq = () =>
 	axios({ url: '/api/workspace-admin/invitations', method: 'get' })
 export const createWorkspaceInvitationReq = (data) =>

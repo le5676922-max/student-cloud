@@ -24,12 +24,26 @@ class S3DirectoryMetadataTest {
                 .commonPrefixes(CommonPrefix.builder().prefix("base/own/docs/folder/").build())
                 .isTruncated(true).nextContinuationToken("opaque-next").build());
         var result = driver.nativeDirectoryPage("/docs/", "/own", 2, "opaque-current");
-        assertEquals(2, result.files().size()); assertEquals("opaque-next", result.nextProviderToken());
+        assertEquals(2, result.files().size()); assertEquals(2, result.rawItemCount()); assertEquals("opaque-next", result.nextProviderToken());
         assertTrue(result.files().stream().allMatch(file -> file.getUrl() == null));
         verify(driver, never()).getDownloadUrl(anyString()); verify(client, never()).listObjectsV2Paginator(any(ListObjectsV2Request.class));
         var request = org.mockito.ArgumentCaptor.forClass(ListObjectsV2Request.class); verify(client).listObjectsV2(request.capture());
         assertEquals(2, request.getValue().maxKeys()); assertEquals("base/own/docs/", request.getValue().prefix());
         assertEquals("opaque-current", request.getValue().continuationToken()); assertEquals("/", request.getValue().delimiter());
+    }
+
+    @Test void rawPageCountIncludesDiscardedDirectoryPlaceholderForCallerBudgets() {
+        var driver = spy(new S3ServiceImpl()); var params = new S3Param();
+        ReflectionTestUtils.setField(params, "bucketName", "synthetic-bucket"); ReflectionTestUtils.setField(params, "basePath", "/base");
+        ReflectionTestUtils.setField(driver, "param", params); var client = mock(S3Client.class);
+        ReflectionTestUtils.setField(driver, "s3ClientNew", client);
+        when(client.listObjectsV2(any(ListObjectsV2Request.class))).thenReturn(ListObjectsV2Response.builder()
+                .contents(S3Object.builder().key("base/own/docs/").build(),
+                        S3Object.builder().key("base/own/docs/a.txt").size(1L).build())
+                .isTruncated(false).build());
+        var result = driver.nativeDirectoryPage("/docs/", "/own", 2, null);
+        assertEquals(1, result.files().size()); assertEquals(2, result.rawItemCount());
+        assertNull(result.nextProviderToken()); verify(driver, never()).getDownloadUrl(anyString());
     }
 
     @Test void malformedProviderCannotListOutsideAuthorizedRootOrExceedRequestedPage() {

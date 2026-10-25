@@ -334,10 +334,10 @@ async function retryFailed() {
 	min-width: 0;
 	margin: 12px 0;
 	padding: 16px;
-	border: 1px solid var(--line, #e0e5df);
-	border-radius: 12px;
-	background: var(--surface, #fff);
-	color: var(--text, #243630);
+	border: 1px solid var(--cloud-line);
+	border-radius: 16px;
+	background: var(--cloud-surface);
+	color: var(--cloud-ink);
 	font-size: 13px;
 	overflow-wrap: anywhere;
 }
@@ -357,10 +357,18 @@ header strong {
 .task-status {
 	flex-shrink: 0;
 	padding: 3px 8px;
-	border-radius: 6px;
+	border-radius: 999px;
+	color: var(--cloud-ink);
+	background: var(--cloud-soft);
+	font-size: 12px;
+}
+.status-running {
+	color: var(--cloud-accent);
+	background: var(--cloud-lilac);
+}
+.status-succeeded {
 	color: #287563;
 	background: #edf5f1;
-	font-size: 12px;
 }
 .status-failed,
 .status-partial,
@@ -375,7 +383,7 @@ header strong {
 .task-notice,
 .task-safety {
 	margin: 6px 0;
-	color: var(--muted, #63716b);
+	color: var(--cloud-muted);
 	line-height: 1.6;
 }
 .task-summary {
@@ -400,12 +408,12 @@ header strong {
 summary {
 	width: fit-content;
 	max-width: 100%;
-	color: var(--primary, #287563);
+	color: var(--cloud-accent);
 	cursor: pointer;
 	line-height: 1.8;
 }
 summary:focus-visible {
-	outline: 2px solid #287563;
+	outline: 2px solid var(--cloud-accent);
 	outline-offset: 3px;
 	border-radius: 3px;
 }
@@ -423,7 +431,7 @@ summary:focus-visible {
 	line-height: 1.6;
 }
 .task-steps small {
-	color: var(--muted, #63716b);
+	color: var(--cloud-muted);
 }
 .task-actions {
 	display: flex;

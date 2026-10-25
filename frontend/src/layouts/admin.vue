@@ -44,6 +44,15 @@
 								@toggle="toggleGroup"
 								@action="handleAction"
 							/>
+							<nav
+								v-else-if="isWorkspaceStorageAdmin"
+								class="p-5 grid gap-4"
+								aria-label="工作空间存储管理"
+							>
+								<router-link to="/workspace-admin">工作空间管理</router-link>
+								<router-link to="/admin/storage-list">我的存储源</router-link>
+								<router-link to="/">返回云盘文件</router-link>
+							</nav>
 						</div>
 					</DialogPanel>
 				</div>
@@ -67,6 +76,15 @@
 					@toggle="toggleGroup"
 					@action="handleAction"
 				/>
+				<nav
+					v-else-if="isWorkspaceStorageAdmin"
+					class="p-5 grid gap-4"
+					aria-label="工作空间存储管理"
+				>
+					<router-link to="/workspace-admin">工作空间管理</router-link>
+					<router-link to="/admin/storage-list">我的存储源</router-link>
+					<router-link to="/">返回云盘文件</router-link>
+				</nav>
 				<p class="admin-sidebar-version">学生云盘 · v{{ constant.version }}</p>
 			</div>
 		</div>
@@ -90,12 +108,16 @@
 		<main class="admin-main-content h-full overflow-y-auto">
 			<header class="admin-page-header">
 				<nav class="admin-breadcrumb" aria-label="当前页面位置">
-					<router-link to="/admin/overview">管理控制台</router-link>
+					<router-link :to="isAdmin ? '/admin/overview' : '/workspace-admin'">{{
+						isAdmin ? '管理控制台' : '工作空间管理'
+					}}</router-link>
 					<span aria-hidden="true">/</span>
 					<span aria-current="page">{{ route.meta.name || '全局管理' }}</span>
 				</nav>
 				<span class="admin-scope-label"
-					><ShieldCheckIcon aria-hidden="true" />全局管理员</span
+					><ShieldCheckIcon aria-hidden="true" />{{
+						isAdmin ? '全局管理员' : '空间管理员'
+					}}</span
 				>
 			</header>
 			<div
@@ -103,7 +125,7 @@
 				:class="{ 'admin-overview-panel': route.path === '/admin/overview' }"
 			>
 				<div id="admin-page-content" class="z-admin-body-wrapper" tabindex="-1">
-					<router-view />
+					<router-view :key="adminIdentityKey" />
 				</div>
 			</div>
 		</main>
@@ -129,7 +151,11 @@ import useStorageConfigStore from '~/stores/storage-config'
 import { logoutReq } from '~/api/home/user'
 import { loadConfigReq } from '~/api/admin/admin-setting'
 import { canAccessAdministration } from '~/utils/roles.mjs'
-import { activeAdminNavigationGroup } from '~/utils/admin-navigation.mjs'
+import { isWorkspaceStorageRoute } from '~/utils/auth-navigation.mjs'
+import {
+	adminNavigationExpansionForPath,
+	toggleAdminNavigationGroup,
+} from '~/utils/admin-navigation.mjs'
 const router = useRouter()
 const route = useRoute()
 const { rebuildTitle, logDownload } = useAdminLayout(router, route)
@@ -137,16 +163,31 @@ const storageConfigStore = useStorageConfigStore()
 const isAdmin = computed(() =>
 	canAccessAdministration(storageConfigStore.loginInfo)
 )
+const isWorkspaceStorageAdmin = computed(
+	() =>
+		storageConfigStore.loginInfo.role === 'TENANT_ADMIN' &&
+		isWorkspaceStorageRoute(route.path)
+)
+const adminIdentityKey = computed(() =>
+	JSON.stringify([
+		storageConfigStore.loginInfo.accountId,
+		storageConfigStore.loginInfo.username,
+		storageConfigStore.loginInfo.role,
+		storageConfigStore.loginInfo.tenantId,
+	])
+)
 const sidebarOpen = ref(false)
 const expandedGroups = ref([])
 const loggingOut = ref(false)
 const toggleGroup = (id) => {
-	expandedGroups.value = expandedGroups.value.includes(id)
-		? expandedGroups.value.filter((value) => value !== id)
-		: [...expandedGroups.value, id]
+	expandedGroups.value = toggleAdminNavigationGroup(expandedGroups.value, id)
 }
 const enforceAdminRoute = () => {
-	if (storageConfigStore.loginInfo.isLogin !== null && !isAdmin.value)
+	if (
+		storageConfigStore.loginInfo.isLogin !== null &&
+		!isAdmin.value &&
+		!isWorkspaceStorageAdmin.value
+	)
 		router.replace('/')
 }
 // The route guard has already checked the current identity. Do not check twice
@@ -157,9 +198,7 @@ watch(
 		rebuildTitle()
 		enforceAdminRoute()
 		sidebarOpen.value = false
-		const activeGroup = activeAdminNavigationGroup(route.path)
-		if (activeGroup && !expandedGroups.value.includes(activeGroup))
-			expandedGroups.value.push(activeGroup)
+		expandedGroups.value = adminNavigationExpansionForPath(route.path)
 	},
 	{ immediate: true }
 )

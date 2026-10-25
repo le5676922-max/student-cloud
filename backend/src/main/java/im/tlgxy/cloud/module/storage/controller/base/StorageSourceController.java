@@ -72,6 +72,9 @@ public class StorageSourceController {
     @Resource
     private StorageSourceSafetyService storageSourceSafetyService;
 
+    @Resource
+    private im.tlgxy.cloud.module.tenant.mapper.TenantMapper tenantMapper;
+
     @PostMapping("/storage/test-connection")
     @Operation(summary = "只读测试未保存的存储配置", description = "不保存配置，不写入文件或远端跨域规则")
     public AjaxJson<StorageSourceSafetyService.PreflightResult> testConnection(@RequestBody SaveStorageSourceRequest request) {
@@ -101,9 +104,15 @@ public class StorageSourceController {
         List<StorageSource> list = storageSourceService.findManageableOrderByOrderNum();
 
         List<StorageSourceAdminResult> storageSourceAdminResults = storageSourceConvert.entityToAdminResultList(list);
+        var tenantIds = list.stream().map(StorageSource::getTenantId).filter(java.util.Objects::nonNull).distinct().toList();
+        var tenantNames = tenantIds.isEmpty() ? java.util.Map.<Integer, String>of()
+                : tenantMapper.selectBatchIds(tenantIds).stream().collect(java.util.stream.Collectors.toMap(
+                        im.tlgxy.cloud.module.tenant.model.entity.Tenant::getId,
+                        im.tlgxy.cloud.module.tenant.model.entity.Tenant::getName));
 
         // 为每个存储源附加 Token 刷新状态信息
         storageSourceAdminResults.forEach(storageSourceAdminResult -> {
+            storageSourceAdminResult.setTenantName(tenantNames.getOrDefault(storageSourceAdminResult.getTenantId(), "未分配工作空间"));
             RefreshTokenCacheBO.RefreshTokenInfo refreshTokenInfo = RefreshTokenCacheBO.getRefreshTokenInfo(storageSourceAdminResult.getId());
             storageSourceAdminResult.setRefreshTokenInfo(refreshTokenInfo);
         });

@@ -345,10 +345,10 @@ const sizeColumnWeight = computed(() => {
 	width: 34px;
 	height: 34px;
 	border-radius: 8px;
-	background: #f4f6f3;
+	background: var(--cloud-soft);
 }
 .cloud-file-type-mark.is-folder {
-	background: #fbf3e4;
+	background: var(--cloud-warm);
 }
 .cloud-file-type-mark :deep(svg) {
 	width: 23px;

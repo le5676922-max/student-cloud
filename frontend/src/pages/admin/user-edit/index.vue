@@ -1,6 +1,14 @@
 <template>
+	<section v-if="editorError" class="user-editor-unavailable" role="alert">
+		<h2>无法编辑此账号</h2>
+		<p>{{ editorError }}</p>
+		<router-link to="/admin/user-list">返回空间人员，选择具体账号</router-link>
+	</section>
+	<p v-else-if="!editorReady" class="user-editor-loading" role="status">
+		正在加载账号信息…
+	</p>
 	<el-form
-		v-if="data && data.id !== 2"
+		v-else
 		ref="adminUserFormRef"
 		v-loading="saveLoading"
 		:model="data"
@@ -28,6 +36,20 @@
 			:closable="false"
 			show-icon
 		/>
+		<el-alert
+			v-if="isGlobalAccount"
+			title="全局管理员固定拥有最高管理权限，无需配置默认权限或存储授权。这里只修改账号资料和密码。"
+			type="info"
+			:closable="false"
+			show-icon
+		/>
+		<el-alert
+			v-else
+			title="这里只管理账号资料与状态。成员的存储权限由所属工作空间管理员设置，全局管理员不设置成员权限。"
+			type="info"
+			:closable="false"
+			show-icon
+		/>
 
 		<el-form-item
 			:size="globalConfigStore.adminForm.size"
@@ -36,8 +58,7 @@
 		>
 			<el-input v-model="data.username">
 				<template #suffix>
-					<span v-if="data.id === 0">新用户权限模板（不可登录）</span>
-					<span v-else-if="data.id === 1">内置全局管理员</span>
+					<span v-if="isGlobalAccount">全局管理员</span>
 					<span v-else>{{ roleLabel(data.role) }}</span>
 				</template>
 			</el-input>
@@ -49,7 +70,7 @@
 
 		<el-form-item label="用户角色">
 			<el-select
-				v-if="data.id == null || data.id > 2"
+				v-if="!isGlobalAccount && (data.id == null || data.id > 2)"
 				v-model="data.role"
 				class="w-full"
 				:disabled="!!managerPreset"
@@ -63,16 +84,11 @@
 			</div>
 		</el-form-item>
 
-		<el-form-item
-			v-if="
-				isAdmin && ['USER', 'TENANT_ADMIN'].includes(data.role) && data.id !== 0
-			"
-			label="所属工作空间"
-		>
+		<el-form-item v-if="isAdmin && !isGlobalAccount" label="所属工作空间">
 			<el-select
 				v-model="data.tenantId"
 				class="w-full"
-				:disabled="!!managerPreset"
+				:disabled="!!managerPreset || data.id != null"
 				@change="handleTenantChange"
 			>
 				<el-option
@@ -83,9 +99,12 @@
 					:disabled="!tenant.enable"
 				/>
 			</el-select>
+			<div v-if="!hasSelectedWorkspace" class="el-form-item-tips">
+				请选择账号所属的工作空间；创建后不通过此页面迁移空间。
+			</div>
 		</el-form-item>
 
-		<el-form-item v-if="data.id !== 0" label="密码">
+		<el-form-item label="密码">
 			<el-input
 				v-model="data.password"
 				autocomplete="off"
@@ -95,7 +114,7 @@
 			<div class="el-form-item-tips">编辑时不显示密码，不修改密码请留空</div>
 		</el-form-item>
 
-		<el-form-item label="用户默认权限">
+		<el-form-item v-if="canEditPermissions" label="新增存储源默认权限">
 			<div>
 				<el-button-group type="primary" class="mb-2">
 					<el-button
@@ -136,11 +155,11 @@
 			</div>
 
 			<div class="el-form-item-tips">
-				这里控制新增存储源时，该用户默认拥有的权限（仅对新增的存储源有效，已存在的但未授予权限的存储源不会使用此配置；如没有任何默认权限，则添加存储源时不会授予使用）
+				仅影响当前账号今后新增存储源时的默认授权，不修改现有存储源，也不影响其他账号。已有存储源请在下方逐项设置；没有默认权限时，不会因新增存储源而自动获得使用权限。
 			</div>
 		</el-form-item>
 
-		<el-form-item label="存储源授权">
+		<el-form-item v-if="canEditPermissions" label="当前账号存储授权">
 			<el-button-group>
 				<!--  为选中的存储源设置用户默认权限，按钮名叫 "设置选中存储源为默认权限" -->
 				<el-button
@@ -246,7 +265,10 @@
 		</el-form-item>
 
 		<el-form-item label="启用状态">
-			<el-switch v-model="data.enable"></el-switch>
+			<el-tag v-if="isGlobalAccount" type="info" effect="plain"
+				>固定启用</el-tag
+			>
+			<el-switch v-else v-model="data.enable"></el-switch>
 		</el-form-item>
 
 		<el-form-item
@@ -258,7 +280,12 @@
 				type="primary"
 				:icon="CheckBadgeIcon"
 				:loading="saveLoading"
-				:disabled="!!presetError || (!!managerPreset && !presetReady)"
+				:disabled="
+					accessLoading ||
+					!!presetError ||
+					(!!managerPreset && !presetReady) ||
+					(!isGlobalAccount && !hasSelectedWorkspace)
+				"
 				@click="saveAction"
 				>保存</el-button
 			>
@@ -266,6 +293,7 @@
 	</el-form>
 
 	<el-dialog
+		v-if="canEditPermissions"
 		v-model="showSetPermissionDialog"
 		append-to-body
 		title="设置权限列表"
@@ -303,7 +331,7 @@
 				type="primary"
 				size="small"
 				@click="setFromUserDefaultPermission"
-				>设置为用户默认权限</el-button
+				>使用该账号新增存储源默认权限</el-button
 			>
 		</div>
 
@@ -351,7 +379,7 @@
 
 <script setup>
 import useGlobalConfigStore from '~/stores/global-config'
-import { roleLabel } from '~/utils/roles.mjs'
+import { roleLabel, canAccessAdministration } from '~/utils/roles.mjs'
 import {
 	workspaceManagerPreset,
 	managedWorkspaceGrantDefaults,
@@ -380,8 +408,13 @@ let currentUserId = route.params.userId
 const managerPreset = workspaceManagerPreset(route.query, currentUserId)
 const presetReady = ref(false)
 const presetError = ref('')
+const editorReady = ref(false)
+const editorError = ref('')
+const accessLoading = ref(false)
 const storageConfigStore = useStorageConfigStore()
-const isAdmin = computed(() => storageConfigStore.loginInfo.isAdmin === true)
+const isAdmin = computed(() =>
+	canAccessAdministration(storageConfigStore.loginInfo)
+)
 const tenantList = ref([])
 
 const data = ref({
@@ -395,30 +428,43 @@ const data = ref({
 	role: managerPreset?.role || 'USER',
 	tenantId: managerPreset?.tenantId || null,
 })
+const isGlobalAccount = computed(
+	() => data.value.id === 1 || data.value.role === 'ADMIN'
+)
+const hasSelectedWorkspace = computed(
+	() => Number.isInteger(data.value.tenantId) && data.value.tenantId > 0
+)
+const permissionTargetSelected = computed(
+	// Global account editing deliberately never loads or writes workspace grants.
+	() => false
+)
+const canEditPermissions = computed(
+	() =>
+		editorReady.value && !editorError.value && permissionTargetSelected.value
+)
 
 onMounted(() => {
-	const tenantPromise = isAdmin.value
-		? getTenantListReq().then((res) => {
-				tenantList.value = res.data
-				if (managerPreset) {
-					const tenant = tenantList.value.find(
-						(item) => item.id === managerPreset.tenantId
-					)
-					presetReady.value = !!tenant?.enable
-					if (!presetReady.value)
-						presetError.value =
-							'指定工作空间不存在或已停用，请返回空间人员页面。'
-				}
-				if (!currentUserId && !data.value.tenantId) {
-					data.value.tenantId =
-						tenantList.value.find((item) => item.enable)?.id || null
-				}
-		  })
-		: Promise.resolve()
-	tenantPromise.then(init).catch(() => {
-		presetError.value = '工作空间信息加载失败，请刷新后重试'
-	})
-	loadPermissionList()
+	if (!isAdmin.value) {
+		editorError.value = '当前账号没有全局账号管理权限。'
+		return
+	}
+	if (currentUserId === '0') {
+		editorError.value =
+			'全局新账号默认权限模板不再提供编辑。成员权限请由所属工作空间管理员设置。'
+		return
+	}
+	if (
+		currentUserId != null &&
+		(typeof currentUserId !== 'string' ||
+			!/^[1-9]\d{0,9}$/.test(currentUserId) ||
+			Number(currentUserId) > 2147483647 ||
+			Number(currentUserId) === 2)
+	) {
+		editorError.value =
+			'此记录不是可编辑的用户账号，请返回空间人员选择具体账号。'
+		return
+	}
+	init()
 })
 
 const { init, completeStorageSourceList } = useInitLoadData()
@@ -439,20 +485,30 @@ const adminUserFormRef = ref(null)
 const saveAction = () => {
 	if (
 		saveLoading.value ||
+		!isAdmin.value ||
+		!editorReady.value ||
+		editorError.value ||
+		accessLoading.value ||
 		presetError.value ||
 		(managerPreset && !presetReady.value)
 	)
 		return
 	if (managerPreset) Object.assign(data.value, managerPreset)
+	if (!isGlobalAccount.value && !hasSelectedWorkspace.value) {
+		ElMessage.error('请先选择账号所属的工作空间。')
+		return
+	}
 	// 检查 data.userStorageSourceList 中的 rootPath 不能为空，也必须以 / 开头，否则会提示第几个存储源，哪个存储源的根目录配置错误
-	let errorIndex = data.value.userStorageSourceList.findIndex((item) => {
-		return (
-			item.rootPath === undefined ||
-			item.rootPath === null ||
-			item.rootPath === '' ||
-			!item.rootPath.startsWith('/')
-		)
-	})
+	let errorIndex = !canEditPermissions.value
+		? -1
+		: data.value.userStorageSourceList.findIndex((item) => {
+				return (
+					item.rootPath === undefined ||
+					item.rootPath === null ||
+					item.rootPath === '' ||
+					!item.rootPath.startsWith('/')
+				)
+		  })
 	if (errorIndex !== -1) {
 		ElMessage.error(
 			`第 ${
@@ -465,7 +521,20 @@ const saveAction = () => {
 	saveLoading.value = true
 	adminUserFormRef.value.validate((valid) => {
 		if (valid) {
-			saveOrUpdateUserReq(data.value)
+			// Only send fields that this account editor owns. Account identifiers,
+			// membership status and legacy grant row identities are not editable.
+			const payload = {
+				id: data.value.id,
+				username: data.value.username,
+				nickname: data.value.nickname,
+				password: data.value.password,
+				role: isGlobalAccount.value ? 'ADMIN' : data.value.role,
+				enable: isGlobalAccount.value ? true : data.value.enable,
+			}
+			if (!isGlobalAccount.value) {
+				payload.tenantId = data.value.tenantId
+			}
+			saveOrUpdateUserReq(payload)
 				.then((res) => {
 					ElMessage.success('保存成功')
 					let userId = res.data.id
@@ -476,6 +545,7 @@ const saveAction = () => {
 						init()
 					}
 				})
+				.catch(() => ElMessage.error('保存失败，请检查账号信息后重试。'))
 				.finally(() => {
 					saveLoading.value = false
 				})
@@ -515,90 +585,113 @@ let rules = ref({
 })
 
 function useInitLoadData() {
-	const init = () => {
-		if (currentUserId) {
-			getUserInfoReq(currentUserId).then((res) => {
-				// // 判断 defaultPermissions 是否为空，如果为空，则设置为 [].
-				if (!res.data.defaultPermissions) {
-					res.data.defaultPermissions = []
+	let storageListVersion = 0
+	const init = async () => {
+		editorReady.value = false
+		editorError.value = ''
+		showSetPermissionDialog.value = false
+		try {
+			if (currentUserId) {
+				const { data: account } = await getUserInfoReq(currentUserId)
+				if (
+					!account ||
+					account.id !== Number(currentUserId) ||
+					account.id <= 0 ||
+					account.id === 2 ||
+					!['ADMIN', 'USER', 'TENANT_ADMIN'].includes(account.role) ||
+					(account.id === 1 && account.role !== 'ADMIN')
+				)
+					throw new Error('Invalid account')
+				data.value = {
+					...account,
+					password: '',
+					defaultPermissions: Array.isArray(account.defaultPermissions)
+						? [...account.defaultPermissions]
+						: [],
+					userStorageSourceList: Array.isArray(account.userStorageSourceList)
+						? account.userStorageSourceList.map((item) => ({
+								...item,
+								permissions: (item.permissions || []).filter(
+									(permission) => permission !== 'available'
+								),
+						  }))
+						: [],
 				}
-				if (res.data.userStorageSourceList) {
-					res.data.userStorageSourceList.forEach((item) => {
-						// 如果 item.permissions 不为空且包含 available，则从中删除 available
-						if (item.permissions && item.permissions.includes('available')) {
-							item.permissions.splice(item.permissions.indexOf('available'), 1)
-						}
-					})
+			}
+			if (!isGlobalAccount.value) {
+				tenantList.value = (await getTenantListReq()).data
+				if (managerPreset) {
+					presetReady.value = !!tenantList.value.find(
+						(item) => item.id === managerPreset.tenantId
+					)?.enable
+					if (!presetReady.value)
+						presetError.value =
+							'指定工作空间不存在或已停用，请返回空间人员页面。'
 				}
-				data.value = res.data
-				completeStorageSourceList()
-			})
-		} else {
-			completeStorageSourceList()
+				if (permissionTargetSelected.value)
+					await Promise.all([loadPermissionList(), completeStorageSourceList()])
+			}
+			editorReady.value = true
+		} catch {
+			editorError.value =
+				'账号或授权信息加载失败，请返回空间人员重新选择，或刷新后重试。'
 		}
 	}
 
-	const completeStorageSourceList = () => {
-		loadStorageListReq().then((res) => {
-			let storageSourceList =
-				isAdmin.value && data.value.tenantId
-					? res.data.filter((item) => item.tenantId === data.value.tenantId)
-					: res.data
-			let userStorageSourceList = data.value.userStorageSourceList
-			// 判断当前已经授权的存储源和所有存储源的差集，如果差集不为空，则说明有存储源被删除了，需要删除掉，否则会出现授权了但是没有存储源的情况
-			// 还要判断当前已经授权的存储源和所有存储源的交集，如果交集不为空，则说明有存储源被添加了，需要添加进去
-			let storageSourceIdList = storageSourceList.map((item) => item.id)
-			let userStorageSourceIdList = userStorageSourceList.map(
-				(item) => item.storageSourceId
+	const completeStorageSourceList = async () => {
+		const version = ++storageListVersion
+		const tenantId = data.value.tenantId
+		if (!permissionTargetSelected.value) {
+			if (!isGlobalAccount.value) data.value.userStorageSourceList = []
+			accessLoading.value = false
+			return
+		}
+		accessLoading.value = true
+		try {
+			const { data: sources } = await loadStorageListReq()
+			if (
+				version !== storageListVersion ||
+				tenantId !== data.value.tenantId ||
+				!permissionTargetSelected.value
 			)
-			let deleteStorageSourceIdList = userStorageSourceIdList.filter(
-				(item) => !storageSourceIdList.includes(item)
-			)
-			let addStorageSourceIdList = storageSourceIdList.filter(
-				(item) => !userStorageSourceIdList.includes(item)
-			)
-			// 删除掉
-			deleteStorageSourceIdList.forEach((storageSourceId) => {
-				let index = userStorageSourceList.findIndex(
-					(item) => item.storageSourceId === storageSourceId
+				return
+			const available = sources.filter((source) => source.tenantId === tenantId)
+			const existing = data.value.userStorageSourceList
+			data.value.userStorageSourceList = available.map((source) => {
+				const grant = existing.find(
+					(item) => item.storageSourceId === source.id
 				)
-				console.log(
-					'检测到存储源被删除，删除掉：',
-					userStorageSourceList[index].storageSourceName
-				)
-				userStorageSourceList.splice(index, 1)
+				return grant
+					? { ...grant, storageSourceName: source.name }
+					: {
+							storageSourceId: source.id,
+							storageSourceName: source.name,
+							rootPath: '/',
+							...managedWorkspaceGrantDefaults(
+								currentUserId ? null : managerPreset,
+								source
+							),
+							new: true,
+					  }
 			})
-			// 添加进去
-			addStorageSourceIdList.forEach((storageSourceId) => {
-				let storageSource = storageSourceList.find(
-					(item) => item.id === storageSourceId
-				)
-				userStorageSourceList.push({
-					storageSourceId: storageSource.id,
-					storageSourceName: storageSource.name,
-					rootPath: '/',
-					...managedWorkspaceGrantDefaults(
-						currentUserId ? null : managerPreset,
-						storageSource
-					),
-					new: true,
-				})
-				console.log('检测到存储源被添加，添加进去：', storageSource.name)
-			})
-		})
+		} finally {
+			if (version === storageListVersion) accessLoading.value = false
+		}
 	}
 
-	return {
-		init,
-		completeStorageSourceList,
-	}
+	return { init, completeStorageSourceList }
 }
 
-const handleTenantChange = () => {
+const handleTenantChange = async () => {
 	data.value.userStorageSourceList = []
-	completeStorageSourceList()
+	showSetPermissionDialog.value = false
+	presetError.value = ''
+	try {
+		await Promise.all([loadPermissionList(), completeStorageSourceList()])
+	} catch {
+		presetError.value = '当前空间的授权信息加载失败，请重新选择或刷新后重试。'
+	}
 }
-
 const userStorageSourceTableRef = ref(null)
 const getSelectedStorageSourceSize = computed(() => {
 	return userStorageSourceTableRef.value
@@ -612,7 +705,9 @@ function usePermissionData() {
 	const permissionMap = ref({})
 
 	const loadPermissionList = () => {
-		getPermissionListReq().then((res) => {
+		if (!permissionTargetSelected.value || permissionList.value.length)
+			return Promise.resolve()
+		return getPermissionListReq().then((res) => {
 			permissionList.value = res.data
 			permissionMap.value = res.data.reduce((map, item) => {
 				map[item.value] = item
@@ -630,22 +725,28 @@ function usePermissionData() {
 	const currentOpenRow = ref(null)
 
 	const setFromUserDefaultPermission = () => {
-		currentOpenPermissions.value = data.value.defaultPermissions
+		if (!canEditPermissions.value) return
+		currentOpenPermissions.value = [...data.value.defaultPermissions]
 	}
 
 	// 打开设置权限列表对话框，row 为要设置的存储源，如果 row 为空，则表示设置选中的存储源
 	const openSetPermissionDialog = (row) => {
+		if (!canEditPermissions.value || accessLoading.value) return
 		showSetPermissionDialog.value = true
 		currentOpenRow.value = row
-		currentOpenPermissions.value = row ? row.permissions : []
+		currentOpenPermissions.value = [...(row?.permissions || [])]
 	}
 
 	const enterSetPermissionDialog = () => {
+		if (!canEditPermissions.value || accessLoading.value) {
+			showSetPermissionDialog.value = false
+			return
+		}
 		if (currentOpenRow.value) {
-			currentOpenRow.value.permissions = currentOpenPermissions.value
+			currentOpenRow.value.permissions = [...currentOpenPermissions.value]
 		} else {
 			userStorageSourceTableRef.value.getSelectionRows().forEach((row) => {
-				row.permissions = currentOpenPermissions.value
+				row.permissions = [...currentOpenPermissions.value]
 			})
 		}
 		showSetPermissionDialog.value = false
@@ -668,6 +769,7 @@ const allowUseCommon = computed({
 		return data.value.userStorageSourceList.every((item) => item.enable)
 	},
 	set: (value) => {
+		if (!canEditPermissions.value) return
 		data.value.userStorageSourceList.forEach((item) => {
 			item.enable = value
 		})
@@ -690,6 +792,31 @@ const allowUseCommon = computed({
 	:deep(.el-checkbox__label) {
 		@apply align-top;
 	}
+}
+.user-editor-unavailable {
+	padding: 24px;
+	border: 1px solid var(--cloud-line);
+	border-radius: 16px;
+	background: var(--cloud-soft);
+	h2 {
+		margin-bottom: 10px;
+		font-size: 18px;
+		font-weight: 600;
+	}
+	p {
+		margin-bottom: 16px;
+		color: var(--cloud-muted);
+		line-height: 1.8;
+	}
+	a {
+		color: var(--cloud-primary);
+		text-decoration: underline;
+		text-underline-offset: 3px;
+	}
+}
+.user-editor-loading {
+	padding: 24px;
+	color: var(--cloud-muted);
 }
 </style>
 

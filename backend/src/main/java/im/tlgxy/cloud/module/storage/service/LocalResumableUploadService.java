@@ -26,6 +26,8 @@ import java.util.concurrent.Semaphore;
 @Service
 @Slf4j
 public class LocalResumableUploadService {
+    @jakarta.annotation.Resource
+    private im.tlgxy.cloud.module.tenant.service.MemberStorageQuotaService memberQuota;
     public static final int CHUNK_SIZE = 4 * 1024 * 1024;
     public static final long MAX_FILE_SIZE = 2L * 1024 * 1024 * 1024;
     private static final long TTL_MS = Duration.ofHours(24).toMillis();
@@ -243,12 +245,23 @@ public class LocalResumableUploadService {
                         Integer claimed = transactions.execute(status -> jdbc.update("UPDATE resumable_upload_session SET state='COMPLETING',updated_at=? WHERE id=? AND actor_id=? AND state='OPEN' AND expires_at>?", clock.millis(), id, actor, clock.millis()));
                         if (!Integer.valueOf(1).equals(claimed)) throw new BizException("上传状态已变化，请重新检查状态");
                         // Committed BEFORE touching the target. An interrupted/failed publication is not replayed.
+                        var mutationAttempted = new java.util.concurrent.atomic.AtomicBoolean(false);
+                        var checkingQuota = new java.util.concurrent.atomic.AtomicBoolean(false);
                         try {
                             current = authorize(upload, password);
                             checkedPath(folder, "assembled.pending");
                             // CREATE_NEW reserves the final path atomically; plain rename can replace a
                             // competing target on Unix even when Files.move omitted REPLACE_EXISTING.
-                            LocalResumablePublication.publish(assembled, current.target(), upload.size());
+                            Path publishTarget = current.target();
+                            if (memberQuota == null) { mutationAttempted.set(true); LocalResumablePublication.publish(assembled, publishTarget, upload.size()); }
+                            else {
+                                checkingQuota.set(true);
+                                try {
+                                    memberQuota.write(actor, im.tlgxy.cloud.module.storage.context.StorageSourceContext.getByStorageKey(upload.storageKey()),
+                                            upload.size(), () -> { mutationAttempted.set(true); LocalResumablePublication.publish(assembled, publishTarget, upload.size()); return null; });
+                                } catch (RuntimeException | IOException failure) { throw failure; }
+                                catch (Throwable failure) { throw new IOException("Member capacity publication failed", failure); }
+                            }
                             current = authorize(upload, password); // Copying large files may span a revocation.
                             if (Files.size(current.target()) != upload.size())
                                 throw new IOException("Published target changed before receipt");
@@ -256,6 +269,10 @@ public class LocalResumableUploadService {
                             if (jdbc.update("UPDATE resumable_upload_session SET state='COMPLETED',updated_at=? WHERE id=? AND actor_id=? AND state='COMPLETING'", clock.millis(), id, actor) != 1)
                                 throw new IllegalStateException("Publication receipt unavailable");
                         } catch (RuntimeException | IOException uncertain) {
+                            if (checkingQuota.get() && !mutationAttempted.get() && uncertain instanceof BizException blocked) {
+                                jdbc.update("UPDATE resumable_upload_session SET state='OPEN',updated_at=? WHERE id=? AND actor_id=? AND state='COMPLETING'", clock.millis(), id, actor);
+                                throw blocked;
+                            }
                             log.warn("Resumable publication needs manual verification ({})", uncertain.getClass().getSimpleName());
                             throw new BizException("完成结果待核查，请检查目标目录；系统不会自动重复写入或覆盖文件");
                         }

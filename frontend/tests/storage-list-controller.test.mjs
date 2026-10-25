@@ -8,6 +8,8 @@ import {
 	reorderStorageItems,
 	storageCommittedFailureMessage,
 	storageListErrorMessage,
+	storageStatusCounts,
+	normalizeStorageStatusFilter,
 } from '../src/utils/storage-list-controller.mjs'
 
 const deferred = () => {
@@ -254,6 +256,47 @@ test('error descriptions are actionable and do not expose raw backend diagnostic
 	assert.doesNotMatch(
 		storageListErrorMessage(new Error('secret debug info')),
 		/secret/
+	)
+})
+
+test('status filters require explicit booleans and combine with the original text match without reordering', () => {
+	const items = [
+		{ id: 1, name: 'Course Local', enable: true },
+		{
+			id: 2,
+			name: 'Archive',
+			enable: false,
+			refreshTokenInfo: { success: false },
+		},
+		{
+			id: 3,
+			name: 'Archive Two',
+			enable: true,
+			refreshTokenInfo: { success: true },
+		},
+		{
+			id: 4,
+			name: 'Unknown',
+			enable: null,
+			refreshTokenInfo: { success: null },
+		},
+	]
+	assert.deepEqual(storageStatusCounts(items), {
+		all: 4,
+		enabled: 2,
+		disabled: 1,
+		'token-error': 1,
+	})
+	assert.deepEqual(filterStorageItems(items, ' archive ', 'enabled'), [
+		items[2],
+	])
+	assert.deepEqual(filterStorageItems(items, '', 'token-error'), [items[1]])
+	assert.deepEqual(filterStorageItems(items, '', 'disabled'), [items[1]])
+	assert.equal(normalizeStorageStatusFilter('arbitrary'), 'all')
+	assert.equal(filterStorageItems(items, '', 'arbitrary'), items)
+	assert.deepEqual(
+		items.map(({ id }) => id),
+		[1, 2, 3, 4]
 	)
 })
 

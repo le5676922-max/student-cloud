@@ -70,6 +70,10 @@ public class UserStorageSource implements Serializable {
     @TableField(value = "root_path")
     private String rootPath;
 
+    /** Per-member per-source capacity, controlled by the workspace administrator. */
+    @TableField(value = "quota_bytes")
+    private Long quotaBytes;
+
     /**
      * 是否启用
      * <p>

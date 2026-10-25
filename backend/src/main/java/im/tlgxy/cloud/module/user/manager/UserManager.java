@@ -2,6 +2,7 @@ package im.tlgxy.cloud.module.user.manager;
 
 import im.tlgxy.cloud.core.util.CollectionUtils;
 import im.tlgxy.cloud.core.util.StringUtils;
+import im.tlgxy.cloud.core.exception.core.BizException;
 import im.tlgxy.cloud.module.user.mapper.UserMapper;
 import im.tlgxy.cloud.module.user.mapper.UserStorageSourceMapper;
 import im.tlgxy.cloud.module.user.model.dto.UserStorageSourceDetailDTO;
@@ -12,6 +13,7 @@ import im.tlgxy.cloud.module.user.model.constant.UserConstant;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import im.tlgxy.cloud.module.user.model.response.UserDetailResponse;
 import im.tlgxy.cloud.module.user.service.UserStorageSourceService;
+import im.tlgxy.cloud.module.user.service.UserStoragePermissionPolicy;
 import im.tlgxy.cloud.module.tenant.service.WorkspaceStorageProvisioningService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -66,6 +68,7 @@ public class UserManager {
      * 1. 如果用户 ID 为空则新增用户，否则更新已有用户
      * 2. 删除该用户原有的所有存储策略权限
      * 3. 插入新的存储策略权限列表
+     * 全局管理员只更新账号资料，权限固定，不替换历史授权记录。
      * 操作完成后会清除用户存储源权限缓存。
      * </p>
      *
@@ -79,6 +82,15 @@ public class UserManager {
     public void saveUserInfo(User user, List<UserStorageSource> userStorageSourceList) {
         // 保存或新增用户
         Integer userId = user.getId();
+        if (user.getRole() == UserRoleEnum.ADMIN) {
+            if (userId == null) {
+                throw new BizException("全局管理员仅支持更新已有账号资料");
+            }
+            user.setEnable(true);
+            user.setDefaultPermissions(standardAdministratorPermissions());
+            userMapper.updateById(user);
+            return;
+        }
         boolean newWorkspaceAdministrator = userId == null && user.getRole() == UserRoleEnum.TENANT_ADMIN;
         if (userId == null) {
             // 新增用户：插入后 MyBatis 会自动回填 ID
@@ -96,6 +108,23 @@ public class UserManager {
             userStorageSourceMapper.insert(userStorageSource);
         }
         if (newWorkspaceAdministrator) workspaceStorage.grantToNewWorkspaceAdministrator(user);
+    }
+
+    /** Global account edits preserve existing workspace grants. New managers receive only their managed shared drive. */
+    @Caching(evict = @CacheEvict(cacheNames = UserStorageSourceService.USER_STORAGE_SOURCE_CACHE_KEY, allEntries = true))
+    @Transactional(rollbackFor = Exception.class)
+    public void saveAccountProfile(User user) {
+        if (user.getRole() == UserRoleEnum.ADMIN) {
+            if (user.getId() == null) throw new BizException("全局管理员仅支持更新已有账号资料");
+            user.setEnable(true);
+            user.setDefaultPermissions(standardAdministratorPermissions());
+        }
+        if (user.getId() == null) {
+            userMapper.insert(user);
+            if (user.getRole() == UserRoleEnum.TENANT_ADMIN) workspaceStorage.grantToNewWorkspaceAdministrator(user);
+        } else {
+            userMapper.updateById(user);
+        }
     }
 
 
@@ -166,14 +195,15 @@ public class UserManager {
                 .and(query -> query.eq(User::getTenantId, tenantId)
                         .or().eq(User::getRole, UserRoleEnum.ADMIN))
                 .ne(User::getId, UserConstant.ANONYMOUS_ID)
-                .in(User::getRole, UserRoleEnum.ADMIN, UserRoleEnum.TENANT_ADMIN, UserRoleEnum.USER));
+                .in(User::getRole, UserRoleEnum.ADMIN, UserRoleEnum.TENANT_ADMIN));
         for (User user : users) {
-            if (UserConstant.ANONYMOUS_ID.equals(user.getId())
-                    || user.getRole() == null || !user.getRole().isLoginRole()) {
+            if (user.getId() == null || user.getId() == 0 || UserConstant.ANONYMOUS_ID.equals(user.getId())
+                    || (user.getRole() != UserRoleEnum.ADMIN && user.getRole() != UserRoleEnum.TENANT_ADMIN)
+                    || (user.getRole() == UserRoleEnum.TENANT_ADMIN && !java.util.Objects.equals(tenantId, user.getTenantId()))) {
                 continue;
             }
             // 获取用户的默认权限集合
-            Set<String> defaultPermissions = user.getDefaultPermissions();
+            Set<String> defaultPermissions = standardAdministratorPermissions();
             UserStorageSource userStorageSource = new UserStorageSource();
             userStorageSource.setUserId(user.getId());
             userStorageSource.setStorageSourceId(storageId);
@@ -185,6 +215,10 @@ public class UserManager {
             userStorageSourceMapper.insert(userStorageSource);
             log.info("为用户添加存储源的默认权限: username: {}, storageId: {}, defaultPermissions: {}", user.getUsername(), storageId, defaultPermissions);
         }
+    }
+
+    private static Set<String> standardAdministratorPermissions() {
+        return UserStoragePermissionPolicy.regularAdministratorPermissions();
     }
 
 }

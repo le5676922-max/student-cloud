@@ -21,6 +21,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.resource.ResourceHttpRequestHandler;
+import org.springframework.web.socket.server.support.WebSocketHttpRequestHandler;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -72,11 +73,15 @@ public class SaTokenConfigure implements WebMvcConfigurer {
         registry.addInterceptor(new SaInterceptor(handle -> {
             requireAuthenticatedRequest(handle);
             // 匹配所有 /admin/** 请求（不包括 /admin 本身）
-            SaRouter.match("/admin/**", this::requireFreshSystemAdmin);
+            SaRouter.match("/admin/**", () -> {
+                if (isWorkspaceStorageEndpoint(RequestHolder.getRequest().getMethod(), RequestHolder.getRequest().getServletPath()))
+                    requireFreshStorageAdministrator();
+                else requireFreshSystemAdmin();
+            });
             // These are global storage-configuration tools, not public OAuth callbacks.
             // Enforce before request-body binding or any outbound provider request.
             for (String helperPath : new String[]{"/s3/**", "/gd/**", "/sharepoint/**", "/115/**"}) {
-                SaRouter.match(helperPath, this::requireFreshSystemAdmin);
+                SaRouter.match(helperPath, this::requireFreshStorageAdministrator);
             }
 
         })).addPathPatterns("/**");
@@ -89,6 +94,11 @@ public class SaTokenConfigure implements WebMvcConfigurer {
 
     /** Deny every business controller by default, including links and signed downloads. */
     private void requireAuthenticatedRequest(Object handler) {
+        // Browser websockets cannot attach our ordinary token header. Only this
+        // exact handler authenticates with a one-use ticket in its handshake.
+        if (handler instanceof WebSocketHttpRequestHandler
+                && "GET".equals(RequestHolder.getRequest().getMethod())
+                && "/ws/support".equals(RequestHolder.getRequest().getServletPath())) return;
         // Frontend assets are public; unknown handler types still require authentication.
         // The existing CORS filter handles preflight requests before they reach MVC.
         if (handler instanceof ResourceHttpRequestHandler) return;
@@ -153,6 +163,24 @@ public class SaTokenConfigure implements WebMvcConfigurer {
         if (!userService.isAdmin(StpUtil.getLoginIdAsInt())) {
             throw new NotRoleException("admin", StpUtil.getLoginType());
         }
+    }
+
+    static boolean isWorkspaceStorageEndpoint(String method, String path) {
+        return ("GET".equals(method) && Set.of("/admin/storages", "/admin/support-storage", "/admin/storage-params",
+                "/admin/storage/exist/key").contains(path))
+                || ("GET".equals(method) && path.matches("/admin/storage/[0-9]+"))
+                || ("POST".equals(method) && Set.of("/admin/storage", "/admin/storage/test-connection", "/admin/storage/sort", "/admin/storage/copy").contains(path))
+                || ("POST".equals(method) && path.matches("/admin/storage/[0-9]+/(?:enable|disable)"))
+                || ("POST".equals(method) && path.matches("/admin/storage/[0-9]+/compatibility_readme/(?:true|false)"))
+                || ("DELETE".equals(method) && path.matches("/admin/storage/[0-9]+"));
+    }
+
+    private void requireFreshStorageAdministrator() {
+        StpUtil.checkLogin();
+        var actor = userService.requireLoginUser(StpUtil.getLoginIdAsInt());
+        if (actor.getRole() != im.tlgxy.cloud.module.user.model.enums.UserRoleEnum.ADMIN
+                && actor.getRole() != im.tlgxy.cloud.module.user.model.enums.UserRoleEnum.TENANT_ADMIN)
+            throw new NotRoleException("storage-administrator", StpUtil.getLoginType());
     }
 
 }

@@ -19,15 +19,18 @@ class StorageMetadataAuthorizationTest {
         var service = new StorageSourceService();
         var mapper = mock(StorageSourceMapper.class);
         var security = mock(TenantSecurityService.class);
+        var actor = new im.tlgxy.cloud.module.user.model.entity.User();
+        actor.setId(1); actor.setRole(im.tlgxy.cloud.module.user.model.enums.UserRoleEnum.ADMIN);
+        when(security.requireStorageAdministrator()).thenReturn(actor);
         ReflectionTestUtils.setField(service, "storageSourceMapper", mapper);
         ReflectionTestUtils.setField(service, "tenantSecurityService", security);
         ReflectionTestUtils.setField(service, "storageMetadataCache", new MemoryStorageMetadataCache(Duration.ofSeconds(120)));
         when(mapper.findAllOrderByOrderNum()).thenReturn(List.of(StorageMetadataCacheTest.source("Allowed")));
         assertEquals("Allowed", service.findManageableOrderByOrderNum().getFirst().getName());
         service.findManageableOrderByOrderNum();
-        verify(security, times(2)).requireSystemAdmin();
+        verify(security, times(2)).requireStorageAdministrator();
         verify(mapper).findAllOrderByOrderNum();
-        doThrow(new BizException("Role revoked")).when(security).requireSystemAdmin();
+        doThrow(new BizException("Role revoked")).when(security).requireStorageAdministrator();
         assertThrows(BizException.class, service::findManageableOrderByOrderNum);
         verify(mapper).findAllOrderByOrderNum();
     }

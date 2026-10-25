@@ -64,7 +64,7 @@
 				:model-value="config.readonly"
 				:disabled="disabled"
 				size="small"
-				@update:model-value="updateConfig('readonly', $event)"
+				@update:model-value="updateConfig('readonly', $event === true)"
 			>
 			</el-checkbox>
 		</div>
@@ -75,7 +75,7 @@
 				:model-value="config.lineWrapping"
 				:disabled="disabled"
 				size="small"
-				@update:model-value="updateConfig('lineWrapping', $event)"
+				@update:model-value="updateConfig('lineWrapping', $event === true)"
 			>
 			</el-checkbox>
 		</div>
@@ -86,7 +86,7 @@
 				:model-value="config.autofocus"
 				:disabled="disabled"
 				size="small"
-				@update:model-value="updateConfig('autofocus', $event)"
+				@update:model-value="updateConfig('autofocus', $event === true)"
 			>
 			</el-checkbox>
 		</div>
@@ -97,7 +97,7 @@
 				:model-value="config.indentWithTab"
 				:disabled="disabled"
 				size="small"
-				@update:model-value="updateConfig('indentWithTab', $event)"
+				@update:model-value="updateConfig('indentWithTab', $event === true)"
 			>
 			</el-checkbox>
 		</div>

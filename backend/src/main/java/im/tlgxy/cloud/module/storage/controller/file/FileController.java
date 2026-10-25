@@ -9,35 +9,24 @@ import im.tlgxy.cloud.core.util.AjaxJson;
 import im.tlgxy.cloud.core.util.TlgxyCloudAuthUtil;
 import im.tlgxy.cloud.module.storage.annotation.CheckPassword;
 import im.tlgxy.cloud.module.storage.annotation.ProCheck;
-import im.tlgxy.cloud.module.storage.chain.FileChain;
-import im.tlgxy.cloud.module.storage.chain.FileContext;
-import im.tlgxy.cloud.module.storage.context.StorageSourceContext;
+import im.tlgxy.cloud.module.storage.application.DirectoryListingApplicationService;
+import im.tlgxy.cloud.module.storage.application.port.StorageDriverRegistry;
 import im.tlgxy.cloud.module.storage.convert.StorageSourceConvert;
 import im.tlgxy.cloud.module.storage.model.entity.StorageSource;
 import im.tlgxy.cloud.module.storage.model.request.base.FileItemRequest;
 import im.tlgxy.cloud.module.storage.model.request.base.FileListRequest;
-import im.tlgxy.cloud.module.storage.model.request.base.SearchStorageRequest;
 import im.tlgxy.cloud.module.storage.model.result.FileInfoResult;
 import im.tlgxy.cloud.module.storage.model.result.FileItemResult;
 import im.tlgxy.cloud.module.storage.model.result.StorageSourceResult;
 import im.tlgxy.cloud.module.storage.service.StorageSourceService;
-import im.tlgxy.cloud.module.storage.service.DirectoryPageService;
-import im.tlgxy.cloud.module.storage.service.DirectoryAccessGuard;
-import im.tlgxy.cloud.module.storage.service.DirectoryMetadataCache;
-import im.tlgxy.cloud.module.storage.service.DirectoryMetadataProvider;
-import im.tlgxy.cloud.module.storage.service.NativeDirectoryCursorService;
-import im.tlgxy.cloud.core.cache.ratelimit.ApiRateLimiter;
-import im.tlgxy.cloud.module.storage.model.enums.FileTypeEnum;
 import im.tlgxy.cloud.module.storage.service.base.AbstractBaseFileService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Objects;
 
 /**
  * 文件列表接口控制器。
@@ -58,28 +47,18 @@ import java.util.Objects;
 @RestController
 public class FileController {
 
-	/**
-	 * 存储源服务，用于查询存储源信息和根据 key 查找 ID。
-	 */
-	@Resource
-	private StorageSourceService storageSourceService;
+	private final StorageSourceService storageSourceService;
+	private final StorageSourceConvert storageSourceConvert;
+	private final DirectoryListingApplicationService directoryListing;
+	private final StorageDriverRegistry storageDrivers;
 
-    @Resource private DirectoryMetadataCache directoryMetadataCache;
-    @Resource private DirectoryAccessGuard directoryAccessGuard;
-    @Resource private NativeDirectoryCursorService nativeDirectoryCursors;
-    @Resource private ApiRateLimiter apiRateLimiter;
-
-	/**
-	 * 文件处理责任链，对文件列表进行权限校验、密码校验、隐藏过滤和排序等处理。
-	 */
-	@Resource
-	private FileChain fileChain;
-
-	/**
-	 * 存储源对象转换器，用于 entity 与前端展示对象之间的转换。
-	 */
-	@Resource
-	private StorageSourceConvert storageSourceConvert;
+	public FileController(StorageSourceService storageSourceService, StorageSourceConvert storageSourceConvert,
+						  DirectoryListingApplicationService directoryListing, StorageDriverRegistry storageDrivers) {
+		this.storageSourceService = storageSourceService;
+		this.storageSourceConvert = storageSourceConvert;
+		this.directoryListing = directoryListing;
+		this.storageDrivers = storageDrivers;
+	}
 
 	/**
 	 * 获取当前用户可访问的存储源列表。
@@ -104,12 +83,8 @@ public class FileController {
 	/**
 	 * 获取指定存储源下某个路径的文件和文件夹列表。
 	 *
-	 * 处理流程：
-	 * 1. 根据存储源 key 查找对应的存储源 ID 和文件服务实例；
-	 * 2. 调用文件服务的 fileList 方法获取原始文件列表；
-	 * 3. 构建 {@link FileContext} 上下文，交由 {@link FileChain} 责任链处理；
-	 * 4. 责任链依次执行权限校验、密码校验、隐藏过滤、排序、下载权限校验等命令；
-	 * 5. 返回处理后的文件列表和密码路径表达式。
+	 * 仅负责当前用户识别和响应包装；目录查询应用服务统一编排普通/快速分页、
+	 * 密码及权限校验、缓存和当前页下载地址，保持前端接口与 DTO 不变。
 	 *
 	 * @param   fileListRequest
 	 *          文件列表请求参数，包含 storageKey、path、password、排序参数等
@@ -123,92 +98,8 @@ public class FileController {
 	@Operation(summary = "获取文件列表", description = "获取某个存储源下, 指定路径的文件&文件夹列表")
 	@PostMapping("/files")
 	public AjaxJson<FileInfoResult> list(@Valid @RequestBody FileListRequest fileListRequest) throws Exception {
-		String storageKey = fileListRequest.getStorageKey();
-		Integer storageId = storageSourceService.findIdByKey(storageKey);
-		if (storageId == null) {
-			throw new InvalidStorageSourceBizException(storageKey);
-		}
-
-		// 处理请求参数默认值（如未指定排序字段和方向时设置默认值）
-		fileListRequest.handleDefaultValue();
-
-		// 获取存储源文件服务实例并查询文件列表
-		AbstractBaseFileService<?> fileService = StorageSourceContext.getByStorageId(storageId);
-        int userId = TlgxyCloudAuthUtil.getCurrentUserId();
-        if (fileListRequest.isNativePagination()) return nativeList(fileListRequest, storageId, fileService, userId);
-        DirectoryMetadataProvider provider = fileListRequest.getPageSize() != null
-                && fileService instanceof DirectoryMetadataProvider metadata ? metadata : null;
-        DirectoryAccessGuard.Grant grant = provider == null ? null
-                : directoryAccessGuard.require(userId, storageId, fileService.getCurrentUserBasePath());
-        List<FileItemResult> fileItemList;
-        if (provider == null) {
-            fileItemList = fileService.fileList(fileListRequest.getPath());
-        } else {
-            String root = grant.root();
-            fileItemList = directoryMetadataCache.list(fileService, userId, root, fileListRequest.getPath(),
-                    fileListRequest.isRefreshMetadata(), () -> provider.directoryMetadata(fileListRequest.getPath(), root));
-            // Internal marker preserves the existing permission chain and cursor's URL-availability hash.
-            // It is removed/replaced below and is never returned to the client or stored in the cache.
-            fileItemList.stream().filter(file -> file.getType() == FileTypeEnum.FILE && grant.canReadFile())
-                    .forEach(file -> file.setUrl("directory-page-pending"));
-        }
-
-		// 构建文件处理上下文并执行责任链处理（权限校验、密码校验、隐藏过滤、排序等）
-		FileContext fileContext = FileContext.builder()
-				.storageId(storageId)
-				.fileListRequest(fileListRequest)
-				.fileItemList(fileItemList)
-				.fileService(fileService)
-				.build();
-		fileChain.execute(fileContext);
-
-		// 返回处理后的文件列表和密码路径表达式（供前端判断子目录的密码保护范围）
-        FileInfoResult page = DirectoryPageService.page(fileContext.getFileItemList(), fileContext.getPasswordPattern(),
-                fileListRequest, userId, grant == null ? fileService.getCurrentUserBasePath() : grant.root());
-        if (provider != null) {
-            page.setNativePaginationAvailable(provider.supportsNativePagination());
-            DirectoryAccessGuard.Grant latest = directoryAccessGuard.require(userId, storageId, fileService.getCurrentUserBasePath());
-            if (!Objects.equals(grant, latest)) throw new BizException(ErrorCode.BIZ_DIRECTORY_CHANGED);
-            List<FileItemResult> readable = page.getFiles().stream()
-                    .filter(file -> file.getType() == FileTypeEnum.FILE && "directory-page-pending".equals(file.getUrl())).toList();
-            provider.hydrateDirectoryPage(readable, grant.root());
-        }
-        return AjaxJson.getSuccessData(page);
+		return AjaxJson.getSuccessData(directoryListing.list(fileListRequest, TlgxyCloudAuthUtil.getCurrentUserId()));
 	}
-
-    private AjaxJson<FileInfoResult> nativeList(FileListRequest request, int storageId,
-                                               AbstractBaseFileService<?> fileService, int actor) throws Exception {
-        NativeDirectoryCursorService.validate(request);
-        if (!(fileService instanceof DirectoryMetadataProvider provider) || !provider.supportsNativePagination()) {
-            throw new BizException("此存储源暂不支持快速分页，请切换普通浏览");
-        }
-        var grant = directoryAccessGuard.require(actor, storageId, fileService.getCurrentUserBasePath());
-        if (!apiRateLimiter.allow("native-directory-list", Integer.toString(actor), 120, 60_000)) {
-            throw new BizException(ErrorCode.BIZ_ACCESS_TOO_FREQUENT);
-        }
-        // Verify path/password before any provider request, then run the same chain on the returned page.
-        FileContext context = FileContext.builder().storageId(storageId).fileListRequest(request)
-                .fileItemList(List.of()).fileService(fileService).build();
-        fileChain.execute(context);
-        long generation = directoryMetadataCache.generation();
-        var position = nativeDirectoryCursors.resolve(request, fileService, actor, grant.root(), generation);
-        var remotePage = provider.nativeDirectoryPage(request.getPath(), grant.root(), request.getPageSize(), position.providerToken());
-        List<FileItemResult> files = new java.util.ArrayList<>(remotePage.files());
-        files.stream().filter(file -> file.getType() == FileTypeEnum.FILE && grant.canReadFile())
-                .forEach(file -> file.setUrl("directory-page-pending"));
-        context.setFileItemList(files);
-        fileChain.execute(context); // Current hidden/download rules, never a cached grant.
-        var latest = directoryAccessGuard.require(actor, storageId, fileService.getCurrentUserBasePath());
-        if (!Objects.equals(grant, latest) || directoryMetadataCache.generation() != generation) {
-            throw new BizException(ErrorCode.BIZ_DIRECTORY_CHANGED);
-        }
-        List<FileItemResult> readable = context.getFileItemList().stream()
-                .filter(file -> file.getType() == FileTypeEnum.FILE && "directory-page-pending".equals(file.getUrl())).toList();
-        provider.hydrateDirectoryPage(readable, grant.root());
-        FileInfoResult page = nativeDirectoryCursors.complete(position, request, fileService, actor, grant.root(),
-                directoryMetadataCache.generation(), context.getFileItemList(), context.getPasswordPattern(), remotePage.nextProviderToken());
-        return AjaxJson.getSuccessData(page);
-    }
 
 	/**
 	 * 获取单个文件的详细信息。
@@ -241,7 +132,7 @@ public class FileController {
 		fileItemRequest.handleDefaultValue();
 
 		// 获取存储源文件服务实例并查询单个文件信息
-		AbstractBaseFileService<?> fileService = StorageSourceContext.getByStorageId(storageId);
+		AbstractBaseFileService<?> fileService = storageDrivers.getByStorageId(storageId);
 
 		FileItemResult fileItemResult;
 		try {

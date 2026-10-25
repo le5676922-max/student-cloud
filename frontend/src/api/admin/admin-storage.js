@@ -96,7 +96,7 @@ export const testStorageConnectionReq = (data, config = {}) => {
 		url: '/admin/storage/test-connection',
 		method: 'post',
 		data,
-		config: { timeout: 22000, ...config },
+		config: { timeout: data?.verifyWrite ? 75000 : 22000, ...config },
 	})
 }
 

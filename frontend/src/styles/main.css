@@ -2,31 +2,39 @@
 @import './admin.scss';
 @import './error-page.css';
 @import './auth.css';
+@import './workspace-interactions.css';
 
 :root {
-	--cloud-ink: #273936;
-	--cloud-muted: #606c66;
-	--cloud-primary: #277566;
-	--cloud-primary-dark: #1e5e52;
-	--cloud-line: #e1e6df;
-	--cloud-canvas: #f6f5f1;
+	--cloud-ink: #242428;
+	--cloud-muted: #606067;
+	--cloud-primary: #262629;
+	--cloud-primary-dark: #121215;
+	--cloud-line: #dddde1;
+	--cloud-canvas: #efeff0;
 	--cloud-surface: #fff;
-	--cloud-soft: #e8f1ec;
-	--cloud-accent: #995a3f;
-	--el-color-primary: #277566;
-	--el-color-primary-light-3: #679e91;
-	--el-color-primary-light-5: #93bab2;
-	--el-color-primary-light-7: #bfd5d0;
-	--el-color-primary-light-8: #d4e3df;
-	--el-color-primary-light-9: #edf4f0;
-	--el-color-primary-dark-2: #1e5e52;
-	--el-text-color-primary: #273936;
-	--el-text-color-regular: #4f5e58;
-	--el-text-color-secondary: #606c66;
-	--el-border-color: #dce3db;
-	--el-border-color-light: #e7ebe5;
-	--el-fill-color-light: #f5f7f3;
-	--el-border-radius-base: 8px;
+	--cloud-soft: #f1f1f3;
+	--cloud-accent: #6d42f6;
+	--cloud-accent-ink: #5830bc;
+	--cloud-frame: #1c1d20;
+	--cloud-panel: #dedede;
+	--cloud-lilac: #f0ebff;
+	--cloud-warm: #fff0e7;
+	--cloud-radius: 20px;
+	--cloud-ease: cubic-bezier(0.22, 1, 0.36, 1);
+	--el-color-primary: #262629;
+	--el-color-primary-light-3: #67676c;
+	--el-color-primary-light-5: #949499;
+	--el-color-primary-light-7: #c4c4c8;
+	--el-color-primary-light-8: #dedee1;
+	--el-color-primary-light-9: #f1f1f3;
+	--el-color-primary-dark-2: #121215;
+	--el-text-color-primary: #242428;
+	--el-text-color-regular: #505058;
+	--el-text-color-secondary: #606067;
+	--el-border-color: #dddde1;
+	--el-border-color-light: #e9e9ec;
+	--el-fill-color-light: #f5f5f7;
+	--el-border-radius-base: 10px;
 }
 
 html,
@@ -48,7 +56,7 @@ body,
 }
 
 body {
-	background: var(--cloud-canvas);
+	background: var(--cloud-frame);
 }
 
 button,
@@ -77,17 +85,17 @@ a,
 .el-input__wrapper.is-focus,
 .el-select__wrapper.is-focused {
 	box-shadow: 0 0 0 1px var(--cloud-primary) inset,
-		0 0 0 3px rgba(39, 117, 102, 0.1) !important;
+		0 0 0 3px rgba(109, 66, 246, 0.12) !important;
 }
 
 /* Scope product-table treatment, leaving preview/editor layouts intact. */
 .cloud-workspace .el-table,
 .admin-shell .el-table,
 .workspace-page .el-table {
-	--el-table-header-bg-color: #f5f7f3;
-	--el-table-row-hover-bg-color: #f0f6f2;
-	--el-table-border-color: #e7ebe5;
-	--el-table-header-text-color: #66736c;
+	--el-table-header-bg-color: #f5f5f7;
+	--el-table-row-hover-bg-color: #f4f1fc;
+	--el-table-border-color: #e9e9ec;
+	--el-table-header-text-color: var(--cloud-muted);
 	--el-table-text-color: var(--cloud-ink);
 }
 
@@ -99,7 +107,7 @@ a,
 .workspace-page a:focus-visible,
 .learning-page button:focus-visible,
 .learning-page a:focus-visible {
-	outline: 2px solid var(--cloud-primary);
+	outline: 2px solid var(--cloud-accent);
 	outline-offset: 3px;
 }
 
@@ -118,7 +126,7 @@ a,
 }
 
 #nprogress .bar {
-	background: var(--cloud-primary);
+	background: var(--cloud-accent);
 
 	position: fixed;
 	z-index: 1031;
@@ -139,7 +147,7 @@ a,
 }
 
 ::-webkit-scrollbar-thumb {
-	background-color: #cbd3c9;
+	background-color: #c5c5cc;
 	border-radius: 10px;
 }
 

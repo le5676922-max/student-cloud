@@ -40,7 +40,7 @@ class ResumableUploadWorkflowTest {
     @DynamicPropertySource
     static void isolatedConfiguration(DynamicPropertyRegistry properties) {
         boolean mysql = MYSQL_URL != null && !MYSQL_URL.isBlank();
-        if (mysql && !MYSQL_URL.matches("jdbc:mysql://(?:127\\.0\\.0\\.1|localhost):3306/student_cloud_role_test_[a-z0-9_]+(?:\\?.*)?"))
+        if (mysql && !MYSQL_URL.matches("jdbc:mysql://(?:127\\.0\\.0\\.1|localhost):[0-9]{1,5}/student_cloud_role_test_[a-z0-9_]+(?:\\?.*)?"))
             throw new IllegalArgumentException("Only a dedicated local student_cloud_role_test_* database may be used");
         properties.add("spring.datasource.driver-class-name", () -> mysql ? "com.mysql.cj.jdbc.Driver" : "org.sqlite.JDBC");
         properties.add("spring.datasource.url", () -> mysql ? MYSQL_URL : "jdbc:sqlite:" + WORK.resolve("test.db"));
@@ -63,8 +63,10 @@ class ResumableUploadWorkflowTest {
         Path cloud = Files.createDirectory(WORK.resolve("cloud")); Files.createDirectory(cloud.resolve("members"));
         storage = ok(HttpMethod.POST, "/admin/storage", Map.of("name", "Upload fixture", "key", "resumable-local", "type", "local", "enable", true,
                 "storageSourceAllParam", Map.of("filePath", cloud.toString(), "domain", "", "proxyPrivate", true, "proxyTokenTime", 1800)), admin, null).asInt();
-        ownerId = ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", "upload-owner", "nickname", "Fixture owner", "password", "Test-password-123", "enable", true, "role", "USER", "tenantId", 1,
-                "userStorageSourceList", List.of(Map.of("storageSourceId", storage, "enable", true, "rootPath", "/members", "permissions", List.of("upload", "newFolder", "download", "preview")))), admin, null).path("id").asInt();
+        ownerId = ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", "upload-owner", "nickname", "Fixture owner", "password", "Test-password-123", "enable", true, "role", "USER", "tenantId", 1), admin, null).path("id").asInt();
+        // Permission fixtures belong to this disposable test database, not the global profile API.
+        jdbc.update("INSERT INTO user_storage_source(user_id,storage_source_id,root_path,enable,permissions) VALUES (?,?,?,1,'upload,newFolder,download,preview')", ownerId, storage, "/members/u" + ownerId);
+        Files.createDirectories(cloud.resolve("members/u" + ownerId));
         ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", "upload-other", "password", "Test-password-123", "enable", true, "role", "USER", "tenantId", 1), admin, null);
         owner = ok(HttpMethod.POST, "/user/login", Map.of("username", "upload-owner", "password", "Test-password-123"), null, null).path("token").asText();
         other = ok(HttpMethod.POST, "/user/login", Map.of("username", "upload-other", "password", "Test-password-123"), null, null).path("token").asText();
@@ -86,10 +88,10 @@ class ResumableUploadWorkflowTest {
         JsonNode completed = ok(HttpMethod.POST, PREFIX + "/" + id + "/complete", null, owner, PASSWORD);
         assertEquals("COMPLETED", completed.path("state").asText());
         assertTrue(completed.path("expiresAt").isIntegralNumber());
-        assertArrayEquals(content, Files.readAllBytes(cloud.resolve("members/报告.txt")));
+        assertArrayEquals(content, Files.readAllBytes(cloud.resolve("members/u" + ownerId + "/报告.txt")));
         assertEquals("COMPLETED", init("报告.txt", content).path("state").asText());
         ok(HttpMethod.DELETE, PREFIX + "/" + id, null, owner, PASSWORD);
-        assertArrayEquals(content, Files.readAllBytes(cloud.resolve("members/报告.txt")));
+        assertArrayEquals(content, Files.readAllBytes(cloud.resolve("members/u" + ownerId + "/报告.txt")));
         assertEquals(0L, jdbc.queryForObject("SELECT COALESCE(SUM(reserved_bytes),0) FROM resumable_upload_session", Long.class));
     }
 
@@ -103,7 +105,7 @@ class ResumableUploadWorkflowTest {
         HttpHeaders headers = headers(owner, PASSWORD); headers.setContentType(MediaType.APPLICATION_OCTET_STREAM); headers.set("X-Upload-Chunk-SHA256", digest(content));
         JsonNode denied = http.exchange(PREFIX + "/" + id + "/chunks/0", HttpMethod.PUT, new HttpEntity<>(content, headers), JsonNode.class).getBody();
         assertNotNull(denied); assertNotEquals("0", denied.path("code").asText());
-        assertFalse(Files.exists(WORK.resolve("cloud/members/revoked.bin")));
+        assertFalse(Files.exists(WORK.resolve("cloud/members/u" + ownerId + "/revoked.bin")));
         assertEquals("", jdbc.queryForObject("SELECT received_mask FROM resumable_upload_session WHERE id=?", String.class, id));
         jdbc.update("UPDATE user_storage_source SET enable=1 WHERE user_id=? AND storage_source_id=?", ownerId, storage);
         assertEquals("OPEN", ok(HttpMethod.GET, PREFIX + "/" + id, null, owner, PASSWORD).path("state").asText());
@@ -117,9 +119,37 @@ class ResumableUploadWorkflowTest {
         assertEquals("COMPLETING", ok(HttpMethod.GET, PREFIX + "/" + id, null, owner, PASSWORD).path("state").asText());
         assertEquals("COMPLETING", init("uncertain.bin", content).path("state").asText());
         assertEquals("COMPLETING", ok(HttpMethod.POST, PREFIX + "/" + id + "/complete", null, owner, PASSWORD).path("state").asText());
-        assertFalse(Files.exists(WORK.resolve("cloud/members/uncertain.bin")));
+        assertFalse(Files.exists(WORK.resolve("cloud/members/u" + ownerId + "/uncertain.bin")));
         ok(HttpMethod.DELETE, PREFIX + "/" + id, null, owner, PASSWORD);
     }
+
+    @Test @Order(4)
+    void capacityRejectionBeforePublicationKeepsTheVerifiedChunksRetryable() throws Exception {
+        byte[] bytes={7,8,9};String id=init("quota-retry.bin",bytes).path("id").asText();
+        HttpHeaders header=headers(owner,PASSWORD);header.setContentType(MediaType.APPLICATION_OCTET_STREAM);header.set("X-Upload-Chunk-SHA256",digest(bytes));
+        assertEquals("0",http.exchange(PREFIX+"/"+id+"/chunks/0",HttpMethod.PUT,new HttpEntity<>(bytes,header),JsonNode.class).getBody().path("code").asText());
+        jdbc.update("UPDATE user_storage_source SET quota_bytes=0 WHERE user_id=? AND storage_source_id=?",ownerId,storage);
+        assertNotEquals("0",response(HttpMethod.POST,PREFIX+"/"+id+"/complete",null,owner,PASSWORD).path("code").asText());
+        assertEquals("OPEN",ok(HttpMethod.GET,PREFIX+"/"+id,null,owner,PASSWORD).path("state").asText());
+        assertFalse(Files.exists(WORK.resolve("cloud/members/u"+ownerId+"/quota-retry.bin")));
+        jdbc.update("UPDATE user_storage_source SET quota_bytes=1048576 WHERE user_id=? AND storage_source_id=?",ownerId,storage);
+        assertEquals("COMPLETED",ok(HttpMethod.POST,PREFIX+"/"+id+"/complete",null,owner,PASSWORD).path("state").asText());
+        assertArrayEquals(bytes,Files.readAllBytes(WORK.resolve("cloud/members/u"+ownerId+"/quota-retry.bin")));
+    }
+
+    @Test @Order(5)
+    void normalProxyUploadCannotBypassProtectedDirectoryByForgingAUrl() {
+        var body=new org.springframework.util.LinkedMultiValueMap<String,Object>();
+        body.add("file",new org.springframework.core.io.ByteArrayResource(new byte[]{1,2,3}) { @Override public String getFilename(){return "protected.bin";} });
+        HttpHeaders missing=headers(owner,null);missing.setContentType(MediaType.MULTIPART_FORM_DATA);
+        String path="/file/upload/resumable-local/protected.bin";
+        assertNotEquals("0",http.exchange(path,HttpMethod.PUT,new HttpEntity<>(body,missing),JsonNode.class).getBody().path("code").asText());
+        assertFalse(Files.exists(WORK.resolve("cloud/members/u"+ownerId+"/protected.bin")));
+        HttpHeaders correct=headers(owner,PASSWORD);correct.setContentType(MediaType.MULTIPART_FORM_DATA);
+        assertEquals("0",http.exchange(path,HttpMethod.PUT,new HttpEntity<>(body,correct),JsonNode.class).getBody().path("code").asText());
+        assertArrayEquals(new byte[]{1,2,3},uncheckedFile("protected.bin"));
+    }
+    private byte[] uncheckedFile(String name) {try{return Files.readAllBytes(WORK.resolve("cloud/members/u"+ownerId+"/"+name));}catch(java.io.IOException error){throw new AssertionError(error);}}
 
     private JsonNode init(String name, byte[] content) throws Exception {
         String chunk = digest(content); String manifest = digest(chunk.getBytes(StandardCharsets.UTF_8));

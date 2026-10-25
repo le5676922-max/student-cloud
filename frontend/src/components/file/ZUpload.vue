@@ -203,13 +203,10 @@ const {
 import useStorageConfigStore from '~/stores/storage-config'
 let storageConfigStore = useStorageConfigStore()
 
-// 如果有上传完成的文件，关闭对话框时调用 close 方法刷新文件列表
-const emit = defineEmits(['close'])
+// Closing only clears completed history. Actual successful uploads publish a
+// captured-directory event, including work that finishes after this dialog closes.
 const closeDialog = () => {
-	let deleteCount = clearALlFinishedUploadFile()
-	if (deleteCount > 0) {
-		emit('close')
-	}
+	clearALlFinishedUploadFile()
 }
 
 // 监听拖拽上传
@@ -242,6 +239,20 @@ onMounted(() => {
 
 	:deep(.el-upload-dragger) {
 		@apply border-dashed border-2;
+		border-radius: 18px;
+		background: var(--cloud-soft);
+		transition: border-color 180ms ease, background-color 180ms ease;
+	}
+
+	:deep(.el-upload-dragger:hover),
+	:deep(.el-upload-dragger.is-dragover) {
+		border-color: var(--cloud-accent);
+		background: var(--cloud-lilac);
+	}
+
+	:deep(.el-upload:focus-visible) {
+		outline: 2px solid var(--cloud-accent);
+		outline-offset: 4px;
 	}
 
 	.drop-view {

@@ -57,6 +57,7 @@ class AiAgentServiceTest {
         assertEquals(1, result.getTools().size());
         assertTrue(result.getTools().getFirst().isSuccess());
         assertEquals(15, requests.getFirst().path("tools").size());
+        assertFalse(requests.getFirst().path("tools").toString().contains("suggest_human_support"));
         assertEquals(2048, requests.getFirst().path("max_tokens").asInt());
         assertFalse(requests.getFirst().has("thinking"), "Other providers must not receive DeepSeek extensions");
         assertFalse(requests.getLast().has("tools"), "After the round limit, model may only summarize");

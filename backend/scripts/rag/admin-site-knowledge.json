@@ -1,17 +1,19 @@
 [
   {
     "id": "admin-three-roles",
-    "title": "系统管理员、普通用户和访客的权限区别",
+    "title": "全局管理员、空间管理员和普通成员的权限边界",
     "tags": [
       "角色",
-      "用户管理",
-      "工作空间",
-      "访客",
-      "新用户默认权限"
+      "权限",
+      "ADMIN",
+      "TENANT_ADMIN",
+      "USER",
+      "空间管理员",
+      "全局管理员"
     ],
-    "source": "学生云盘三角色权限说明",
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/user/model/enums/UserRoleEnum.java",
     "audience": "admin",
-    "content": "系统只保留 ADMIN 系统管理员、USER 普通用户、GUEST 访客。只有内置系统管理员可进入后台管理用户、存储源、工作空间和系统设置；新增或 SSO 注册的账号只能是普通用户。访客代表未登录访问，不能设置密码登录或调用 Agent，其文件权限由系统管理员在访客授权中设置。新用户默认权限是不可登录的配置模板，不是额外角色。工作空间仅作为用户和存储分组。升级会保留旧账号和文件授权，并将旧工作空间管理员转为普通用户。"
+    "content": "当前可登录角色为 ADMIN 全局管理员、TENANT_ADMIN 工作空间管理员、USER 普通成员。GUEST 只兼容历史停用记录，不可作为登录或新增角色；业务默认要求登录，不开放匿名文件与分享访问。全局管理员管理站点、工作空间、存储连接和全局审计；空间管理员在 /workspace-admin 管理本空间成员、邀请码与加入申请，也能存储文件。用户课程索引和长期记忆归本人所有，全局后台不提供跨用户读取接口。新用户权限模板不是实际可登录账号。"
   },
   {
     "id": "admin-site-overview",
@@ -24,7 +26,7 @@
     ],
     "source": "学生云盘管理员后台使用说明",
     "audience": "admin",
-    "content": "管理员后台包含站点设置、存储源、显示设置、直链与短链、分享、下载日志、用户、单点登录、安全、访问控制和登录日志。本知识库围绕后台页面的实际操作、设置含义和常见使用问题提供帮助。"
+    "content": "全局管理员后台围绕全局总览、工作空间、按空间查看成员、存储源连接、分享审计、链接、站点安全、访问控制和日志诊断组织。日常成员新增、启停与加入审批由对应空间管理员在 /workspace-admin 处理，文件和个人课程在前台使用。角色边界由后端校验，不是隐藏菜单即可代替权限控制。"
   },
   {
     "id": "admin-enter-console",
@@ -36,9 +38,9 @@
       "返回首页",
       "后台首页"
     ],
-    "source": "学生云盘管理员后台使用说明",
+    "source": "frontend/src/layouts/admin.vue",
     "audience": "admin",
-    "content": "使用管理员账号登录后访问 `/admin`，系统会进入站点设置页。点击后台左上角 Logo 可按站点设置返回前台首页；普通用户没有管理员后台权限。"
+    "content": "全局管理员登录后访问 /admin，默认进入 /admin/overview 全局总览；空间管理员使用 /workspace-admin 管理本空间，不具备 /admin/** 全局接口权限。通过后台 Logo 或返回云盘入口回到前台进行文件操作。菜单名称和可见项由当前角色决定，不要把普通成员提升为全局管理员来解决存储授权问题。"
   },
   {
     "id": "admin-site-name",
@@ -157,9 +159,9 @@
       "目录文件太多",
       "分页"
     ],
-    "source": "学生云盘管理员后台使用说明",
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/storage/application/DirectoryListingApplicationService.java",
     "audience": "admin",
-    "content": "“默认最大显示文件数”决定首次加载上限，“每次加载更多文件数”决定后续批次。目录很大时不要设置过高，以免页面响应变慢；用户可通过加载更多继续查看。"
+    "content": "显示设置中的默认文件数和后续加载数量影响目录分页或旧版加载更多的展示批次。当前分页使用上一页/下一页，选择、画廊和连续播放仅针对当前页。普通模式仍可能完整枚举目录以进行全局排序与文件名筛选；驱动支持时可开启快速浏览，按存储源顺序原生分页，此时总数未知，搜索或排序会切回完整目录。不要把缩小页面数量当成底层扫描一定同比降低。"
   },
   {
     "id": "admin-default-sort",
@@ -613,9 +615,9 @@
       "查询用户",
       "用户状态"
     ],
-    "source": "学生云盘管理员后台使用说明",
+    "source": "frontend/src/pages/admin/user-list/index.vue",
     "audience": "admin",
-    "content": "进入“用户管理”，可按用户名、昵称、启用状态和创建时间筛选，并查看用户已授权存储源。列表支持新增、编辑、复制、启停和删除普通用户。"
+    "content": "全局后台“空间人员”先选工作空间，先展示空间管理员，普通成员默认折叠、展开后才分页查询。全局管理员总览归属与状态、管理账号资料，不设置任何成员的存储权限。成员新增、启停、加入审核和选定成员的权限设置均由本空间管理员在 /workspace-admin 处理。全局管理员自身常规文件权限固定，无需配置。停用空间不能新增管理员，私人文件与课程内容不在全局成员总览中展示。"
   },
   {
     "id": "admin-add-user",
@@ -626,9 +628,9 @@
       "用户名",
       "用户密码"
     ],
-    "source": "学生云盘管理员后台使用说明",
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/user/service/PublicRegistrationService.java",
     "audience": "admin",
-    "content": "在用户管理点击新增，填写唯一用户名、昵称和密码，设置默认权限、存储源授权及启用状态后保存。至少授权一个启用的存储源，用户登录后才有内容可用。"
+    "content": "在空间成员总览选择启用的工作空间后，可使用“新增空间管理员”；普通成员由本空间管理员在 /workspace-admin 新增，或通过邮箱注册和邀请加入。创建时校验唯一账号、昵称、密码、角色和空间归属，配置授权目录与权限；不能创建 GUEST 或通过普通注册获得 ADMIN。公共注册空间管理员会创建自己的新空间，无需人工审批。"
   },
   {
     "id": "admin-edit-user-password",
@@ -658,16 +660,16 @@
   },
   {
     "id": "admin-copy-user",
-    "title": "如何复制用户和权限",
+    "title": "当前空间成员总览是否支持复制账号",
     "tags": [
       "复制用户",
       "克隆用户",
       "复制权限",
       "新用户"
     ],
-    "source": "学生云盘管理员后台使用说明",
+    "source": "frontend/src/pages/admin/user-list/index.vue",
     "audience": "admin",
-    "content": "用户列表的复制功能会根据现有用户创建新账号并复制权限，需填写新用户名、昵称和密码。复制后检查存储授权根目录，避免把原用户的敏感目录直接开放给新用户。"
+    "content": "当前全局空间成员总览不提供复制普通成员的入口。需要相同授权的新成员时，由对应空间管理员在 /workspace-admin 创建或发出邀请码，创建后逐项核对授权根目录与操作权限；不能因为旧界面曾有“复制用户”说明，就推断新账号已经获准访问所有原目录。空间管理员账号由全局管理员在选定空间后新增或编辑。"
   },
   {
     "id": "admin-default-permissions",
@@ -681,7 +683,7 @@
     ],
     "source": "学生云盘管理员后台使用说明",
     "audience": "admin",
-    "content": "默认权限用于新增存储源授权时为该用户提供初始操作集合。已存在且单独设置过权限的存储授权不会自动跟随默认权限变化，应逐项检查或批量设置。"
+    "content": "工作空间管理员在 /workspace-admin 选择具体已入会成员，点击“设置权限”。“新增存储源默认权限”用于以后新增存储源时为该成员提供初始操作集合，不控制所有新注册账号；不能超过空间管理员自己可授予的默认权限。已有存储授权应逐项修改，不会跟随默认权限自动变化。全局后台只编辑资料，不设置成员权限；全局管理员自身常规文件权限由后端固定。"
   },
   {
     "id": "admin-storage-authorization",
@@ -694,7 +696,7 @@
     ],
     "source": "学生云盘管理员后台使用说明",
     "audience": "admin",
-    "content": "编辑用户，在“存储源授权”中找到目标存储源，填写授权根目录、开启“允许使用”并设置权限列表后保存。存储源本身也必须处于启用状态。"
+    "content": "只有工作空间管理员可以在 /workspace-admin 选择本空间已入会的普通成员并点击“设置权限”，开启目标存储源、填写根目录及操作权限后保存。只能授予管理员本人当前有权委派的本空间存储源、根目录或其子目录和操作权限，不可跨空间、修改自身或其他管理员，也不能授予忽略目录密码或隐藏规则的例外权限。全局管理员不设置成员权限，直接调用接口也会拒绝。"
   },
   {
     "id": "admin-root-path",
@@ -720,7 +722,7 @@
     ],
     "source": "学生云盘管理员后台使用说明",
     "audience": "admin",
-    "content": "默认权限是创建授权时的初始值，具体存储源行中的权限列表才控制该用户在该存储源的实际操作。排查按钮缺失时应打开对应存储源行的权限设置，而不只看默认权限。"
+    "content": "默认权限是新增存储源授权时的初始值，具体存储源行的启用、根目录和权限列表控制实际操作。普通成员授权由本空间管理员在 /workspace-admin 设置，应逐项检查存储源行，不只看默认权限。全局管理员不编辑成员权限，自身常规文件权限固定，不受历史禁用或收窄授权行限制，但仍遵守源停用、目录密码、隐藏和分享范围规则。"
   },
   {
     "id": "admin-file-permissions",
@@ -761,7 +763,7 @@
     ],
     "source": "学生云盘管理员后台使用说明",
     "audience": "admin",
-    "content": "“忽略密码”会跳过所有目录密码，“忽略隐藏”会绕过文件过滤规则。它们适合管理员或受信任维护账号，不应默认授予普通用户；测试密码或隐藏规则时必须关闭。"
+    "content": "历史“忽略密码”和“忽略隐藏”权限分别跳过目录密码和文件过滤规则。新的空间成员权限设置不提供这两种例外，也不允许通过接口委派。全局管理员的固定常规权限同样不包含这两项，不会因管理员身份自动跳过目录保护。未提交的历史授权不会被账号资料编辑悄悄重写。"
   },
   {
     "id": "admin-user-no-storage",
@@ -774,7 +776,7 @@
     ],
     "source": "学生云盘管理员后台使用说明",
     "audience": "admin",
-    "content": "检查用户是否启用、目标存储源是否启用、授权行是否开启“允许使用”、根目录是否存在，以及用户是否重新登录。能看到存储但不能操作时再检查对应权限列表。"
+    "content": "先确认账号、工作空间及目标存储源是否启用。普通成员的允许使用、根目录和操作权限由本空间管理员在 /workspace-admin 选择该成员后检查。空间管理员应检查自己已有授权，不能自行扩权。全局管理员负责存储连接和空间状态，不设置成员权限；自身无需单独分配存储授权，需检查连接、文件系统权限和目录保护规则。"
   },
   {
     "id": "admin-direct-link-setting",
@@ -908,16 +910,16 @@
   },
   {
     "id": "admin-login-visibility-guest",
-    "title": "是否显示登录入口和匿名首页如何设置",
+    "title": "未登录访问与旧访客配置如何处理",
     "tags": [
       "显示登录入口",
       "访客首页",
       "强制登录",
       "guestIndexHtml"
     ],
-    "source": "学生云盘管理员后台使用说明",
+    "source": "backend/src/main/java/im/tlgxy/cloud/core/config/security/SaTokenConfigure.java",
     "audience": "admin",
-    "content": "没有安全入口时可决定首页是否显示登录按钮。“访客首页显示”可填写 HTML 替代默认首页，也可跳转登录页；错误 HTML 或脚本可能造成匿名页面空白，保存前保留原内容。"
+    "content": "当前版本不开放访客或匿名业务访问，未登录默认进入登录页；分享、直链等业务也要求有效登录，不能通过旧访客首页 HTML 或显示登录按钮设置开放文件权限。历史 GUEST 记录与部分兼容字段不代表可启用角色。仅初始化状态、登录注册、验证码、重置密码等明确公开的接口可在未登录时使用；机器回调使用专用协议认证。"
   },
   {
     "id": "admin-login-log-mode",
@@ -1039,7 +1041,7 @@
     ],
     "source": "学生云盘管理员后台使用说明",
     "audience": "admin",
-    "content": "小芽支持当前账号范围的文件查询、查重、课程资料检索与有限范围概览、临时附件分析，并可生成文件分类整理、按日期重命名或课程批量归档任务。输入明确上传指令会打开本地文件选择，上传前确认目标并跳过已发现的同名文件。写入任务须在真实预览卡片中确认；每周规则到点只生成待确认预览。访客不能调用。聊天需配置模型服务，手动任务页 /agent-tasks 与课程管理不依赖模型 API。"
+    "content": "小芽可查询当前账号可访问文件、查重、检索项目帮助和本人的课程资料、分析临时附件并使用显式长期记忆，支持预览后确认的分类整理、日期重命名和课程批量归档。模型不能确认执行，也不能越权读取其他用户私人课程或记忆；管理员身份不改变这一点。明确上传指令先选本地文件并确认目标。每周规则仅生成待确认预览；聊天需配置模型，手动任务与课程管理不依赖聊天模型。"
   },
   {
     "id": "admin-page-blank",
@@ -1051,9 +1053,9 @@
       "接口错误",
       "Pinia"
     ],
-    "source": "学生云盘管理员后台使用说明",
+    "source": "frontend/vite.config.ts",
     "audience": "admin",
-    "content": "先确认前端 5173 和后端 8080 是否运行，再看浏览器控制台与网络请求。`/site/config/global` 请求地址错误通常与前端后端地址配置有关；运行时 JavaScript 错误应记录首个报错文件和行号。"
+    "content": "先确认前端实际端口和后端是否运行，不要把历史开发端口当成当前地址；本地 Vite 默认代理到 8080，可用 CLOUD_API_TARGET 指定后端。检查 /api/install/status 与 /api/site/config/global 是否成功，再看首个浏览器控制台错误及网络状态码。生产 Nginx 需转发 /api、/user 及实际业务路径，前端路由刷新需回退 index.html。鉴权失败检查登录和空间状态，数据库错误检查后端日志，但不要把密码或授权码贴到聊天。"
   },
   {
     "id": "admin-setting-not-effective",
@@ -1148,9 +1150,9 @@
       "没有命中",
       "rag"
     ],
-    "source": "backend/src/main/java/im/tlgxy/cloud/module/learning/service/LearningLibraryService.java",
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/learning/service/LearningSemanticIndex.java",
     "audience": "admin",
-    "content": "课程检索对本人索引的文件名、标签和正文片段做关键词匹配：中文双字片段和英文词，不是语义向量搜索，也没有训练模型。每个片段最多 700 字符，相邻片段重叠 100 字符，最多返回 5 个通过权限和内容校验的片段。无结果时可换更具体的关键词、检查文件是否已建立索引，不应推断整个原文件没有答案。"
+    "content": "课程检索只检索本人已建立的索引。默认使用中文双字片段、英文词等关键词匹配文件名、标签和正文；正文匹配权重较高，弱化库内常见泛词，并优先展示不同资料的首个相关片段再补同文后续片段；管理员完整配置独立嵌入服务后，可合并关键词与语义向量排名（RRF），并不是训练或微调模型。正文每段最多 700 字符，相邻重叠 100 字符，最多返回 5 个通过当前权限及内容校验的片段。嵌入服务未启用、不可用或索引不兼容时退回关键词检索。换关键词或检查索引覆盖范围；无结果不能证明全文没有答案。"
   },
   {
     "id": "admin-learning-formats",
@@ -1163,12 +1165,12 @@
       "TXT",
       "MD",
       "5MB",
-      "12000",
-      "30页"
+      "240000",
+      "300页"
     ],
     "source": "backend/src/main/java/im/tlgxy/cloud/module/ai/service/AiAttachmentService.java",
     "audience": "admin",
-    "content": "课程索引支持 UTF-8 TXT、MD、文本 PDF 和 DOCX，仅支持本地存储；每份不超过 5 MB，每账号最多 30 份资料和 50 门课程。只保存前 12000 字符，PDF 最多读取前 30 页。扫描 PDF 没有 OCR 能力，空白或无法提取正文时会提示失败；不能声称已检索文件全文或未索引页码。"
+    "content": "课程索引支持 UTF-8 TXT、MD、PDF 和 DOCX，仅支持获授权的本地存储；每份不超过 5 MB，每账号最多 30 份资料和 50 门课程。可提取文字最多 240,000 字符，文本 PDF 最多读取前 300 页，达到限制会提示部分覆盖。纯扫描 PDF 在未提取到文字时可使用管理员启用的本地 OCR，默认关闭；启用后默认最多前 10 页，结果需人工校对。混合 PDF 已有文字时不会自动补识别其中图片，加密或损坏文件可能失败，不能声称已检索全部页码。"
   },
   {
     "id": "admin-learning-refresh",
@@ -1181,9 +1183,9 @@
       "文件删除",
       "权限撤销"
     ],
-    "source": "backend/src/main/java/im/tlgxy/cloud/module/learning/service/LearningFileReader.java",
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/learning/service/LearningLibraryService.java",
     "audience": "admin",
-    "content": "搜索返回前重新检查存储权限、用户根目录、隐藏及密码目录规则，并完整计算候选文件 SHA-256。文件修改、删除、移动或权限撤销后旧正文不会继续作为当前证据。内容修改后点“重新索引”；移动或重命名后重新添加新路径并移除旧索引。跳过数仅指本次已检查的失效候选，不是全库失效总数。"
+    "content": "返回课程资料依据前，会重新检查存储权限、用户根目录、隐藏及密码规则，并完整计算候选文件 SHA-256；旧正文不能替代当前证据。内容修改后点“重新索引”。在本站成功移动、重命名或通过 Agent 整理时，会校验并同步当前操作者本人的课程索引路径，不修改其他用户索引；外部改路径或同步异常时，在资料库点“修复路径”验证新文件并重新索引，不要重复移动已经成功的文件。跳过数仅指本次检查的失效候选，不是全库失效总数。"
   },
   {
     "id": "admin-learning-citations",
@@ -1225,14 +1227,21 @@
       "整理目录",
       "分类目录"
     ],
-    "source": "backend/src/main/java/im/tlgxy/cloud/module/ai/service/AutomationFileService.java",
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/ai/service/AgentTaskService.java",
     "audience": "admin",
-    "content": "请明确指定本地存储源和目录。分类整理只检查当前目录，不递归子目录；最多扫描 400 项，每批最多列出 20 份文件。按扩展名移动到文档、图片、视频、音频、压缩包、代码、其他子目录，必要时创建分类目录；需要移动和新建文件夹权限。预览时已有同名目标会跳过，执行时再次检查且绝不覆盖。整理会改变路径，原有课程索引需重新添加。"
+    "content": "请明确指定本地存储源和目录。分类整理只检查当前目录，不递归子目录；最多扫描 400 项，每批最多处理 20 份文件。按扩展名移动到文档、图片、视频、音频、压缩包、代码、其他子目录，必要时创建分类目录；需要移动和新建文件夹权限。预览时已有同名目标会跳过，执行时再次检查且绝不覆盖。移动成功后会同步本人的课程索引路径；若提示同步失败，请用课程资料库“修复路径”，不要重复执行已成功的移动。"
   },
   {
     "id": "admin-agent-rename-duplicates-schedule",
     "title": "按日期重命名、内容查重和每周规则",
-    "tags": ["批量重命名", "按日期命名", "重复文件", "查重", "每周自动化", "定时任务"],
+    "tags": [
+      "批量重命名",
+      "按日期命名",
+      "重复文件",
+      "查重",
+      "每周自动化",
+      "定时任务"
+    ],
     "source": "frontend/src/pages/agent-tasks.vue",
     "audience": "admin",
     "content": "在 /agent-tasks 选择本地存储源与目录，可生成按修改日期重命名的待确认预览；需要重命名权限，不覆盖现有文件。查重按 SHA-256 比较同目录文件内容，仅报告重复项，不删除；单文件超过 20 MB、总读取超过 100 MB 或超过 60 个候选会跳过。每周规则按北京时间到点生成新的待确认任务，用户仍须点击确认执行；可暂停和恢复，暂不支持无人值守自动写入。"
@@ -1294,7 +1303,7 @@
     ],
     "source": "backend/src/main/java/im/tlgxy/cloud/module/ai/service/AiAttachmentService.java",
     "audience": "admin",
-    "content": "拖给小芽的文件需要选择用途：“存入云盘”走确认上传；“分析附件”只在本轮读取，不会自动上传到云盘或登记课程。附件分析最多 3 份、每份 5 MB；课程批量归档是另一类需确认的任务。附件提取文本与用于回答的课程摘录会发送给管理员配置的模型服务，敏感资料请先确认服务使用授权。"
+    "content": "拖给小芽的文件需要选择用途：“存入云盘”走确认上传；“分析附件”只在本轮读取，不会自动上传到云盘、登记课程或保存为长期记忆。临时附件分析最多 3 份、每份 5 MB，每份文字上限 12,000 字符、本轮合计 24,000 字符，与课程索引的 240,000 字符上限不同。提取的附件文本及用于回答的课程摘录会发送给已配置的聊天模型服务，敏感资料请先确认外传授权。"
   },
   {
     "id": "admin-response-latency",
@@ -1306,9 +1315,9 @@
       "加载超时",
       "Redis"
     ],
-    "source": "docs/响应性能优化与Redis评估.md",
+    "source": "backend/src/main/resources/application.properties",
     "audience": "admin",
-    "content": "文件页按页加载、替换当前页，当前目录文件名过滤覆盖全部可见条目；选择、图库和连续播放只针对当前页。每次仍由驱动扫描全目录，不代表后端扫描同比提速。列表和配置并行，切换取消旧请求，查询 30 秒超时。PDF 单页渲染可翻页缩放。小芽真实流式输出并支持停止生成，生成和工具阶段默认总预算 90 秒，不含附件上传解析。后台归档确认后自动刷新进度。课程检索验证候选并保留权限与完整哈希校验；Redis 未启用，不能直接降低模型推理耗时。"
+    "content": "目录加载与模型生成分别排查：普通目录可缓存显示元数据，但排序和过滤可能仍完整枚举；支持的驱动可通过原生分页快速浏览减少远程扫描，不支持则使用普通模式。列表与配置并行、切换取消旧请求；小芽流式输出可停止，生成与工具默认总预算 90 秒，不含附件上传解析。课程候选仍须当前权限和完整 SHA-256 校验。缓存默认 memory，可配置 Redis 缓存显示元数据及短时总览，不应声称实例已启用 Redis；它不能降低外部模型推理耗时，也不自动把 Sa-Token 会话切换到 Redis。"
   },
   {
     "id": "admin-rag-maintenance",
@@ -1322,6 +1331,274 @@
     ],
     "source": "backend/scripts/build-site-knowledge.ps1",
     "audience": "admin",
-    "content": "项目操作帮助采用按管理员和普通用户分开的本地 JSON 检索。维护来源为 backend/scripts/rag/user-site-knowledge.json 和 admin-site-knowledge.json；运行 backend/scripts/build-site-knowledge.ps1 生成运行资源，再重新构建并启动后端。私人课程资料通过 /learning 添加或重新索引，不要复制到全站公共知识库。角色隔离和知识库源文件一致性由自动化测试检查。"
+    "content": "项目操作帮助按 admin/user 分区，维护 canonical 来源 backend/scripts/rag/user-site-knowledge.json 与 admin-site-knowledge.json，运行 backend/scripts/build-site-knowledge.ps1 生成 resources/ai/knowledge 下两份运行 JSON，再构建重启后端。配置前缀 tongligong-student-cloud.ai.rag 可调整启用、位置、top-k、min-score 和 max-context-chars；默认 top-k=4、上下文 5000 字符。不要把私人课程、记忆、配置凭据或聊天记录写入公共帮助；使用测试校验角色隔离和生成一致性。"
+  },
+  {
+    "id": "admin-registration-admin",
+    "title": "注册空间管理员为什么不需要审核",
+    "tags": [
+      "注册",
+      "管理员注册",
+      "空间名称",
+      "邮箱验证",
+      "无需审核"
+    ],
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/user/service/PublicRegistrationService.java",
+    "audience": "admin",
+    "content": "注册时选择工作空间管理员，填写尚未使用的工作空间名称、邮箱验证码和两次一致的 8–128 字符密码。系统创建新空间与 TENANT_ADMIN 账号，验证成功后立即可登录，无需等待人工审核；系统自动分配 SC 开头的唯一账号 ID，邮箱也可登录。此入口不是申请管理别人的空间，也不能注册成全局管理员。"
+  },
+  {
+    "id": "admin-registration-member",
+    "title": "邀请码直接加入与空间名称申请的区别",
+    "tags": [
+      "注册",
+      "成员",
+      "邀请码",
+      "空间名称",
+      "待审核",
+      "无法登录"
+    ],
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/tenant/service/WorkspaceEnrollmentService.java",
+    "audience": "admin",
+    "content": "普通成员注册需选择加入方式。有效邀请码可直接加入对应启用空间；仅填写空间名称会建立待审核申请，通过前不可登录。注册空间管理员无需审核。加入空间不自动复制管理员的云盘目录或文件授权，成员另行申请云盘，管理员按成员设置独立目录和容量。邀请码过期、撤销、次数用完或签发管理员停用时不能使用。 不会获得其他空间权限。"
+  },
+  {
+    "id": "admin-password-reset",
+    "title": "忘记密码与邮箱验证码有什么限制",
+    "tags": [
+      "忘记密码",
+      "找回密码",
+      "邮箱",
+      "验证码",
+      "重置"
+    ],
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/user/service/PasswordResetService.java",
+    "audience": "admin",
+    "content": "在忘记密码页填写已绑定邮箱，使用本次密码重置邮件验证码并设置两次一致的新密码。验证码一次性使用、10 分钟有效，同一用途重发间隔 60 秒，最多尝试 5 次；注册验证码不能用于重置。页面统一提示不表示该邮箱一定存在账号。仅可用且已绑定邮箱的账号可重置，待审核或停用账号不能借此绕过限制；成功后需重新登录。"
+  },
+  {
+    "id": "admin-long-term-memory",
+    "title": "如何让小芽长期记住我的偏好",
+    "tags": [
+      "长期记忆",
+      "记住",
+      "偏好",
+      "个人背景",
+      "持久保存"
+    ],
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/ai/service/AiLongTermMemoryService.java",
+    "audience": "admin",
+    "content": "可发送“请记住：回答先给结论，再用简短列表”，或打开聊天顶部“长期记忆”面板主动添加。记忆按登录账号保存在后端，最多 50 条，每条 500 字符，不随清空聊天而消失，也不是完整聊天录音或模型训练。提问“记住功能怎么用？”不会自动保存为事实；查看已保存内容可发送“查看我的记忆”或进入面板。"
+  },
+  {
+    "id": "admin-memory-management",
+    "title": "如何编辑关闭删除长期记忆",
+    "tags": [
+      "记忆管理",
+      "编辑记忆",
+      "关闭记忆",
+      "清空记忆",
+      "多窗口"
+    ],
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/ai/controller/AiMemoryController.java",
+    "audience": "admin",
+    "content": "长期记忆面板支持当前账号的查询筛选、添加、编辑、删除和确认清空。关闭“使用长期记忆”会停止召回并禁止新增或编辑，但保留旧记忆且仍可查看或删除；重新开启后可继续使用。多窗口冲突时先刷新核对新内容，不能用旧草稿覆盖他人刚保存的版本。删除记忆不会清空当前对话，也无法撤回已发送的模型请求。"
+  },
+  {
+    "id": "admin-memory-privacy",
+    "title": "长期记忆会泄露密码或改变文件权限吗",
+    "tags": [
+      "记忆隐私",
+      "密码",
+      "敏感数据",
+      "权限",
+      "个人资料"
+    ],
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/ai/service/AiLongTermMemoryService.java",
+    "audience": "admin",
+    "content": "只主动保存非敏感偏好和背景，不要填写密码、验证码、授权码、密钥、令牌或私有路径；系统会拒绝常见敏感格式，但不能保证识别所有隐私。记忆是数据库中的普通文本，不是加密保险箱；被召回的内容可能随请求发送给已配置的聊天模型。账号之间隔离，记忆不能授予文件权限、跳过用户确认或当作当前文件内容证据。"
+  },
+  {
+    "id": "admin-knowledge-boundaries",
+    "title": "项目帮助课程资料和长期记忆有什么区别",
+    "tags": [
+      "项目知识库",
+      "课程知识库",
+      "RAG",
+      "长期记忆",
+      "数据来源"
+    ],
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/ai/service/AiAgentService.java",
+    "audience": "admin",
+    "content": "项目帮助说明网站功能，按管理员和用户角色隔离；课程资料是本人主动建立的私人文字索引，回答前仍校验当前文件；长期记忆是本人明确保存的偏好和背景，不是文件证据。上传文件不会自动把资料变成全站帮助，清空聊天也不会移除课程索引或记忆。项目引用 [K:条目ID] 与课程引用 [M编号-S片段编号] 应区分核对，记忆不是引用来源。"
+  },
+  {
+    "id": "admin-learning-index-scope",
+    "title": "索引概况显示完整未知或部分是什么意思",
+    "tags": [
+      "索引概况",
+      "索引覆盖",
+      "部分索引",
+      "覆盖未知",
+      "全文"
+    ],
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/ai/service/AiAttachmentService.java",
+    "audience": "admin",
+    "content": "课程资料库的索引概况统计当前课程已保存的索引元数据，可点击分类筛选。文字已索引只表示可提取文字已记录，不保证图片、表格图片或完整页面都已识别；部分索引表示达到字符、页数或 OCR 限制，覆盖未知可能是旧版或空记录。它不是全库实时健康检查，原文件当前是否可读仍在实际检索时验证，需看每份资料的覆盖说明。"
+  },
+  {
+    "id": "admin-learning-semantic-privacy",
+    "title": "语义检索会发送多少资料给外部模型",
+    "tags": [
+      "语义检索",
+      "嵌入模型",
+      "向量",
+      "隐私",
+      "外传",
+      "重新索引"
+    ],
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/learning/service/LearningSemanticIndex.java",
+    "audience": "admin",
+    "content": "只有管理员完整启用独立嵌入服务后，新建或重新索引才会把提取文字的有限片段发送给该服务。每份最多前 64 段，每段 700 字符，向量 JSON 上限 1 MiB；维度较高时覆盖段数更少。普通检索仅发送当前问题，不自动重建文档向量；聊天回答的相关摘录还会发送给聊天服务。模型、维度或服务地址改变后，旧向量不会混用，应主动重新索引；不可用时保留关键词检索。"
+  },
+  {
+    "id": "admin-learning-path-repair",
+    "title": "移动成功但索引更新失败可以重试移动吗",
+    "tags": [
+      "修复路径",
+      "移动成功",
+      "索引同步失败",
+      "重命名",
+      "重新索引"
+    ],
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/learning/service/LearningLibraryService.java",
+    "audience": "admin",
+    "content": "不要重试已经成功的文件移动或重命名。本站会尝试同步当前操作者本人的课程索引，出现异常时文件可能已经在新位置，而索引仍指向旧位置。先在云盘确认实际位置，再进入对应课程资料点击“修复路径”，填写获授权存储中的新路径；验证文件、权限和内容后才替换原关联。外部工具修改路径及其他用户的索引不会自动同步，必要时分别修复。"
+  },
+  {
+    "id": "admin-embedding-configuration",
+    "title": "如何配置独立嵌入模型并验证降级",
+    "tags": [
+      "embedding",
+      "嵌入模型配置",
+      "语义检索",
+      "RRF",
+      "外部服务"
+    ],
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/ai/config/LearningEmbeddingProperties.java",
+    "audience": "admin",
+    "content": "嵌入配置前缀为 tongligong-student-cloud.learning.embedding，enabled 默认 false；需单独提供 HTTPS base-url、api-key、model 和与服务一致的 dimensions 向量维度（32–4096，默认 1024）。接口追加 /embeddings，采用兼容浮点数组响应；聊天模型的配置不会自动成为嵌入服务。单次资料最多 64 段、每批 16 段，共享 1–10 秒预算与最多 2 个并发。先用非敏感测试资料重新索引，检查覆盖提示；错误或不兼容时保留关键词，不应把分数称为准确率。密钥只保存在服务端受控配置，不写公共知识或前端。"
+  },
+  {
+    "id": "admin-ocr-configuration",
+    "title": "如何启用本地Tesseract扫描PDF索引",
+    "tags": [
+      "OCR配置",
+      "Tesseract",
+      "扫描PDF",
+      "语言包",
+      "Docker"
+    ],
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/ai/config/LearningOcrProperties.java",
+    "audience": "admin",
+    "content": "本地 OCR 配置前缀 tongligong-student-cloud.learning.ocr，enabled 默认 false。需在实际运行后端的主机或 Docker 镜像中安装 Tesseract 及 chi_sim、eng 等语言包，executable 使用引擎绝对路径，language 只能为 eng、chi_sim、chi_tra 或其组合。默认最多 10 页、60,000 字符、120 DPI、每页 15 秒、总计 90 秒、单并发。仅文本提取空白的 PDF 才调用 OCR，混合 PDF 不自动补图文；有界超时和页数不能靠前端承诺全文，识别结果须人工校对。"
+  },
+  {
+    "id": "admin-redis-configuration",
+    "title": "Redis缓存会替代数据库和会话管理吗",
+    "tags": [
+      "Redis配置",
+      "缓存",
+      "数据库",
+      "会话",
+      "部署"
+    ],
+    "source": "backend/src/main/java/im/tlgxy/cloud/core/cache/RedisCacheClient.java",
+    "audience": "admin",
+    "content": "默认 STUDENT_CLOUD_CACHE_TYPE=memory，可在配置 Redis 地址、认证及可达性后选择 redis，主要缓存显示元数据和短时总览；默认元数据 TTL 120 秒、总览 10 秒。原有权限及系统密钥缓存仍为进程内缓存，不会自动把 Sa-Token 会话迁移到 Redis，也不把私人课程或长期记忆变成公共缓存。Redis 读取失败可回源数据库；Redis 模式下存储变更的失效通知失败需明确报告，不能忽略或盲目重复提交。分布式限流可随配置启用，故障默认 fail-closed；不要假设缓存可消除模型延迟或授权校验。"
+  },
+  {
+    "id": "admin-mail-configuration",
+    "title": "QQ邮箱注册与找回密码如何配置",
+    "tags": [
+      "SMTP",
+      "QQ邮箱",
+      "注册邮件",
+      "找回密码",
+      "部署配置"
+    ],
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/user/config/RegistrationMailProperties.java",
+    "audience": "admin",
+    "content": "注册和重置密码共用服务端邮件配置。通过 MAIL_ENABLED、MAIL_HOST、MAIL_PORT、MAIL_USERNAME、MAIL_PASSWORD、MAIL_FROM 等设置发件服务；QQ SMTP 默认 smtp.qq.com、465、SSL，MAIL_PASSWORD 应为邮箱授权码，不是网页登录密码。MAIL_CODE_SECRET 可提供至少 32 字符的独立高熵值用于验证码摘要。注册和密码重置用途分离，验证码不经 HTTP 或日志返回；邮件未就绪时不能伪造发送成功。生产配置不要提交到仓库或写入项目帮助。"
+  },
+  {
+    "id": "admin-workspace-shared-storage",
+    "title": "新注册空间管理员如何获得共享云盘",
+    "tags": [
+      "空间管理员",
+      "共享云盘",
+      "注册空间",
+      "本地存储",
+      "持久化"
+    ],
+    "source": "backend/src/main/java/im/tlgxy/cloud/module/tenant/service/WorkspaceStorageProvisioningService.java",
+    "audience": "admin",
+    "content": "公开注册空间管理员后不自动分配服务器本地云盘。空间管理员可在管理云盘页自行添加本空间第三方存储；需要本地空间时提交用途，由全局管理员审批后分配受控的 tenant 目录。普通管理员不能用改类型、复制或直接请求绕过本地审批。成员加入后仍需单独授予个人目录与容量，不能继承管理员根目录。持久化 workspace-storage.root，并与上传 staging-root 和课程私有 courses.storage-root 保持独立。"
+  },
+  {
+    "id": "admin-human-support",
+    "title": "全局管理员如何接待人工客服",
+    "tags": [
+      "人工客服",
+      "转人工",
+      "客服沟通",
+      "人工接待"
+    ],
+    "source": "docs/WebSocket人工客服使用与部署-20261024.md",
+    "audience": "admin",
+    "content": "全局管理员通过 /admin/support 接待、回复或结束人工会话。只有用户确认转人工才创建会话；点击未解决单独保存本轮问答，不自动接通人工。/admin/ai-feedback 可审核反馈并保存正确答案，可选 AI 辅助润色并预览修订，再明确确认发布到知识库。原错误答案不会自动入库。支持版本、批量发布和撤回；课程反馈只能发布回原课程，普通反馈默认本空间，全站通用说明需显式确认。WebSocket 提供实时变更通知，历史持久化；当前人工客服实时通知为单后端设计。"
+  },
+  {
+    "id": "admin-member-cloud-quota",
+    "title": "空间管理员如何开通成员云盘并设置容量",
+    "content": "空间管理员在工作空间管理展开云盘使用申请，选择申请后设置容量（GB）及是否允许上传，再同意。也可选定本空间成员设置云盘目录与权限；授权目录必须位于该成员的独立个人目录内。容量按每个存储源限制，课程容量另行计算，全局管理员不逐个设置成员权限。可重置本空间普通成员密码，不能重置其他空间账号或管理员，重置后旧会话失效。旧版共享根目录授权升级时停用以防隐私泄露，文件不会删除，需重新授权。",
+    "audience": "admin",
+    "tags": [
+      "云盘审批",
+      "成员容量",
+      "重置密码",
+      "目录范围"
+    ],
+    "source": "docs/业务完善验收清单-20261025.md"
+  },
+  {
+    "id": "admin-storage-connection-probe",
+    "title": "连接测试如何验证读写与清理",
+    "content": "先验证最小读取，再可选显式写入验证。支持的 LOCAL 和 S3 存储使用随机唯一小文件，写入后读回校验并只清理该测试对象；S3 版本桶精确清理测试版本。读取、写入与清理分别报告，清理失败不得算完整通过。WebDAV 等暂不支持安全写入测试的存储会明确说明，仅只读通过不代表具备上传权限，不会删除用户原文件。",
+    "audience": "admin",
+    "tags": [
+      "连接测试",
+      "写入验证",
+      "测试文件",
+      "清理失败"
+    ],
+    "source": "docs/业务完善验收清单-20261025.md"
+  },
+  {
+    "id": "admin-shared-courses",
+    "title": "如何创建共享课程、邀请成员与共享资料",
+    "content": "普通管理员即空间管理员可在 /courses 创建共享课程、上传课程资料，并点击邀请成员生成邀请码或邀请链接。普通成员和其他空间管理员都能加入，包括其他工作空间的账号；原工作空间归属、个人云盘和私人信息不变。邀请码可反复创建，多个码独立有效；默认长期有效，也可选有效期或自定义到期时间，创建者可主动让某个码失效。每个码可不限人数或设置 1 至 500 人上限，按不同加入账号计数，达到上限后新成员不能使用；同一个人重复点击不重复占用名额。受邀者登录后先预览并确认加入，不会打开链接就自动入课。邀请码过期、停用或名额已满，不会把已加入的人移出课程。加入后可查看、下载课程共享资料；上传须先申请并由创建者批准一次，之后可持续上传，其他管理员作为课程成员也不能自行审批。创建者可撤销上传权限、移出成员和暂停课程；被移出者不能用其他码重新进入。/learning 是个人学习索引，不等同于共享课程。",
+    "audience": "admin",
+    "tags": [
+      "共享课程",
+      "创建课程",
+      "邀请成员",
+      "课程邀请码",
+      "邀请人数",
+      "有效期",
+      "课程资料",
+      "上传申请"
+    ],
+    "source": "docs/共享课程与成员邀请说明-20261025.md"
   }
 ]

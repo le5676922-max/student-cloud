@@ -53,6 +53,7 @@ function schema(type) {
 }
 
 function setupPage({
+	loginInfo = { isAdmin: false },
 	storageId,
 	supported = ['local', 'webdav', 's3', 'aliyun', 'minio', 'ftp', 'sftp'],
 	item = async (id) => ({ data: storageRecord(id) }),
@@ -87,7 +88,7 @@ function setupPage({
 		params: storageId === undefined ? {} : { storageId },
 	})
 	const router = { push: (path) => pushes.push(path) }
-	const storageStore = vue.reactive({ loginInfo: { isAdmin: false } })
+	const storageStore = vue.reactive({ loginInfo })
 	const modules = {
 		'~/components/common/SafeHtml.vue': { default: {} },
 		'~/utils/latest-request.mjs': { createLatestRequest },
@@ -1454,5 +1455,32 @@ test('manual discovery button disabled bindings evaluate to booleans and cannot 
 			assert.equal(typeof value, 'boolean')
 			assert.equal(value, expected)
 		}
+	}
+})
+
+test('tenant administrators see only external storage choices and write verification requires an explicit checkbox', async () => {
+	const page = setupPage({
+		loginInfo: { role: 'TENANT_ADMIN', isAdmin: false, tenantId: 9 },
+	})
+	try {
+		await page.mount()
+		assert.equal(
+			page.api.supportStorageType.value.some((item) => item.key === 'local'),
+			false
+		)
+		assert.equal(
+			page.api.supportStorageType.value.some((item) => item.key === 's3'),
+			true
+		)
+		await page.choose('s3')
+		complete(page, 's3')
+		assert.equal(page.api.verifyWrite.value, false)
+		page.api.verifyWrite.value = true
+		await page.api.testConnection()
+		assert.equal(page.calls.preflight.length, 1)
+		assert.equal(page.calls.preflight[0][0].verifyWrite, true)
+		assert.equal(page.calls.save.length, 0)
+	} finally {
+		page.unmount()
 	}
 })

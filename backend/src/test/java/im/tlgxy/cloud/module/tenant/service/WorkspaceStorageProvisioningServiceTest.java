@@ -114,13 +114,12 @@ class WorkspaceStorageProvisioningServiceTest {
         assertEquals(root.resolve("tenant-10").toString(), parameter.getValue().getFilePath());
         assertTrue(parameter.getValue().isProxyPrivate()); assertEquals("", parameter.getValue().getDomain());
         var saved = ArgumentCaptor.forClass(UserStorageSource.class);
-        verify(grants, times(2)).insert(saved.capture());
-        assertEquals(List.of(101, 102), saved.getAllValues().stream().map(UserStorageSource::getUserId).toList());
+        verify(grants).insert(saved.capture());
+        assertEquals(List.of(101), saved.getAllValues().stream().map(UserStorageSource::getUserId).toList());
         var managerGrant = saved.getAllValues().getFirst();
         assertTrue(managerGrant.getPermissions().containsAll(Set.of("upload", "newFolder", "rename", "delete", "move", "copy")));
         assertFalse(managerGrant.getPermissions().contains("ignorePassword"));
         assertFalse(managerGrant.getPermissions().contains("ignoreHidden"));
-        assertEquals(Set.of("preview", "download"), saved.getAllValues().get(1).getPermissions());
         for (var grant : saved.getAllValues()) { assertEquals("/", grant.getRootPath()); assertEquals(50, grant.getStorageSourceId()); }
         assertEquals(UserRoleEnum.TENANT_ADMIN, manager.getRole());
         verifyNoInteractions(security);

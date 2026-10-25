@@ -3,6 +3,12 @@ export function isUploadCommand(message) {
 	const text = String(message || '').trim()
 	if (!text || /[？?]|^(怎么|如何|能否|可以|为什么|介绍|说明)/.test(text))
 		return false
+	if (
+		/(排查|诊断|解释|分析|修复|解决|失败|报错|错误|异常|不了|不能|不成功|卡住|没反应|无法)/.test(
+			text
+		)
+	)
+		return false
 	return /(上传|存入云盘|放到云盘|保存到云盘)/.test(text)
 }
 

@@ -287,7 +287,7 @@
 								><strong id="workspace-members-title">普通成员</strong
 								><small>{{
 									membersOpen
-										? '此处仅查看账号归属与状态，不重复提供日常管理操作。'
+										? '查看成员归属与状态；成员权限由本空间管理员设置。'
 										: '默认折叠；展开后才分页加载当前空间的成员。'
 								}}</small></span
 							><span class="member-toggle-action">{{
@@ -300,7 +300,7 @@
 							class="members-content"
 						>
 							<p class="ownership-note">
-								成员新增、启停和加入审批由本空间管理员处理。全局管理员在此只查看空间归属，不代为审核或操作成员私人文件。
+								成员新增、加入审批和存储权限由本空间管理员处理；全局管理员在这里总览空间人员，不设置成员权限。
 							</p>
 							<form class="people-search" @submit.prevent="searchMembers">
 								<el-input

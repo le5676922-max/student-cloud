@@ -129,10 +129,10 @@ const runAction = (action) => {
 	gap: 12px;
 	margin: 12px 0;
 	padding: 12px 14px;
-	border: 1px solid #cbded4;
-	border-radius: 10px;
-	background: #f0f6f2;
-	box-shadow: 0 3px 12px #27393608;
+	border: 1px solid #dcd3f4;
+	border-radius: 14px;
+	background: var(--cloud-lilac);
+	box-shadow: 0 3px 12px #24242808;
 }
 .file-selection-summary {
 	color: var(--cloud-ink);

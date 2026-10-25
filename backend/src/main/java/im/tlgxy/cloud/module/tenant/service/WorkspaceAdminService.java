@@ -105,19 +105,9 @@ public class WorkspaceAdminService {
         var password = PasswordVerifyUtils.encrypt(request.password());
         member.setPassword(password.getFirst());
         member.setSalt(password.getSecond());
-        List<UserStorageSource> inherited = new ArrayList<>();
-        for (UserStorageSource grant : grants.selectByUserId(operator.getId())) {
-            StorageSource source = storages.selectById(grant.getStorageSourceId());
-            if (source == null || !Objects.equals(source.getTenantId(), tenantId)) continue;
-            UserStorageSource copy = new UserStorageSource();
-            copy.setStorageSourceId(source.getId());
-            copy.setRootPath(grant.getRootPath());
-            copy.setEnable(grant.getEnable());
-            copy.setPermissions(grant.getPermissions() == null ? Set.of() : Set.copyOf(grant.getPermissions()));
-            inherited.add(copy);
-        }
         try {
-            userManager.saveUserInfo(member, inherited);
+            // Joining a workspace does not grant access to the manager's private files.
+            userManager.saveUserInfo(member, List.of());
         } catch (DuplicateKeyException exception) {
             throw new BizException(ErrorCode.BIZ_USER_EXIST);
         }
@@ -128,6 +118,8 @@ public class WorkspaceAdminService {
     @CacheEvict(cacheNames = UserService.USER_CACHE_KEY, key = "#userId")
     public Member setEnabled(int userId, boolean enabled) {
         int tenantId = tenantId();
+        // Internal template/global/retired anonymous records are never workspace members.
+        if (userId <= 2) throw new BizException("不能修改系统内置账号");
         User target = users.selectById(userId);
         if (target == null || target.getRole() != UserRoleEnum.USER || !Objects.equals(target.getTenantId(), tenantId))
             throw new BizException("只能管理本工作空间的普通用户");
@@ -140,6 +132,36 @@ public class WorkspaceAdminService {
         users.updateById(update);
         target.setEnable(enabled);
         return Member.from(target, membershipStatuses(tenantId, List.of(target)).getOrDefault(userId, "ACTIVE"));
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(cacheNames = UserService.USER_CACHE_KEY, key = "#userId")
+    public void resetMemberPassword(int userId, String password, String confirmation) {
+        int tenantId = tenantId();
+        if (userId <= 2) throw new BizException("不能修改系统内置账号");
+        User target = users.selectById(userId);
+        if (target == null || target.getRole() != UserRoleEnum.USER
+                || !Objects.equals(target.getTenantId(), tenantId))
+            throw new BizException("只能重置本工作空间普通成员的密码");
+        if (password == null || password.isBlank() || password.length() < 8 || password.length() > 128
+                || !Objects.equals(password, confirmation))
+            throw new BizException("密码需为8至128个字符，且两次输入必须一致");
+        if (joinRequests.selectCount(new LambdaQueryWrapper<WorkspaceJoinRequest>()
+                .eq(WorkspaceJoinRequest::getUserId, userId).ne(WorkspaceJoinRequest::getStatus, "APPROVED")) > 0)
+            throw new BizException("请先审核此成员的空间加入申请");
+        var encrypted = PasswordVerifyUtils.encrypt(password);
+        User update = new User();
+        update.setId(userId);
+        update.setPassword(encrypted.getFirst());
+        update.setSalt(encrypted.getSecond());
+        if (users.updateById(update) != 1) throw new BizException("成员状态已变化，请刷新后重试");
+        Runnable revoke = () -> cn.dev33.satoken.stp.StpUtil.logout(userId);
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override public void afterCommit() { revoke.run(); }
+                });
+        } else revoke.run();
     }
 
     private Map<Integer, String> membershipStatuses(int tenantId, List<User> members) {
@@ -159,6 +181,7 @@ public class WorkspaceAdminService {
     }
 
     private LambdaQueryWrapper<User> memberQuery(int tenantId) {
-        return new LambdaQueryWrapper<User>().eq(User::getTenantId, tenantId).eq(User::getRole, UserRoleEnum.USER);
+        return new LambdaQueryWrapper<User>().gt(User::getId, 2)
+                .eq(User::getTenantId, tenantId).eq(User::getRole, UserRoleEnum.USER);
     }
 }

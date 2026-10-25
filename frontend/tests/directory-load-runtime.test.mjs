@@ -9,8 +9,14 @@ import * as latestRequest from '../src/utils/latest-request.mjs'
 
 // Execute the real shared composables with Vue refs and synthetic network replies.
 const [dataSource, loadingSource] = await Promise.all([
-	readFile(new URL('../src/composables/file/useFileData.js', import.meta.url), 'utf8'),
-	readFile(new URL('../src/composables/file/useFileLoading.js', import.meta.url), 'utf8'),
+	readFile(
+		new URL('../src/composables/file/useFileData.js', import.meta.url),
+		'utf8'
+	),
+	readFile(
+		new URL('../src/composables/file/useFileLoading.js', import.meta.url),
+		'utf8'
+	),
 ])
 const plain = (value) => JSON.parse(JSON.stringify(value))
 function deferred() {
@@ -43,8 +49,13 @@ function runFactory(source, modules, extra = {}) {
 			/import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"];?/g,
 			(_whole, bindings, name) =>
 				bindings.trim().startsWith('{')
-					? `const ${bindings.replace(/\s+as\s+/g, ': ')} = modules[${JSON.stringify(name)}];`
-					: `const ${bindings.trim()} = modules[${JSON.stringify(name)}].default;`
+					? `const ${bindings.replace(
+							/\s+as\s+/g,
+							': '
+					  )} = modules[${JSON.stringify(name)}];`
+					: `const ${bindings.trim()} = modules[${JSON.stringify(
+							name
+					  )}].default;`
 		)
 		.replace('export default', 'return')
 	return vm.runInNewContext(`(function(){${executable}\n})()`, {
@@ -56,7 +67,13 @@ function runFactory(source, modules, extra = {}) {
 }
 
 function setupDirectory({ type = 'local' } = {}) {
-	const calls = { files: [], config: [], passwords: [], prompts: [], pushes: [] }
+	const calls = {
+		files: [],
+		config: [],
+		passwords: [],
+		prompts: [],
+		pushes: [],
+	}
 	const notices = []
 	const route = vue.reactive({ storageKey: 'source-one', path: '/courses' })
 	const selection = vue.ref([{ name: 'old-selection.txt' }])
@@ -122,13 +139,16 @@ function setupDirectory({ type = 'local' } = {}) {
 		},
 		'~/api/home/home': {
 			loadFileListReq: (params, config) => network('files', params, config),
-			loadStorageConfigReq: (params, config) => network('config', params, config),
+			loadStorageConfigReq: (params, config) =>
+				network('config', params, config),
 		},
 		'~/composables/useRouterData': {
 			default: () => ({
 				storageKey: vue.computed(() => route.storageKey),
 				currentPath: vue.computed(() => route.path),
-				fullpath: vue.computed(() => route.path === '/' ? undefined : route.path.slice(1).split('/')),
+				fullpath: vue.computed(() =>
+					route.path === '/' ? undefined : route.path.slice(1).split('/')
+				),
 				routerRef: vue.ref({ push: (target) => calls.pushes.push(target) }),
 			}),
 		},
@@ -136,7 +156,8 @@ function setupDirectory({ type = 'local' } = {}) {
 			default: () => ({
 				getPathPwd: () => 'synthetic-password',
 				putPathPwd: (...args) => calls.passwords.push(args),
-				popPassword: (confirm, cancel) => calls.prompts.push({ confirm, cancel }),
+				popPassword: (confirm, cancel) =>
+					calls.prompts.push({ confirm, cancel }),
 			}),
 		},
 		'~/composables/header/useHeaderStorageList': {
@@ -152,7 +173,12 @@ function setupDirectory({ type = 'local' } = {}) {
 		'~/composables/file/useFilePreview': { default: () => ({}) },
 		'~/composables/file/useFileOperator': { default: () => ({}) },
 		'~/composables/file/useFileSelect': {
-			default: () => ({ selectRows: selection, clearSelection: () => { selection.value = [] } }),
+			default: () => ({
+				selectRows: selection,
+				clearSelection: () => {
+					selection.value = []
+				},
+			}),
 		},
 	}
 	const factory = runFactory(dataSource, modules, {
@@ -165,7 +191,17 @@ function setupDirectory({ type = 'local' } = {}) {
 			},
 		},
 	})
-	return { api: factory(), factory, loadingFactory, route, storage, files, selection, calls, notices }
+	return {
+		api: factory(),
+		factory,
+		loadingFactory,
+		route,
+		storage,
+		files,
+		selection,
+		calls,
+		notices,
+	}
 }
 
 function reply(directory, index, name = 'current.txt') {
@@ -176,7 +212,11 @@ function reply(directory, index, name = 'current.txt') {
 test('config failure preserves current rows, exposes persistent shared error and retries the captured request', async () => {
 	const directory = setupDirectory()
 	const { api, files, storage, calls, selection } = directory
-	const loading = api.loadFile({ nameQuery: 'course', orderBy: 'size', orderDirection: 'desc' })
+	const loading = api.loadFile({
+		nameQuery: 'course',
+		orderBy: 'size',
+		orderDirection: 'desc',
+	})
 	assert.equal(api.directoryLoadState.value, 'loading')
 	assert.equal(api.loading.value, true)
 	assert.deepEqual(plain(files.fileListSource), [])
@@ -191,12 +231,18 @@ test('config failure preserves current rows, exposes persistent shared error and
 	calls.config[0].reject({ code: 'ETIMEDOUT' })
 	await loading
 	assert.equal(api.directoryLoadState.value, 'error')
-	assert.match(api.directoryLoadError.value, /文件列表已载入.*目录权限和说明未能加载.*超时/)
+	assert.match(
+		api.directoryLoadError.value,
+		/文件列表已载入.*目录权限和说明未能加载.*超时/
+	)
 	assert.equal(api.canRetryDirectoryLoad.value, true)
 	assert.equal(api.directoryNameQuery.value, 'course')
 	assert.equal(files.fileListSource.at(-1).name, 'course.txt')
 	assert.equal(directory.factory().directoryLoadError, api.directoryLoadError)
-	assert.equal(directory.loadingFactory().directoryLoadState, api.directoryLoadState)
+	assert.equal(
+		directory.loadingFactory().directoryLoadState,
+		api.directoryLoadState
+	)
 	api.searchParam.nameQuery = 'unsubmitted draft'
 	assert.equal(api.directoryNameQuery.value, 'course')
 	api.searchParam.orderBy = 'name'
@@ -219,7 +265,11 @@ test('config failure preserves current rows, exposes persistent shared error and
 test('failed cursor page keeps the visible page and retry uses its query and cursor instead of input drafts', async () => {
 	const directory = setupDirectory()
 	const { api, calls, files } = directory
-	const initial = api.loadFile({ nameQuery: 'submitted', orderBy: 'size', orderDirection: 'desc' })
+	const initial = api.loadFile({
+		nameQuery: 'submitted',
+		orderBy: 'size',
+		orderDirection: 'desc',
+	})
 	reply(directory, 0, 'visible-page.txt')
 	await initial
 	api.searchParam.nameQuery = 'draft'
@@ -322,7 +372,8 @@ for (const staleStage of ['files', 'config']) {
 		calls.files[1].resolve(fileReply('new.txt'))
 		await flush()
 		calls[staleStage][0].reject(new Error('old failure'))
-		if (staleStage === 'files') calls.config[0].resolve(configReply({ upload: true }))
+		if (staleStage === 'files')
+			calls.config[0].resolve(configReply({ upload: true }))
 		await old
 		assert.equal(api.directoryLoadState.value, 'loading')
 		assert.equal(api.directoryLoadError.value, '')
@@ -376,6 +427,18 @@ for (const code of [401, 402]) {
 		assert.equal(api.directoryLoadError.value, '')
 		assert.equal(api.canRetryDirectoryLoad.value, false)
 		assert.equal(calls.prompts.length, 1)
+		if (code === 401) {
+			assert.ok(
+				directory.notices.some(
+					({ level, message }) =>
+						level === 'warning' &&
+						/文件夹访问密码/.test(message) &&
+						/不是登录密码/.test(message)
+				)
+			)
+		} else {
+			assert.equal(directory.notices.length, 0)
+		}
 		const prompt = calls.prompts[0]
 		route.path = '/new'
 		const next = api.loadFile()

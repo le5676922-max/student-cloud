@@ -11,6 +11,8 @@ import im.tlgxy.cloud.module.storage.model.enums.FileTypeEnum;
 import im.tlgxy.cloud.module.storage.model.request.base.FileListRequest;
 import im.tlgxy.cloud.module.storage.model.result.FileItemResult;
 import im.tlgxy.cloud.module.storage.service.StorageSourceService;
+import im.tlgxy.cloud.module.storage.service.DirectoryAccessGuard;
+import im.tlgxy.cloud.module.storage.service.DirectoryMetadataProvider;
 import im.tlgxy.cloud.module.storage.service.base.AbstractBaseFileService;
 import im.tlgxy.cloud.module.user.model.entity.User;
 import im.tlgxy.cloud.module.user.service.UserService;
@@ -25,11 +27,13 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Agent 可调用的站内工具。
@@ -45,6 +49,8 @@ public class AiAgentToolService {
     private static final int MAX_SEARCH_RESULTS = 30;
     private static final int MAX_SEARCH_SCANNED_ITEMS = 400;
     private static final int MAX_SEARCH_DEPTH = 3;
+    private static final int MAX_NATIVE_PAGE_SIZE = 200;
+    private static final int MAX_NATIVE_REQUESTS = 4;
 
     private final StorageSourceService storageSourceService;
     private final UserService userService;
@@ -52,6 +58,7 @@ public class AiAgentToolService {
     private final LearningLibraryService learningLibrary;
     private final AgentTaskService tasks;
     private final ProjectKnowledgeService knowledge;
+    private final DirectoryAccessGuard directoryAccessGuard;
 
     /** 根据模型给出的工具名称执行白名单内的站内查询。 */
     public ToolExecution execute(String toolName, JsonNode arguments) {
@@ -133,7 +140,7 @@ public class AiAgentToolService {
                 textArgument(arguments, "orderBy"),
                 textArgument(arguments, "orderDirection")
         );
-        return directoryResult(snapshot.source(), snapshot.path(), snapshot.files());
+        return directoryResult(snapshot);
     }
 
     private ToolExecution agentCapabilities() {
@@ -203,7 +210,11 @@ public class AiAgentToolService {
         data.put("typeCounts", typeCounts);
         data.put("largestFiles", largestFiles);
         data.put("recentItems", recentItems);
-        return new ToolExecution(data, "已统计 " + snapshot.source().getName() + snapshot.path());
+        data.put("total", snapshot.complete() ? snapshot.files().size() : null);
+        addScope(data, snapshot);
+        data.put("statisticsScope", snapshot.complete() ? "FULL_DIRECTORY" : "SCANNED_ITEMS_ONLY");
+        return new ToolExecution(data, "已统计 " + snapshot.source().getName() + snapshot.path()
+                + (snapshot.complete() ? "" : " 的已扫描部分；数量、大小及最大/最近文件均不是全目录统计"));
     }
 
     private ToolExecution findFiles(JsonNode arguments) {
@@ -224,26 +235,29 @@ public class AiAgentToolService {
         int scannedDirectories = 0;
         int skippedDirectories = 0;
         boolean limitReached = false;
+        ScanBudget budget = new ScanBudget();
 
         while (!pending.isEmpty() && matches.size() < MAX_SEARCH_RESULTS && !limitReached) {
             SearchDirectory current = pending.removeFirst();
             DirectorySnapshot snapshot;
             try {
-                snapshot = readDirectory(storageKey, current.path(), "name", "asc");
+                snapshot = readDirectory(storageKey, current.path(), "name", "asc", budget);
             } catch (BizException e) {
-                if (current.depth() == 0) {
+                if (current.depth() == 0 || e instanceof NativeDirectoryReadException) {
                     throw e;
                 }
                 skippedDirectories++;
                 continue;
             }
             scannedDirectories++;
+            if (!snapshot.complete()) limitReached = true;
 
             for (FileItemResult file : snapshot.files()) {
-                if (++scannedItems > MAX_SEARCH_SCANNED_ITEMS) {
+                if (scannedItems >= MAX_SEARCH_SCANNED_ITEMS) {
                     limitReached = true;
                     break;
                 }
+                scannedItems++;
                 if (StringUtils.defaultString(file.getName()).toLowerCase(Locale.ROOT).contains(normalizedKeyword)) {
                     matches.add(fileItem(current.path(), file));
                     if (matches.size() >= MAX_SEARCH_RESULTS) {
@@ -260,6 +274,7 @@ public class AiAgentToolService {
             }
         }
 
+        verifyScanAuthorization(budget);
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("storageKey", storageKey);
         data.put("rootPath", rootPath);
@@ -267,11 +282,22 @@ public class AiAgentToolService {
         data.put("maxDepth", maxDepth);
         data.put("matchCount", matches.size());
         data.put("scannedItems", scannedItems);
+        data.put("providerScannedItems", budget.scannedItems);
+        data.put("providerRequests", budget.requests);
         data.put("scannedDirectories", scannedDirectories);
         data.put("skippedDirectories", skippedDirectories);
-        data.put("truncated", limitReached || !pending.isEmpty());
+        boolean incomplete = limitReached || !pending.isEmpty() || skippedDirectories > 0;
+        data.put("truncated", incomplete);
+        data.put("complete", !incomplete);
+        data.put("scope", incomplete ? "SCANNED_ITEMS_ONLY" : "REQUESTED_DEPTH");
+        data.put("total", incomplete ? null : matches.size());
+        data.put("observedCount", scannedItems);
+        data.put("sortScope", "PER_SCANNED_DIRECTORY");
+        data.put("ioBounded", budget.legacyDirectoryReads == 0);
+        if (budget.legacyDirectoryReads > 0) data.put("scanLimitNotice", legacyEnumerationNotice());
         data.put("matches", matches);
-        return new ToolExecution(data, "已搜索“" + keyword + "”，找到 " + matches.size() + " 项");
+        return new ToolExecution(data, "已搜索“" + keyword + "”，找到 " + matches.size() + " 项"
+                + (incomplete ? "；仅搜索有界扫描范围或部分目录不可访问，未覆盖全部目录" : ""));
     }
 
     private ToolExecution fileDetails(JsonNode arguments) {
@@ -289,7 +315,9 @@ public class AiAgentToolService {
         FileItemResult item = snapshot.files().stream()
                 .filter(file -> Objects.equals(file.getName(), itemName))
                 .findFirst()
-                .orElseThrow(() -> new BizException("文件不存在，或当前账号无权查看该文件"));
+                .orElseThrow(() -> new BizException(snapshot.complete()
+                        ? "文件不存在，或当前账号无权查看该文件"
+                        : "本次扫描范围内未找到该文件，请缩小目录后重试；不能据此判断文件不存在"));
 
         Map<String, Object> data = new LinkedHashMap<>(fileItem(parentPath, item));
         data.put("storageName", snapshot.source().getName());
@@ -301,6 +329,11 @@ public class AiAgentToolService {
                                             String path,
                                             String orderBy,
                                             String orderDirection) {
+        return readDirectory(storageKey, path, orderBy, orderDirection, new ScanBudget());
+    }
+
+    private DirectorySnapshot readDirectory(String storageKey, String path, String orderBy,
+                                            String orderDirection, ScanBudget budget) {
         if (StringUtils.isBlank(storageKey)) {
             throw new BizException("读取目录时必须提供存储源 key");
         }
@@ -324,16 +357,15 @@ public class AiAgentToolService {
 
         try {
             AbstractBaseFileService<?> fileService = StorageSourceContext.getByStorageId(storageId);
+            if (fileService instanceof DirectoryMetadataProvider provider && provider.supportsNativePagination()) {
+                return readNativeDirectory(source, storageId, fileService, provider, request, budget);
+            }
+            // Legacy drivers have no bounded I/O API. Result caps do not bound their underlying enumeration.
+            budget.legacyDirectoryReads++;
             List<FileItemResult> files = fileService.fileList(request.getPath());
-            FileContext context = FileContext.builder()
-                    .storageId(storageId)
-                    .fileListRequest(request)
-                    .fileItemList(files)
-                    .fileService(fileService)
-                    .operatorUserId(TlgxyCloudAuthUtil.getCurrentUserId())
-                    .build();
+            FileContext context = directoryContext(storageId, fileService, request, files);
             fileChain.execute(context);
-            return new DirectorySnapshot(source, request.getPath(), context.getFileItemList());
+            return new DirectorySnapshot(source, request.getPath(), context.getFileItemList(), true, files.size(), 0, false);
         } catch (BizException e) {
             throw e;
         } catch (Exception e) {
@@ -342,7 +374,92 @@ public class AiAgentToolService {
         }
     }
 
-    private ToolExecution directoryResult(StorageSource source, String path, List<FileItemResult> files) {
+    /** Metadata only. Never fall back to fileList(), which can enumerate/sign an entire remote directory. */
+    private DirectorySnapshot readNativeDirectory(StorageSource source, int storageId,
+            AbstractBaseFileService<?> fileService, DirectoryMetadataProvider provider,
+            FileListRequest request, ScanBudget budget) throws Exception {
+        int actor = TlgxyCloudAuthUtil.getCurrentUserId();
+        var grant = directoryAccessGuard.require(actor, storageId, fileService.getCurrentUserBasePath());
+        if (budget.authorization == null) {
+            budget.authorization = new ScanAuthorization(grant, actor, storageId, fileService);
+        } else if (!budget.authorization.grant().equals(grant)) {
+            throw new BizException("目录授权已变化，请刷新后重试");
+        }
+        verifyScanAuthorization(budget);
+        List<FileItemResult> files = new ArrayList<>();
+        String token = null;
+        Set<String> tokens = new HashSet<>();
+        boolean complete = false;
+        int beforeItems = budget.scannedItems, beforeRequests = budget.requests;
+        do {
+            // Check directory/password restrictions before any provider I/O, even for empty pages.
+            fileChain.execute(directoryContext(storageId, fileService, request, List.of()));
+            requireSameGrant(grant, actor, storageId, fileService);
+            int pageSize = Math.min(MAX_NATIVE_PAGE_SIZE, MAX_SEARCH_SCANNED_ITEMS - budget.scannedItems);
+            if (pageSize <= 0 || budget.requests >= MAX_NATIVE_REQUESTS) break;
+            budget.requests++;
+            DirectoryMetadataProvider.NativePage page;
+            try {
+                page = provider.nativeDirectoryPage(request.getPath(), grant.root(), pageSize, token);
+            } catch (Exception failure) {
+                // A failed remote call has unknown scan cost: abort rather than spend more of this budget.
+                throw new NativeDirectoryReadException("存储源分页读取失败，请稍后重试", failure);
+            }
+            if (page == null || page.rawItemCount() < page.files().size() || page.rawItemCount() > pageSize)
+                throw new NativeDirectoryReadException("存储源分页响应异常，请稍后重试", null);
+            budget.scannedItems += page.rawItemCount();
+            files.addAll(page.files());
+            token = page.nextProviderToken();
+            if (token != null && (token.isBlank() || token.length() > 8192 || !tokens.add(token)))
+                throw new NativeDirectoryReadException("存储源分页游标异常，请稍后重试", null);
+            complete = token == null;
+        } while (!complete);
+        FileContext context = directoryContext(storageId, fileService, request, files);
+        fileChain.execute(context); // Current hidden/access/password rules and requested sort on the scanned subset.
+        requireSameGrant(grant, actor, storageId, fileService);
+        return new DirectorySnapshot(source, request.getPath(), context.getFileItemList(), complete,
+                budget.scannedItems - beforeItems, budget.requests - beforeRequests, true);
+    }
+
+    private void requireSameGrant(DirectoryAccessGuard.Grant expected, int actor, int storageId,
+                                  AbstractBaseFileService<?> fileService) {
+        if (!Objects.equals(actor, TlgxyCloudAuthUtil.getCurrentUserId())
+                || !expected.equals(directoryAccessGuard.require(actor, storageId, fileService.getCurrentUserBasePath())))
+            throw new BizException("目录授权已变化，请刷新后重试");
+    }
+
+    private void verifyScanAuthorization(ScanBudget budget) {
+        ScanAuthorization authorization = budget.authorization;
+        if (authorization != null) requireSameGrant(authorization.grant(), authorization.actor(),
+                authorization.storageId(), authorization.fileService());
+    }
+
+    private FileContext directoryContext(int storageId, AbstractBaseFileService<?> fileService,
+                                         FileListRequest request, List<FileItemResult> files) {
+        return FileContext.builder().storageId(storageId).fileListRequest(request).fileItemList(files)
+                .fileService(fileService).operatorUserId(TlgxyCloudAuthUtil.getCurrentUserId()).build();
+    }
+
+    private void addScope(Map<String, Object> data, DirectorySnapshot snapshot) {
+        data.put("complete", snapshot.complete());
+        data.put("scope", snapshot.complete() ? "FULL_DIRECTORY" : "SCANNED_ITEMS_ONLY");
+        data.put("observedCount", snapshot.files().size());
+        data.put("scannedItems", snapshot.scannedItems());
+        data.put("providerRequests", snapshot.providerRequests());
+        data.put("sortScope", snapshot.complete() ? "FULL_DIRECTORY" : "SCANNED_ITEMS_ONLY");
+        data.put("ioBounded", snapshot.nativePagination());
+        data.put("scanMode", snapshot.nativePagination() ? "NATIVE_BOUNDED" : "LEGACY_FULL_ENUMERATION");
+        if (!snapshot.nativePagination()) data.put("scanLimitNotice", legacyEnumerationNotice());
+    }
+
+    private String legacyEnumerationNotice() {
+        return "此存储源不支持原生分页，底层读取仍可能完整枚举目录；返回或搜索结果上限不代表远程请求量有界";
+    }
+
+    private ToolExecution directoryResult(DirectorySnapshot snapshot) {
+        StorageSource source = snapshot.source();
+        String path = snapshot.path();
+        List<FileItemResult> files = snapshot.files();
         List<Map<String, Object>> items = new ArrayList<>();
         int limit = Math.min(files.size(), MAX_DIRECTORY_ITEMS);
         for (int i = 0; i < limit; i++) {
@@ -360,10 +477,12 @@ public class AiAgentToolService {
         data.put("storageName", source.getName());
         data.put("storageKey", source.getKey());
         data.put("path", path);
-        data.put("total", files.size());
-        data.put("truncated", files.size() > MAX_DIRECTORY_ITEMS);
+        data.put("total", snapshot.complete() ? files.size() : null);
+        data.put("truncated", !snapshot.complete() || files.size() > MAX_DIRECTORY_ITEMS);
+        addScope(data, snapshot);
         data.put("items", items);
-        return new ToolExecution(data, "已读取 " + source.getName() + path + "，共 " + files.size() + " 项");
+        return new ToolExecution(data, "已读取 " + source.getName() + path + (snapshot.complete()
+                ? "，共 " + files.size() + " 项" : " 的部分目录；仅排序已扫描内容，总数未知"));
     }
 
     private List<StorageSource> accessibleStorageSources() {
@@ -486,7 +605,25 @@ public class AiAgentToolService {
     public record ToolExecution(Object data, String summary) {
     }
 
-    private record DirectorySnapshot(StorageSource source, String path, List<FileItemResult> files) {
+    private record DirectorySnapshot(StorageSource source, String path, List<FileItemResult> files,
+                                     boolean complete, int scannedItems, int providerRequests, boolean nativePagination) {
+    }
+
+    private static final class ScanBudget {
+        private int scannedItems;
+        private int requests;
+        private int legacyDirectoryReads;
+        private ScanAuthorization authorization;
+    }
+
+    private record ScanAuthorization(DirectoryAccessGuard.Grant grant, int actor, int storageId,
+                                     AbstractBaseFileService<?> fileService) {
+    }
+
+    private static final class NativeDirectoryReadException extends BizException {
+        private NativeDirectoryReadException(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 
     private record SearchDirectory(String path, int depth) {

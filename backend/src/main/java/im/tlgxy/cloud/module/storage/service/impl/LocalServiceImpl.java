@@ -83,6 +83,11 @@ public class LocalServiceImpl extends AbstractProxyTransferService<LocalParam> {
         File file = new File(fullPath);
 
         if (!(file.isDirectory() && file.exists())) {
+            // Approved personal roots are created lazily by the first upload. Do not
+            // create server directories merely by reading an empty cloud homepage.
+            if (!file.exists() && "/".equals(folderPath)
+                    && im.tlgxy.cloud.module.tenant.service.MemberStoragePaths.personal(
+                    getCurrentUserBasePath(), im.tlgxy.cloud.core.util.TlgxyCloudAuthUtil.getCurrentUserId())) return fileItemList;
             throw new BizException(ErrorCode.BIZ_FOLDER_NOT_EXIST);
         }
 

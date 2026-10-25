@@ -226,11 +226,40 @@ test('completion refresh emits both affected directories and deduplicates repeat
 	)
 })
 
+test('confirmation may finish immediately and refresh only successful file operations once', () => {
+	const completed = task({
+		status: 'PARTIAL',
+		steps: [
+			step(),
+			step({ sourcePath: '/课程资料/第二章.md', targetPath: '/课程资料/文档/第二章.md' }),
+			step({ sourcePath: '/失败目录/a.txt', targetPath: '/失败目标/a.txt' }),
+			step({ action: 'INDEX_MATERIAL', sourcePath: '/索引/a.txt' }),
+		],
+		results: [
+			{ index: 0, success: true },
+			{ index: 1, success: true },
+			{ index: 2, success: false },
+			{ index: 3, success: true },
+		],
+	})
+	assert.deepEqual(completedFileChanges(task({ status: 'PENDING' }), task()), [
+		{ storageKey: 'workspace-2', path: '/课程资料' },
+		{ storageKey: 'workspace-2', path: '/课程资料/文档' },
+	])
+	assert.deepEqual(completedFileChanges(task({ status: 'PENDING' }), completed), [
+		{ storageKey: 'workspace-2', path: '/课程资料' },
+		{ storageKey: 'workspace-2', path: '/课程资料/文档' },
+	])
+	assert.deepEqual(completedFileChanges(completed, { ...completed }), [])
+})
+
 test('history, uncertain progress and failed operations cannot trigger automatic file refresh', () => {
 	for (const previous of [
 		undefined,
 		task(),
-		task({ status: 'PENDING' }),
+		task({ status: 'PARTIAL' }),
+		task({ status: 'CANCELLED' }),
+		task({ id: 'different-task', status: 'PENDING' }),
 		task({ id: 'different-task', status: 'RUNNING' }),
 	]) {
 		assert.deepEqual(completedFileChanges(previous, task()), [])
@@ -261,6 +290,14 @@ test('history, uncertain progress and failed operations cannot trigger automatic
 		),
 		[]
 	)
+	for (const status of ['PENDING', 'RUNNING']) {
+		for (const completed of [
+			task({ status: 'PARTIAL', results: [{ index: 0, success: false }] }),
+			task({ steps: [step({ action: 'INDEX_MATERIAL' })] }),
+		]) {
+			assert.deepEqual(completedFileChanges(task({ status }), completed), [])
+		}
+	}
 })
 
 test('card keeps explicit confirmation, repeat opt-in, cancellation and visible failure contracts', async () => {

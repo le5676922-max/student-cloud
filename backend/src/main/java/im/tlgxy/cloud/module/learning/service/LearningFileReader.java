@@ -2,6 +2,8 @@ package im.tlgxy.cloud.module.learning.service;
 
 import im.tlgxy.cloud.core.exception.core.BizException;
 import im.tlgxy.cloud.core.util.TlgxyCloudAuthUtil;
+import im.tlgxy.cloud.module.learning.application.port.LearningFileAccess;
+import im.tlgxy.cloud.module.learning.domain.LearningDocumentPath;
 import im.tlgxy.cloud.module.filter.service.FilterConfigService;
 import im.tlgxy.cloud.module.password.service.PasswordConfigService;
 import im.tlgxy.cloud.module.storage.context.StorageSourceContext;
@@ -20,16 +22,20 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Objects;
 
-/** Never follows download URLs or accepts server-side paths. Every read rechecks live grants. */
+/**
+ * Compatibility adapter for existing storage drivers. Never follows download URLs or accepts
+ * server-side paths. Every read rechecks live grants; application services depend on its port only.
+ */
 @Service
 @RequiredArgsConstructor
-public class LearningFileReader {
-    public static final int MAX_BYTES = 5 * 1024 * 1024;
+public class LearningFileReader implements LearningFileAccess {
+    public static final int MAX_BYTES = LearningFileAccess.MAX_BYTES;
     private final StorageSourceService storages;
     private final UserStorageSourceService grants;
     private final FilterConfigService filters;
     private final PasswordConfigService passwords;
 
+    @Override
     public byte[] read(String storageKey, String requestedPath) {
         Path file = resolveAccessibleFile(storageKey, requestedPath);
         try (var stream = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
@@ -42,6 +48,7 @@ public class LearningFileReader {
     }
 
     /** Recheck live permissions and hash the whole file without allocating a 5 MB byte array. */
+    @Override
     public String fingerprint(String storageKey, String requestedPath) {
         Path file = resolveAccessibleFile(storageKey, requestedPath);
         try (var stream = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
@@ -136,17 +143,7 @@ public class LearningFileReader {
     }
 
     public static String normalizePath(String value) {
-        if (value == null || value.isBlank() || value.length() > 500
-                || value.chars().anyMatch(c -> c < 32) || value.contains(":") || value.contains("%")) {
-            throw new BizException("资料路径不合法");
-        }
-        String path = value.replace('\\', '/');
-        for (String part : path.split("/")) {
-            if (part.equals("..") || part.equals(".")) throw new BizException("资料路径不能包含目录跳转");
-        }
-        path = "/" + path.replaceAll("^/+", "").replaceAll("/+", "/");
-        if (path.endsWith("/")) throw new BizException("请选择具体资料文件");
-        return path;
+        return LearningDocumentPath.normalize(value);
     }
 
     private static BizException unavailable() {

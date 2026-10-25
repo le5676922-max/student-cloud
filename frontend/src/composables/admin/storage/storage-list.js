@@ -13,6 +13,9 @@ import {
 	filterStorageItems,
 	isStorageLoadCanceled,
 	reorderStorageItems,
+	normalizeStorageStatusFilter,
+	storageStatusCounts,
+	storageStatusFilters,
 	storageCommittedFailureMessage,
 	storageListErrorMessage,
 } from '~/utils/storage-list-controller.mjs'
@@ -28,14 +31,32 @@ export default function useStorageList(router) {
 	const operationError = ref('')
 	const storageList = ref([])
 	const searchKey = ref('')
+	const statusFilter = ref('all')
+	const hasLoaded = ref(false)
 	const storageContainerRef = ref(null)
 	const { openDialog: openCopyStorageDialog } = useStorageCopy()
 	let sortable
 	let sortController
 	let disposed = false
-	const sortingDisabled = computed(
-		() => loading.value || sorting.value || Boolean(searchKey.value.trim())
+	const hasStorageFilters = computed(
+		() =>
+			Boolean(searchKey.value.trim()) ||
+			normalizeStorageStatusFilter(statusFilter.value) !== 'all'
 	)
+	const sortingDisabled = computed(
+		() => loading.value || sorting.value || hasStorageFilters.value
+	)
+	const statusOptions = computed(() => {
+		const counts = storageStatusCounts(storageList.value)
+		return storageStatusFilters.map((filter) => ({
+			...filter,
+			count: hasLoaded.value ? counts[filter.value] : null,
+		}))
+	})
+	const clearFilters = () => {
+		searchKey.value = ''
+		statusFilter.value = 'all'
+	}
 
 	const runOperation = async (request, onSuccess) => {
 		operationError.value = ''
@@ -279,6 +300,7 @@ export default function useStorageList(router) {
 		},
 		onLoaded: async (items, { isCurrent }) => {
 			storageList.value = items
+			hasLoaded.value = true
 			await nextTick()
 			if (isCurrent()) setSort()
 		},
@@ -300,8 +322,13 @@ export default function useStorageList(router) {
 
 	// 存储源列表计算属性, 用于显示右上角搜索框对应的搜索结果.
 	const storageListSearchResult = computed(() =>
-		filterStorageItems(storageList.value, searchKey.value)
+		filterStorageItems(storageList.value, searchKey.value, statusFilter.value)
 	)
+	const emptyState = computed(() => {
+		if (loading.value || loadError.value || !hasLoaded.value) return ''
+		if (storageListSearchResult.value.length) return ''
+		return hasStorageFilters.value ? 'filtered' : 'unconfigured'
+	})
 
 	return {
 		init,
@@ -311,6 +338,19 @@ export default function useStorageList(router) {
 		operationError,
 		storageContainerRef,
 		searchKey,
+		statusFilter,
+		statusOptions,
+		hasStorageFilters,
+		hasLoaded,
+		emptyState,
+		clearFilters,
+		sortingDisabled,
+		showingPreviousData: computed(
+			() =>
+				hasLoaded.value &&
+				Boolean(loadError.value) &&
+				storageList.value.length > 0
+		),
 		storageListSearchResult,
 		handleOperator,
 		addStorage,

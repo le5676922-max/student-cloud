@@ -75,7 +75,7 @@ export default function useHeaderStorageList() {
 				try {
 					const response = await getSourceListReq({
 						signal: request.signal,
-						timeout: 30000,
+						timeout: 10000,
 						showDefaultMsg: false,
 					})
 					if (!isCurrent()) throw canceledStorageLoad()

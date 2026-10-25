@@ -4,7 +4,9 @@ import fileRoutes from '~pages'
 import { setupLayouts } from 'virtual:meta-layouts'
 import { createRouter, createWebHistory } from 'vue-router'
 import useStorageConfigStore from '~/stores/storage-config'
+import useGlobalConfigStore from '~/stores/global-config'
 import { createAuthenticationGuard } from '~/utils/auth-navigation.mjs'
+import { navigationCredentialIdentity } from '~/utils/navigation-credential.mjs'
 import NProgress from 'nprogress'
 import { ElMessage } from 'element-plus'
 
@@ -55,6 +57,19 @@ router.onError(() => {
 
 router.beforeEach(
 	createAuthenticationGuard({
+		getCredentialIdentity: () => {
+			let storage
+			try {
+				storage = window.localStorage
+			} catch {
+				/* Cookie-only browsers. */
+			}
+			return navigationCredentialIdentity({
+				storage,
+				cookie: document.cookie,
+				baseUrl: useGlobalConfigStore().studentCloudConfig.baseUrl,
+			})
+		},
 		async loadLoginInfo(config: AxiosRequestConfig = {}) {
 			// Load HTTP only after the application has installed Pinia.
 			const { checkLoginReq } = await import('~/api/home/user')

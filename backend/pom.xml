@@ -4,7 +4,7 @@
 
     <groupId>im.tlgxy</groupId>
     <artifactId>tongligong-student-cloud</artifactId>
-    <version>4.6.0</version>
+    <version>5.0.0</version>
     <name>通理工学生个人云盘</name>
     <packaging>jar</packaging>
     <description>通理工学生个人云盘 — 一个适用于通理工学生的个人在线网盘程序</description>
@@ -59,6 +59,10 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

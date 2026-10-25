@@ -1,6 +1,7 @@
 package im.tlgxy.cloud.module.share.service;
 
 import im.tlgxy.cloud.core.exception.core.BizException;
+import im.tlgxy.cloud.core.util.TlgxyCloudAuthUtil;
 import im.tlgxy.cloud.module.share.context.ShareAccessContext;
 import im.tlgxy.cloud.module.share.mapper.ShareLinkMapper;
 import im.tlgxy.cloud.module.share.model.entity.ShareLink;
@@ -55,12 +56,12 @@ class ShareLinkFileServiceTest {
         ReflectionTestUtils.setField(service, "storageSourceMapper", storage);
         ReflectionTestUtils.setField(service, "tenantMapper", tenants);
         ReflectionTestUtils.setField(service, "fileChain", chain);
-        share.setShareKey("synthetic"); share.setUserId(20); share.setStorageKey("workspace"); share.setSharePath("/allowed");
+        share.setShareKey("synthetic"); share.setUserId(20); share.setStorageKey("workspace"); share.setSharePath("/members/u20/allowed");
         share.setShareItem("[{\"name\":\"selected.txt\",\"type\":\"FILE\"}]");
         owner.setId(20); owner.setRole(UserRoleEnum.USER); owner.setTenantId(10); owner.setEnable(true);
         tenant.setId(10); tenant.setEnable(true);
         source.setId(30); source.setTenantId(10); source.setEnable(true);
-        grant.setEnable(true); grant.setRootPath("/"); grant.setPermissions(Set.of("createShareLink", "download", "preview"));
+        grant.setEnable(true); grant.setRootPath("/members/u20"); grant.setPermissions(Set.of("createShareLink", "download", "preview"));
         when(shares.getByShareKey("synthetic")).thenReturn(share);
         when(users.selectById(20)).thenReturn(owner);
         when(storage.findByStorageKey("workspace")).thenReturn(source);
@@ -78,7 +79,7 @@ class ShareLinkFileServiceTest {
     @AfterEach void cleanup() { context.close(); ShareAccessContext.clear(); }
 
     @Test void downloadUsesShareContextAndCommonFileChainThenAlwaysClearsContext() throws Exception {
-        when(files.getProxyDownloadUrl("/allowed/selected.txt")).thenAnswer(call -> {
+        when(files.getProxyDownloadUrl("/members/u20/allowed/selected.txt")).thenAnswer(call -> {
             assertEquals("synthetic", ShareAccessContext.getShareKey());
             assertEquals(20, ShareAccessContext.getShareUserId());
             return "synthetic-proxy";
@@ -103,13 +104,13 @@ class ShareLinkFileServiceTest {
     }
 
     @Test void disablingOwnerOrWorkspaceRevokesAlreadyIssuedTicketAuthorization() {
-        service.validateSharedProxyDownload("synthetic", "workspace", "/allowed/selected.txt");
+        service.validateSharedProxyDownload("synthetic", "workspace", "/members/u20/allowed/selected.txt");
         owner.setEnable(false);
-        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/allowed/selected.txt"));
+        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/members/u20/allowed/selected.txt"));
         owner.setEnable(true); tenant.setEnable(false);
-        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/allowed/selected.txt"));
+        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/members/u20/allowed/selected.txt"));
         tenant.setEnable(true); source.setEnable(false);
-        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/allowed/selected.txt"));
+        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/members/u20/allowed/selected.txt"));
     }
 
     @Test void revokingGrantSharePermissionReadPermissionOrRootImmediatelyDeniesDownload() {
@@ -120,30 +121,78 @@ class ShareLinkFileServiceTest {
     }
 
     @Test void deletedExpiredWrongStorageAndChangedScopeRevokeExistingTicket() {
-        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "different", "/allowed/selected.txt"));
+        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "different", "/members/u20/allowed/selected.txt"));
         share.setShareItem("[{\"name\":\"other.txt\",\"type\":\"FILE\"}]");
-        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/allowed/selected.txt"));
+        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/members/u20/allowed/selected.txt"));
         share.setExpireDate(new Date(System.currentTimeMillis() - 1));
-        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/allowed/selected.txt"));
+        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/members/u20/allowed/selected.txt"));
         when(shares.getByShareKey("synthetic")).thenReturn(null);
-        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/allowed/selected.txt"));
+        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/members/u20/allowed/selected.txt"));
     }
 
     @Test void corruptSelectionNeverExposesWholeDirectory() {
         share.setShareItem("broken");
         assertThrows(BizException.class, () -> service.getShareFileList("synthetic", "/", null, null, null, null));
-        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/allowed/selected.txt"));
+        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/members/u20/allowed/selected.txt"));
         context.verifyNoInteractions();
     }
 
     @Test void selectedFolderDescendantsAreValidButSimilarSiblingIsNot() {
         share.setShareItem("[{\"name\":\"selected\",\"type\":\"FOLDER\"}]");
-        assertDoesNotThrow(() -> service.validateSharedProxyDownload("synthetic", "workspace", "/allowed/selected/sub/file.txt"));
-        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/allowed/selected-other/file.txt"));
+        assertDoesNotThrow(() -> service.validateSharedProxyDownload("synthetic", "workspace", "/members/u20/allowed/selected/sub/file.txt"));
+        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/members/u20/allowed/selected-other/file.txt"));
+    }
+
+    @Test void globalAdministratorOwnerNeedsNoStoredGrantButShareSelectionRemainsConfined() throws Exception {
+        owner.setRole(UserRoleEnum.ADMIN); owner.setTenantId(null);
+        when(grants.getByUserIdAndStorageId(20, 30)).thenReturn(null);
+        assertDoesNotThrow(() -> service.validateSharedProxyDownload("synthetic", "workspace", "/members/u20/allowed/selected.txt"));
+        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/members/u20/allowed/unselected.txt"));
+        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/selected.txt"));
+        assertEquals("synthetic-proxy", service.getShareFileDownloadUrl("synthetic", "selected.txt", null));
+        verify(files).getProxyDownloadUrl("/members/u20/allowed/selected.txt");
+        verify(chain).execute(any());
+        assertFalse(ShareAccessContext.isShareAccess());
+    }
+
+    @Test void administratorLegacyGrantCannotReduceAccessAndDemotionIsEffectiveOnTheNextRead() {
+        owner.setRole(UserRoleEnum.ADMIN); owner.setTenantId(null);
+        grant.setEnable(false); grant.setRootPath("/different"); grant.setPermissions(Set.of());
+        assertDoesNotThrow(() -> service.validateSharedProxyDownload("synthetic", "workspace", "/members/u20/allowed/selected.txt"));
+        owner.setRole(UserRoleEnum.USER); owner.setTenantId(10);
+        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/members/u20/allowed/selected.txt"));
+    }
+
+    @Test void administratorOwnerStillCannotBypassDisabledWorkspaceSourceOrAccount() {
+        owner.setRole(UserRoleEnum.ADMIN); owner.setTenantId(null);
+        assertDoesNotThrow(() -> service.validateSharedProxyDownload("synthetic", "workspace", "/members/u20/allowed/selected.txt"));
+        tenant.setEnable(false); assertDownloadDenied();
+        tenant.setEnable(true); source.setEnable(false); assertDownloadDenied();
+        source.setEnable(true); owner.setEnable(false); assertDownloadDenied();
+    }
+
+    @Test void aGlobalAdministratorVisitorCannotElevateAnOrdinaryShareOwner() {
+        User visitor = new User(); visitor.setId(1); visitor.setEnable(true); visitor.setRole(UserRoleEnum.ADMIN);
+        grant.setEnable(false);
+        try (var auth = mockStatic(TlgxyCloudAuthUtil.class)) {
+            auth.when(TlgxyCloudAuthUtil::getCurrentUser).thenReturn(visitor);
+            assertDownloadDenied();
+            auth.verifyNoInteractions();
+        }
+    }
+
+    @Test void administratorDownloadsStillExecuteProtectedFileRulesAndClearShareContext() throws Exception {
+        owner.setRole(UserRoleEnum.ADMIN); owner.setTenantId(null);
+        when(grants.getByUserIdAndStorageId(20, 30)).thenReturn(null);
+        doThrow(new BizException("synthetic protected path")).when(chain).execute(any());
+        assertThrows(BizException.class, () -> service.getShareFileDownloadUrl("synthetic", "selected.txt", null));
+        verify(chain).execute(any());
+        verify(files, never()).getProxyDownloadUrl(anyString());
+        assertFalse(ShareAccessContext.isShareAccess());
     }
 
     private void assertDownloadDenied() {
-        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/allowed/selected.txt"));
+        assertThrows(BizException.class, () -> service.validateSharedProxyDownload("synthetic", "workspace", "/members/u20/allowed/selected.txt"));
         assertThrows(BizException.class, () -> service.getShareFileDownloadUrl("synthetic", "selected.txt", null));
     }
 }

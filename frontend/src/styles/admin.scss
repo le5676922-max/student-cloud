@@ -4,7 +4,8 @@ $admin-form-item__content-max-width: 768px;
 .admin-mobile-sidebar {
 	height: 100%;
 	padding: 0 18px;
-	background: var(--cloud-canvas);
+	background: var(--cloud-panel);
+	border-radius: 0 var(--cloud-radius) var(--cloud-radius) 0;
 	color: var(--cloud-ink);
 	overscroll-behavior: contain;
 
@@ -23,17 +24,24 @@ $admin-form-item__content-max-width: 768px;
 .admin-shell {
 	display: flex;
 	flex-direction: column;
-	background: var(--cloud-canvas);
+	box-sizing: border-box;
+	padding: 12px;
+	background: var(--cloud-frame);
 	color: var(--cloud-ink);
 
 	.admin-desktop-sidebar {
-		width: 256px;
+		top: 12px;
+		bottom: 12px;
+		left: 12px;
+		width: 244px;
 	}
 
 	.admin-sidebar {
 		padding: 0 18px;
-		background: var(--cloud-canvas);
-		border-color: var(--cloud-line);
+		overflow-x: hidden;
+		background: var(--cloud-panel);
+		border: 1px solid rgb(255 255 255 / 30%);
+		border-radius: var(--cloud-radius);
 	}
 
 	.admin-brand {
@@ -69,6 +77,7 @@ $admin-form-item__content-max-width: 768px;
 		z-index: 30;
 		background: var(--cloud-surface);
 		border-bottom: 1px solid var(--cloud-line);
+		border-radius: var(--cloud-radius) var(--cloud-radius) 0 0;
 	}
 
 	.admin-main-content {
@@ -77,9 +86,11 @@ $admin-form-item__content-max-width: 768px;
 		min-height: 0;
 		background: var(--cloud-canvas);
 		padding-bottom: 36px;
+		border-radius: var(--cloud-radius);
+		overscroll-behavior: contain;
 
 		@media (min-width: 1024px) {
-			padding-left: 256px;
+			margin-left: 256px;
 		}
 	}
 
@@ -92,6 +103,7 @@ $admin-form-item__content-max-width: 768px;
 		padding: 15px 28px;
 		border-bottom: 1px solid var(--cloud-line);
 		background: var(--cloud-surface);
+		border-radius: var(--cloud-radius) var(--cloud-radius) 0 0;
 	}
 
 	.admin-breadcrumb {
@@ -122,6 +134,10 @@ $admin-form-item__content-max-width: 768px;
 		flex-shrink: 0;
 		color: var(--cloud-primary);
 		font-size: 12px;
+		padding: 6px 11px;
+		border: 1px solid var(--cloud-line);
+		border-radius: 999px;
+		background: var(--cloud-soft);
 
 		svg {
 			width: 16px;
@@ -134,22 +150,24 @@ $admin-form-item__content-max-width: 768px;
 		padding: 20px 24px;
 		background: var(--cloud-surface);
 		border: 1px solid var(--cloud-line);
-		border-radius: 12px;
+		border-radius: var(--cloud-radius);
 		min-width: 0;
+		box-shadow: 0 4px 20px rgb(28 29 32 / 3%);
 	}
 
 	.admin-overview-panel {
 		padding: 0;
 		border: 0;
 		background: transparent;
+		box-shadow: none;
 	}
 
 	.el-table {
-		--el-table-header-bg-color: #f4f5f1;
+		--el-table-header-bg-color: var(--cloud-soft);
 		--el-table-header-text-color: var(--cloud-muted);
 		--el-table-text-color: var(--cloud-ink);
 		--el-table-border-color: var(--cloud-line);
-		--el-table-row-hover-bg-color: #f1f5f1;
+		--el-table-row-hover-bg-color: var(--cloud-lilac);
 	}
 
 	.el-table th.el-table__cell {
@@ -170,11 +188,21 @@ $admin-form-item__content-max-width: 768px;
 
 	a:focus-visible,
 	button:focus-visible {
-		outline: 2px solid var(--cloud-primary);
+		outline: 2px solid var(--cloud-accent);
 		outline-offset: 3px;
 	}
 
+	@media (max-width: 1023px) {
+		.admin-main-content,
+		.admin-page-header {
+			border-top-left-radius: 0;
+			border-top-right-radius: 0;
+		}
+	}
+
 	@media (max-width: 767px) {
+		padding: 8px;
+
 		.admin-page-header {
 			min-height: 54px;
 			padding: 12px 16px;
@@ -192,6 +220,21 @@ $admin-form-item__content-max-width: 768px;
 
 		.admin-overview-panel {
 			padding: 0;
+		}
+	}
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.admin-shell .admin-content-panel {
+		animation: admin-panel-arrive 260ms var(--cloud-ease);
+	}
+
+	@keyframes admin-panel-arrive {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
 		}
 	}
 }

@@ -6,6 +6,7 @@ import * as vue from 'vue'
 import * as lifecycle from '../src/composables/file/upload-lifecycle.mjs'
 import * as progress from '../src/composables/file/upload-progress.mjs'
 import * as resumableUpload from '../src/utils/resumable-upload.mjs'
+import * as fileChangeRefresh from '../src/utils/file-change-refresh.mjs'
 
 // Run the real composable/watchers. All signing, mkdir and HTTP transfers are synthetic.
 const source = await readFile(
@@ -52,6 +53,7 @@ function setupUploads({ limit = 2, uploadType = 'PROXY', resumable } = {}) {
 		notices = [],
 		loadings = []
 	const resumableRequests = [], passwordContexts = []
+	const fileChanges = []
 	const route = vue.reactive({ key: 'source-one', path: '/original' })
 	const storage = vue.reactive({
 		loginInfo: { isLogin: true, username: '10001', tenantId: 1 },
@@ -135,6 +137,11 @@ function setupUploads({ limit = 2, uploadType = 'PROXY', resumable } = {}) {
 			return '目录%password'
 		} }) },
 		'~/utils/resumable-upload.mjs': resumableUpload,
+		'~/utils/file-change-refresh.mjs': fileChangeRefresh,
+		'@vueuse/core': { useEventBus: (key) => ({ emit: (change) => {
+			assert.equal(key, 'cloud-files-changed')
+			fileChanges.push(plain(change))
+		} }) },
 		'~/utils': {
 			concatPath: (...parts) =>
 				parts.filter(Boolean).join('/').replace(/\/+/g, '/'),
@@ -217,6 +224,7 @@ function setupUploads({ limit = 2, uploadType = 'PROXY', resumable } = {}) {
 		listeners,
 		resumableRequests,
 		passwordContexts,
+		fileChanges,
 		factory: module.factory,
 		callerScope,
 		dispose: () => {
@@ -262,6 +270,9 @@ test('resumable composable preserves captured target/password context, skips acc
 	assert.ok(h.resumableRequests.every((request) => request.config.headers['X-Upload-Directory-Password'] === encodeURIComponent('目录%password')))
 	assert.ok(h.passwordContexts.every((context) => context.path === '/original' && context.target.storageKey === 'source-one' && context.target.rootPath === '/user-one'))
 	assert.equal(h.api.uploadProgressInfoSorted.value[0].progress, 100)
+	assert.deepEqual(h.fileChanges, [{
+		storageKey: 'source-one', path: '/original', accountIdentity: '["10001",1]',
+	}])
 })
 
 test('resumable probe failure is visible and never falls back to whole-file signing', async (t) => {
@@ -272,6 +283,7 @@ test('resumable probe failure is visible and never falls back to whole-file sign
 	assert.equal(h.resumableRequests.length, 1)
 	assert.equal(h.signatures.length, 0)
 	assert.match(h.api.uploadProgressInfoSorted.value[0].msg, /暂不可用/)
+	assert.deepEqual(h.fileChanges, [])
 })
 
 test('resumable cancellation and account switch abort chunks, ignore late receipts, never DELETE or complete', async (t) => {
@@ -294,6 +306,7 @@ test('resumable cancellation and account switch abort chunks, ignore late receip
 		assert.equal(h.api.uploadProgressInfoSorted.value.length, 0)
 		assert.ok(!h.resumableRequests.some((request) => request.method === 'DELETE' || request.url.endsWith('/complete')))
 		assert.equal(h.signatures.length, 0)
+		assert.deepEqual(h.fileChanges, [])
 	}
 })
 
@@ -317,6 +330,7 @@ test('uncertain completion retry checks status with GET and never repeats comple
 	assert.equal(h.resumableRequests.at(-1).method, 'GET')
 	assert.equal(h.resumableRequests.filter((request) => request.url.endsWith('/complete')).length, 1)
 	assert.equal(h.signatures.length, 0)
+	assert.equal(h.fileChanges.length, 1)
 })
 
 test('large unsupported provider explicitly opts out and agent silent upload supports resume', async (t) => {
@@ -333,6 +347,9 @@ test('large unsupported provider explicitly opts out and agent silent upload sup
 	assert.equal(saved.path, '/original')
 	assert.equal(h.signatures.length, 0)
 	assert.equal(h.resumableRequests.length, 2)
+	assert.deepEqual(h.fileChanges, [{
+		storageKey: 'source-one', path: '/original', accountIdentity: '["10001",1]',
+	}])
 })
 
 test('signing retains source, path, uploader and user root after navigation', async (t) => {
@@ -381,6 +398,7 @@ test('late signing rejection after cancellation never recreates an error task', 
 	h.signatures[0].reject(new Error('late failure'))
 	await flush()
 	assert.equal(h.api.uploadProgressInfoSorted.value.length, 0)
+	assert.deepEqual(h.fileChanges, [])
 	assert.equal(h.transfers.length, 0)
 })
 
@@ -541,6 +559,76 @@ test('silent transfer account switch rejects and never displays success from lat
 	await flush()
 	assert.equal(h.notices.length, 0)
 	assert.equal(h.transfers[0].args[2].signal.aborted, true)
+	assert.deepEqual(h.fileChanges, [])
+})
+
+test('successful hidden-dialog uploads publish their captured source, account and affected parent folders once', async (t) => {
+	const h = setupUploads()
+	t.after(h.dispose)
+	h.api.openUploadDialog()
+	h.api.uploadFile({ ...file(), webkitRelativePath: 'folder/sub/same.txt' })
+	h.api.visible.value = false
+	assert.equal(h.api.clearALlFinishedUploadFile(), 0)
+	h.route.key = 'source-two'
+	h.route.path = '/changed'
+	h.signatures[0].resolve({ data: '/signed-upload' })
+	await flush()
+	h.transfers[0].resolve({})
+	await flush()
+	assert.equal(h.api.uploadProgressInfoSorted.value[0].status, 'finished')
+	assert.deepEqual(h.fileChanges, ['/original', '/original/folder', '/original/folder/sub'].map((path) => ({
+		storageKey: 'source-one', path, accountIdentity: '["10001",1]',
+	})))
+	assert.equal(h.api.clearALlFinishedUploadFile(), 1)
+	assert.equal(h.api.clearALlFinishedUploadFile(), 0)
+	assert.equal(h.fileChanges.length, 3)
+})
+
+test('silent S3 success emits the explicit original target without reopening the upload dialog', async (t) => {
+	const h = setupUploads({ uploadType: 'S3' })
+	t.after(h.dispose)
+	const saved = h.api.silentUploadFile(file(), { path: '/explicit', showFeedback: false })
+	h.signatures[0].resolve({ data: 'https://upload.example/file' })
+	await flush()
+	h.route.key = 'source-two'
+	h.route.path = '/changed'
+	h.transfers[0].resolve({})
+	assert.deepEqual(plain(await saved), { name: 'same.txt', path: '/explicit', storageKey: 'source-one' })
+	assert.equal(h.api.visible.value, false)
+	assert.deepEqual(h.fileChanges, [{
+		storageKey: 'source-one', path: '/explicit', accountIdentity: '["10001",1]',
+	}])
+})
+
+test('member S3 upload returned as an app proxy uses authenticated multipart instead of a raw provider PUT', async (t) => {
+	const h = setupUploads({ uploadType: 'S3' })
+	t.after(h.dispose)
+	const saved = h.api.silentUploadFile(file(), { path: '/explicit', showFeedback: false })
+	h.signatures[0].resolve({ data: '/file/upload/source-one/explicit/same.txt' })
+	await flush()
+	assert.equal(h.transfers[0].kind, 'proxy')
+	assert.equal(h.transfers[0].args[0].config.containToken, true)
+	assert.equal(typeof h.transfers[0].args[0].data.append, 'function')
+	h.transfers[0].resolve({})
+	await saved
+})
+
+test('failed or canceled normal transfers and late old-account success publish no completion event', async (t) => {
+	for (const outcome of ['failed', 'canceled', 'account']) {
+		const h = setupUploads()
+		t.after(h.dispose)
+		h.api.uploadFile(file())
+		h.signatures[0].resolve({ data: '/signed-upload' })
+		await flush()
+		if (outcome === 'failed') h.transfers[0].reject(new Error('upload failed'))
+		else {
+			if (outcome === 'account') h.storage.loginInfo.username = 'other-user'
+			else h.api.removeUploadFileByIndex(h.api.uploadProgressInfoSorted.value[0].index)
+			h.transfers[0].resolve({})
+		}
+		await flush()
+		assert.deepEqual(h.fileChanges, [])
+	}
 })
 
 test('normal and silent uploads with missing permission reject before signing', async (t) => {

@@ -2,7 +2,8 @@ package im.tlgxy.cloud.module.learning.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import im.tlgxy.cloud.core.exception.core.BizException;
-import im.tlgxy.cloud.module.ai.service.LearningEmbeddingClient;
+import im.tlgxy.cloud.module.learning.application.port.LearningEmbeddingGateway;
+import im.tlgxy.cloud.module.learning.application.port.LearningFileAccess;
 import im.tlgxy.cloud.module.learning.model.*;
 import org.junit.jupiter.api.*;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -14,7 +15,7 @@ import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.*;
 
 class LearningSemanticIndexTest {
-    final LearningEmbeddingClient client = mock(LearningEmbeddingClient.class);
+    final LearningEmbeddingGateway client = mock(LearningEmbeddingGateway.class);
     final ObjectMapper json = new ObjectMapper();
     final LearningSemanticIndex semantic = new LearningSemanticIndex(client, json);
 
@@ -101,6 +102,7 @@ class LearningSemanticIndexTest {
         var result = semantic.rank(List.of(material), "如何省钱", List.of());
         assertEquals(1, result.matches().size());
         assertEquals("M1-S1", result.matches().getFirst().reference());
+        assertEquals(Set.of("M1-S1"), result.semanticReferences());
         verify(client).embed(List.of("如何省钱"));
         verify(client, times(1)).embed(anyList());
         assertTrue(result.notice().contains("分数不是准确率"));
@@ -120,6 +122,7 @@ class LearningSemanticIndexTest {
         material.setEmbeddingJson(json.writeValueAsString(new float[][]{vector(), new float[31]}));
         var result = semantic.rank(List.of(material), "question", List.of());
         assertTrue(result.matches().isEmpty()); assertTrue(result.notice().contains("部分语义索引无效"));
+        assertTrue(result.semanticReferences().isEmpty());
     }
 
     @Test void providerFailureUsesExactlyTheExistingLexicalResults() {
@@ -133,7 +136,7 @@ class LearningSemanticIndexTest {
 
     @Test void semanticCitationsStillFailClosedOnChangedFileOrRevokedPermission() {
         var material = material(1, "知识材料"); semantic.prepare(material);
-        var reader = mock(LearningFileReader.class);
+        var reader = mock(LearningFileAccess.class);
         var library = new LearningLibraryService(null, null, reader, null, null, null);
         ReflectionTestUtils.setField(library, "semantic", semantic);
         when(reader.fingerprint("local", "/1.txt")).thenReturn("changed");

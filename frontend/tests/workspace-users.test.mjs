@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { workspaceMemberPermissionLink } from '../src/utils/admin-navigation.mjs'
 import {
 	canManageWorkspaceAdministrator,
 	createWorkspaceUserRequestGate,
@@ -253,7 +254,7 @@ test('latest filter/page request is the only reply eligible to display', () => {
 	assert.equal(second.signal.aborted, false)
 })
 
-test('global page uses bounded workspace directory and lazy read-only member block', async () => {
+test('global page uses bounded workspace directory and a lazy member overview without permission editing', async () => {
 	const page = await readFile(
 		new URL('../src/pages/admin/user-list/index.vue', import.meta.url),
 		'utf8'
@@ -271,6 +272,58 @@ test('global page uses bounded workspace directory and lazy read-only member blo
 	const memberSection = template.slice(template.indexOf('members-panel'))
 	assert.doesNotMatch(
 		memberSection,
-		/updateUserEnableReq|user-edit|deleteUser|copyUser|el-switch/
+		/updateUserEnableReq|deleteUser|copyUser|el-switch/
 	)
+	assert.doesNotMatch(
+		memberSection,
+		/workspaceMemberPermissionLink|设置权限|label="权限"/
+	)
+	assert.match(memberSection, /全局管理员在这里总览空间人员，不设置成员权限/)
+})
+
+test('member permission links require the matching workspace administrator and exclude global administrators', () => {
+	const login = {
+		isLogin: true,
+		isAdmin: false,
+		role: 'TENANT_ADMIN',
+		tenantId: 9,
+	}
+	const row = {
+		id: 21,
+		role: 'USER',
+		tenantId: 9,
+		membershipStatus: 'ACTIVE',
+		enable: false,
+	}
+	assert.equal(
+		workspaceMemberPermissionLink(row, 9, login),
+		'/workspace-admin?memberId=21'
+	)
+	for (const changed of [
+		{ id: 0 },
+		{ id: 1 },
+		{ id: 2 },
+		{ id: '21' },
+		{ tenantId: 10 },
+		{ role: 'ADMIN' },
+		{ role: 'TENANT_ADMIN' },
+		{ membershipStatus: 'PENDING' },
+		{ membershipStatus: 'REJECTED' },
+		{ membershipStatus: undefined },
+	])
+		assert.equal(
+			workspaceMemberPermissionLink({ ...row, ...changed }, 9, login),
+			null
+		)
+	for (const changed of [
+		{ isLogin: false },
+		{ tenantId: 10 },
+		{ role: 'USER' },
+		{ role: 'ADMIN', isAdmin: true },
+	])
+		assert.equal(
+			workspaceMemberPermissionLink(row, 9, { ...login, ...changed }),
+			null
+		)
+	assert.equal(workspaceMemberPermissionLink(row, null, login), null)
 })

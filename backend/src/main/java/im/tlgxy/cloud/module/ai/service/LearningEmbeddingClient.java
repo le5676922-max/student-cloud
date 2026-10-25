@@ -3,6 +3,7 @@ package im.tlgxy.cloud.module.ai.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import im.tlgxy.cloud.module.ai.config.LearningEmbeddingProperties;
+import im.tlgxy.cloud.module.learning.application.port.LearningEmbeddingGateway;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -28,7 +29,7 @@ import java.util.concurrent.TimeUnit;
 
 /** Optional semantic embedding client; failures propagate so the caller can explicitly use lexical fallback. */
 @Service
-public class LearningEmbeddingClient {
+public class LearningEmbeddingClient implements LearningEmbeddingGateway {
     static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
     public static final int MAX_BATCH = 16;
     public static final int MAX_SEGMENT_CHARS = 700;

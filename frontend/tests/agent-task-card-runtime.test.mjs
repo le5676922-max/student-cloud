@@ -251,6 +251,7 @@ test('runtime pending steps expand, completed history folds and failure warns ou
 				assert.notEqual(warning.parent, details)
 			}
 			assert.equal(card.requests.length, 0)
+			assert.deepEqual(card.fileChanges, [])
 		} finally {
 			card.app.unmount()
 		}
@@ -373,6 +374,79 @@ test('runtime accepted confirmation makes exactly one explicit POST and observes
 		card.current.value = sample('SUCCEEDED')
 		await vue.nextTick()
 		assert.equal(card.fileChanges.length, 2)
+	} finally {
+		card.app.unmount()
+	}
+})
+
+test('runtime immediate confirmation completion refreshes once without requiring a RUNNING poll', async () => {
+	for (const status of ['SUCCEEDED', 'PARTIAL']) {
+		const completed = sample(status)
+		completed.steps.push(
+			{ ...completed.steps[0], sourcePath: '/资料/b.txt', targetPath: '/资料/文档/b.txt' },
+			{ ...completed.steps[0], sourcePath: '/未修改/c.txt', targetPath: '/未修改/文档/c.txt' }
+		)
+		completed.results = [
+			{ index: 0, success: true, message: '完成' },
+			{ index: 1, success: true, message: '完成' },
+			{ index: 2, success: status === 'SUCCEEDED', message: status === 'SUCCEEDED' ? '完成' : '冲突' },
+		]
+		const card = mountCard(sample(), { request: async () => ({ data: completed }) })
+		try {
+			await card.button('确认执行').props.onClick()
+			await vue.nextTick()
+			const expected = [
+				{ storageKey: 'workspace-2', path: '/资料' },
+				{ storageKey: 'workspace-2', path: '/资料/文档' },
+				...(status === 'SUCCEEDED' ? [
+					{ storageKey: 'workspace-2', path: '/未修改' },
+					{ storageKey: 'workspace-2', path: '/未修改/文档' },
+				] : []),
+			]
+			assert.equal(card.current.value.status, status)
+			assert.equal(card.requests.length, 1)
+			assert.equal(card.clock.callbacks.size, 0)
+			assert.deepEqual(card.fileChanges, expected)
+			card.current.value = { ...completed }
+			await vue.nextTick()
+			await card.button('刷新状态').props.onClick()
+			await vue.nextTick()
+			assert.deepEqual(card.fileChanges, expected)
+		} finally {
+			card.app.unmount()
+		}
+	}
+})
+
+test('runtime task replacement ignores a previous confirmation completion and historical terminal props', async () => {
+	const response = deferred()
+	const card = mountCard(sample(), { request: () => response.promise })
+	try {
+		const running = card.button('确认执行').props.onClick()
+		await vue.nextTick()
+		assert.equal(card.requests.length, 1)
+		card.current.value = { ...sample('SUCCEEDED'), id: 'different-task' }
+		await vue.nextTick()
+		assert.equal(card.requests[0][3].signal.aborted, true)
+		response.resolve({ data: sample('SUCCEEDED') })
+		await running
+		await vue.nextTick()
+		assert.equal(card.current.value.id, 'different-task')
+		assert.deepEqual(card.fileChanges, [])
+	} finally {
+		card.app.unmount()
+	}
+})
+
+test('runtime immediate non-file completion does not refresh a directory', async () => {
+	const completed = sample('SUCCEEDED')
+	completed.steps[0] = { ...completed.steps[0], action: 'INDEX_MATERIAL', courseId: 12 }
+	const card = mountCard(sample(), { request: async () => ({ data: completed }) })
+	try {
+		await card.button('确认执行').props.onClick()
+		await vue.nextTick()
+		assert.equal(card.current.value.status, 'SUCCEEDED')
+		assert.deepEqual(card.fileChanges, [])
 	} finally {
 		card.app.unmount()
 	}

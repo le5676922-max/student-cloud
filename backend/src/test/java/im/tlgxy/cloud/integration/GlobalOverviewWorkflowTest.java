@@ -42,6 +42,7 @@ class GlobalOverviewWorkflowTest {
     private static final String WORKSPACE_A = "Console A_%! synthetic";
     private static final String WORKSPACE_B = "Console B synthetic";
     private static final String PRIVATE_MARKER = "CONSOLE_PRIVATE_FIXTURE";
+    @Autowired org.springframework.cache.CacheManager fixtureCaches;
 
     @Autowired TestRestTemplate http;
     @Autowired JdbcTemplate jdbc;
@@ -64,7 +65,7 @@ class GlobalOverviewWorkflowTest {
     @DynamicPropertySource
     static void configuration(DynamicPropertyRegistry properties) {
         boolean mysql = MYSQL_URL != null && !MYSQL_URL.isBlank();
-        if (mysql && (!MYSQL_URL.matches("jdbc:mysql://(?:127\\.0\\.0\\.1|localhost):3306/student_cloud_role_test_[a-z0-9_]+(?:\\?.*)?")
+        if (mysql && (!MYSQL_URL.matches("jdbc:mysql://(?:127\\.0\\.0\\.1|localhost):[0-9]{1,5}/student_cloud_role_test_[a-z0-9_]+(?:\\?.*)?")
                 || databaseName(MYSQL_URL).equals(databaseName(System.getenv("CLOUD_TEST_MYSQL_URL")))
                 || databaseName(MYSQL_URL).equals(databaseName(System.getenv("CLOUD_REGISTRATION_TEST_MYSQL_URL"))))) {
             throw new IllegalArgumentException("Overview tests require a distinct dedicated local student_cloud_role_test_* database");
@@ -437,7 +438,8 @@ class GlobalOverviewWorkflowTest {
         int manager = user("console-legacy-manager", "TENANT_ADMIN", legacy, true);
         int member = ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("username", "console-legacy-member",
                 "nickname", "Read only synthetic member", "password", PASSWORD, "role", "USER", "tenantId", legacy,
-                "enable", true, "defaultPermissions", List.of("preview", "download")), globalToken).path("id").asInt();
+                "enable", true), globalToken).path("id").asInt();
+        jdbc.update("UPDATE `user` SET default_permissions='preview,download' WHERE id=?", member);
         int pending = user("console-legacy-pending", "USER", legacy, true);
         jdbc.update("INSERT INTO workspace_join_request(tenant_id,user_id,status,created_at) VALUES(?,?,'PENDING',?)", legacy, pending, System.currentTimeMillis());
         jdbc.update("UPDATE tenant SET owner_user_id=? WHERE id=?", manager, legacy);
@@ -458,9 +460,9 @@ class GlobalOverviewWorkflowTest {
         assertFalse(provisioned.toString().contains(WORK.toString()));
         assertEquals("workspace-" + legacy, provisioned.path("storageKey").asText());
         assertEquals(legacyFiles.toString(), jdbc.queryForObject("SELECT value FROM storage_source_config WHERE storage_id=? AND name='filePath'", String.class, storageId));
-        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE storage_source_id=?", Integer.class, storageId));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE storage_source_id=?", Integer.class, storageId));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE storage_source_id=? AND user_id=?", Integer.class, storageId, manager));
-        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE storage_source_id=? AND user_id=?", Integer.class, storageId, member));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE storage_source_id=? AND user_id=?", Integer.class, storageId, member));
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE storage_source_id=? AND user_id IN (1,2,?,?)", Integer.class, storageId, managerA, pending));
         assertEquals("TENANT_ADMIN", jdbc.queryForObject("SELECT role FROM `user` WHERE id=?", String.class, manager));
         String managerSession = login("console-legacy-manager");
@@ -475,10 +477,17 @@ class GlobalOverviewWorkflowTest {
         assertFalse(ok(HttpMethod.POST, path, null, globalToken).path("created").asBoolean());
         assertEquals(count, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE storage_source_id=?", Long.class, storageId));
 
-        // Explicitly remove the manager's access using the real global authorization editor.
-        ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", manager, "username", "console-legacy-manager",
+        // Global profiles cannot change grants. Revoke only in this disposable fixture
+        // to prove managed-drive repair never silently restores an old revocation.
+        denied(HttpMethod.POST, query("/admin/user/saveOrUpdate"), Map.of("id", manager, "username", "console-legacy-manager",
                 "nickname", "Revoked manager", "enable", true, "role", "TENANT_ADMIN", "tenantId", legacy,
                 "defaultPermissions", List.of("upload"), "userStorageSourceList", List.of()), globalToken);
+        jdbc.update("DELETE FROM user_storage_source WHERE user_id=?", manager);
+        jdbc.update("UPDATE `user` SET default_permissions='upload' WHERE id=?", manager);
+        fixtureCaches.getCacheNames().forEach(name -> {
+            var current = fixtureCaches.getCache(name);
+            if (current != null) current.clear();
+        });
         assertFalse(ok(HttpMethod.POST, path, null, globalToken).path("created").asBoolean());
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE storage_source_id=? AND user_id=?", Integer.class, storageId, manager));
         denied(HttpMethod.POST, query("/api/storage/files"), Map.of("storageKey", "workspace-" + legacy, "path", "/"), managerSession);

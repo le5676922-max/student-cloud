@@ -75,13 +75,6 @@ public class LocalResumableUploadController {
 
     /** HTTP headers are ASCII; the browser sends encodeURIComponent(password), never stores it. */
     static String decodePassword(String encoded) {
-        if (encoded == null) return null;
-        if (encoded.length() > 9000 || encoded.chars().anyMatch(c -> c < 32 || c > 126))
-            throw new BizException("目录密码格式不合法");
-        try {
-            String decoded = URLDecoder.decode(encoded, StandardCharsets.UTF_8);
-            if (decoded.length() > 1000) throw new BizException("目录密码过长");
-            return decoded;
-        } catch (IllegalArgumentException malformed) { throw new BizException("目录密码格式不合法"); }
+        return im.tlgxy.cloud.module.storage.service.UploadDirectoryPassword.decode(encoded);
     }
 }

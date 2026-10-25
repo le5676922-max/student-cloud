@@ -35,6 +35,11 @@ class StorageSourceStagingBoundaryTest {
     private Path staging;
 
     @BeforeEach void configure() throws Exception {
+        var actor = new im.tlgxy.cloud.module.user.model.entity.User();
+        actor.setId(1); actor.setRole(im.tlgxy.cloud.module.user.model.enums.UserRoleEnum.ADMIN);
+        when(security.requireStorageAdministrator()).thenReturn(actor);
+        when(security.currentUser()).thenReturn(actor);
+        when(security.isSystemAdmin(actor)).thenReturn(true);
         staging = Files.createDirectory(temporary.resolve("private-parts"));
         var properties = new ResumableUploadProperties(); properties.setEnabled(false); properties.setStagingRoot(staging.toString());
         ReflectionTestUtils.setField(service, "uploadStagingPolicy", new LocalUploadStagingPolicy(properties));
@@ -53,7 +58,7 @@ class StorageSourceStagingBoundaryTest {
                 assertThrows(BizException.class, () -> service.saveStorageSource(request));
             }
         }
-        verify(security, times(6)).requireSystemAdmin();
+        verify(security, times(6)).requireStorageAdministrator();
         verifyNoInteractions(mapper, convert, configs, metadata);
         assertFalse(Files.exists(staging.resolve("public-child")));
     }

@@ -164,7 +164,7 @@ function handleMotionPreference(event) {
 	background-repeat: no-repeat;
 	background-position: var(--mascot-column) var(--mascot-row);
 	background-size: 800% 1100%;
-	filter: drop-shadow(0 5px 4px rgb(17 24 39 / 22%));
+	filter: drop-shadow(0 4px 3px rgb(28 29 32 / 19%));
 	image-rendering: pixelated;
 	user-select: none;
 }

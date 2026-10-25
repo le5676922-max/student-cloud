@@ -1,7 +1,7 @@
 package im.tlgxy.cloud.module.learning.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import im.tlgxy.cloud.module.ai.service.LearningEmbeddingClient;
+import im.tlgxy.cloud.module.learning.application.port.LearningEmbeddingGateway;
 import im.tlgxy.cloud.module.learning.model.LearningMaterial;
 import im.tlgxy.cloud.module.learning.model.MaterialCitation;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +16,7 @@ public class LearningSemanticIndex {
     static final int MAX_SEGMENTS = 64;
     // Float JSON is ASCII. Keep this aligned with the SQL byte-length gate before JDBC.
     static final int MAX_JSON_CHARS = 1024 * 1024;
-    private final LearningEmbeddingClient client;
+    private final LearningEmbeddingGateway client;
     private final ObjectMapper json;
 
     public boolean configured() { return client.configured(); }
@@ -55,7 +55,9 @@ public class LearningSemanticIndex {
         }
     }
 
-    public record Ranking(List<MaterialCitation> matches, String notice) { }
+    public record Ranking(List<MaterialCitation> matches, String notice, Set<String> semanticReferences) {
+        public Ranking(List<MaterialCitation> matches, String notice) { this(matches, notice, Set.of()); }
+    }
     private record VectorMatch(MaterialCitation citation, double similarity) { }
 
     /** Only the bounded question is sent here. Searches never rebuild vectors or upload document contents. */
@@ -119,7 +121,8 @@ public class LearningSemanticIndex {
                     .filter(Objects::nonNull).filter(count -> count > 0 && count <= MAX_SEGMENTS).mapToInt(Integer::intValue).max().orElse(0);
             return new Ranking(List.copyOf(ranked), "已合并关键词与有界语义索引；本次每份资料最多检索实际已索引的前 " + coveredSegments
                     + " 段，具体覆盖见资料说明；分数不是准确率。"
-                    + (malformed > 0 ? "部分语义索引无效，已退回文字检索。" : "") + omittedNotice);
+                    + (malformed > 0 ? "部分语义索引无效，已退回文字检索。" : "") + omittedNotice,
+                    semantic.stream().map(match -> match.citation().reference()).collect(java.util.stream.Collectors.toUnmodifiableSet()));
         } catch (Exception unavailable) {
             return new Ranking(lexical, "嵌入服务暂不可用，本次已退回关键词检索。" + omittedNotice);
         }

@@ -1,0 +1,184 @@
+name: student-cloud-v5
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  mysql:
+    image: ${MYSQL_IMAGE:-crpi-6b0kbu4sssws21ef.cn-shanghai.personal.cr.aliyuncs.com/student_cloud/mysql:8.4.11}
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
+      MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=128M
+      - --max-connections=60
+    volumes:
+      - mysql_data:/var/lib/mysql
+    mem_limit: 640m
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          MYSQL_PWD="$${MYSQL_PASSWORD}"
+          mysql --protocol=TCP --host=127.0.0.1
+          --user="$${MYSQL_USER}" --database="$${MYSQL_DATABASE}"
+          --batch --skip-column-names --execute='SELECT 1' >/dev/null 2>&1
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+    logging: *logging
+
+  redis-cache:
+    image: ${REDIS_IMAGE:-crpi-6b0kbu4sssws21ef.cn-shanghai.personal.cr.aliyuncs.com/student_cloud/redis:7-alpine}
+    restart: unless-stopped
+    user: "999:999"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    # Redis gets the credential from a private temporary config, never a process argument.
+    # This service has no host port, durable volume, or public endpoint.
+    command:
+      - sh
+      - -ec
+      - |
+        umask 077
+        printf 'bind 0.0.0.0\nprotected-mode yes\nport 6379\nrequirepass %s\nmaxmemory 96mb\nmaxmemory-policy noeviction\nsave ""\nappendonly no\n' "$$REDIS_PASSWORD" > /tmp/redis-v5.conf
+        exec redis-server /tmp/redis-v5.conf
+    read_only: true
+    tmpfs:
+      - /data:size=16m,mode=1777
+      - /tmp:size=1m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 160m
+    cpus: 0.5
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$${REDIS_PASSWORD}" redis-cli -h 127.0.0.1 ping | grep -qx PONG']
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    logging: *logging
+
+  backend:
+    image: ${BACKEND_IMAGE:-crpi-6b0kbu4sssws21ef.cn-shanghai.personal.cr.aliyuncs.com/student_cloud/backend:v5.0.0}
+    restart: unless-stopped
+    init: true
+    user: "10001:10001"
+    stop_grace_period: 45s
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: "jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "12"
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "2"
+      SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT: "3000"
+      SPRING_CONFIG_ADDITIONAL_LOCATION: "file:/app/config/"
+      SERVER_FORWARD_HEADERS_STRATEGY: none
+      STUDENT_CLOUD_TRUSTED_PROXY_CIDRS: 172.22.0.10/32
+      TLGXY_CLOUD_CORS_ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:?PUBLIC_ORIGIN is required}
+      STUDENT_CLOUD_WORKSPACE_STORAGE_ROOT: /data/workspaces
+      STUDENT_CLOUD_COURSE_STORAGE_ROOT: /data/course-materials
+      STUDENT_CLOUD_COURSE_MAX_OWNER_BYTES: ${STUDENT_CLOUD_COURSE_MAX_OWNER_BYTES:-2147483648}
+      STUDENT_CLOUD_COURSE_MAX_TOTAL_BYTES: ${STUDENT_CLOUD_COURSE_MAX_TOTAL_BYTES:-6442450944}
+      STUDENT_CLOUD_UPLOAD_STAGING_ROOT: /app/upload-staging
+      STUDENT_CLOUD_UPLOAD_STAGING_QUOTA_BYTES: ${STUDENT_CLOUD_UPLOAD_STAGING_QUOTA_BYTES:-4294967296}
+      STUDENT_CLOUD_CACHE_TYPE: redis
+      STUDENT_CLOUD_CACHE_NAMESPACE: student-cloud-v5
+      STUDENT_CLOUD_CACHE_TTL: 120s
+      STUDENT_CLOUD_OVERVIEW_CACHE_TTL: 10s
+      STUDENT_CLOUD_REDIS_HOST: redis-cache
+      STUDENT_CLOUD_REDIS_PORT: "6379"
+      STUDENT_CLOUD_REDIS_DATABASE: "1"
+      STUDENT_CLOUD_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      STUDENT_CLOUD_REDIS_TIMEOUT: 800ms
+      STUDENT_CLOUD_RATE_LIMIT_TYPE: redis
+      STUDENT_CLOUD_RATE_LIMIT_FAILURE_MODE: closed
+      # OpenJ9 dumps and core files can expose the process environment.
+      JAVA_TOOL_OPTIONS: "-Xms128m -Xmx512m -XX:MaxDirectMemorySize=96m -Xdump:none -XX:-HeapDumpOnOutOfMemoryError -XX:+ExitOnOutOfMemoryError -Duser.home=/data/home -Djava.io.tmpdir=/data/tmp -Duser.timezone=Asia/Shanghai -Dfile.encoding=UTF-8"
+      MAIL_ENABLED: ${MAIL_ENABLED:-false}
+      MAIL_HOST: ${MAIL_HOST:-smtp.qq.com}
+      MAIL_PORT: ${MAIL_PORT:-465}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      MAIL_AUTH: ${MAIL_AUTH:-true}
+      MAIL_SSL: ${MAIL_SSL:-true}
+      MAIL_STARTTLS: ${MAIL_STARTTLS:-false}
+      MAIL_CODE_SECRET: ${MAIL_CODE_SECRET:?MAIL_CODE_SECRET is required}
+      AI_ENABLED: ${AI_ENABLED:-false}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      TLGXY_CLOUD_AI_ENABLED: ${AI_ENABLED:-false}
+      TLGXY_CLOUD_AI_API_KEY: ${DEEPSEEK_API_KEY:-}
+    volumes:
+      - ./data:/data
+      - ./config:/app/config:ro
+      - ./upload-staging:/app/upload-staging
+      # Explicit local cloud directory requested for this server deployment.
+      - /date/file:/date/file
+    # /internal/ready is supplied by the backend image and checks the MySQL connection.
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 896m
+    ulimits:
+      core: {soft: 0, hard: 0}
+    logging: *logging
+
+  web:
+    image: ${FRONTEND_IMAGE:-crpi-6b0kbu4sssws21ef.cn-shanghai.personal.cr.aliyuncs.com/student_cloud/frontend:v5.0.0}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${WEB_HTTP_BIND:-127.0.0.1:18082}:8080"
+      - "${WEB_HTTPS_BIND:-127.0.0.1:18444}:8443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx:/etc/nginx/student-cloud:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+    networks:
+      default:
+        ipv4_address: 172.22.0.10
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=64m
+      - /var/run:size=1m
+      - /tmp:size=64m,mode=1777
+    cap_drop: [NET_RAW]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    ulimits:
+      nofile: {soft: 16384, hard: 16384}
+    logging: *logging
+
+networks:
+  default:
+    name: student-cloud-v5-net
+    ipam:
+      config:
+        - subnet: 172.22.0.0/24
+
+volumes:
+  mysql_data:
+    name: student-cloud-v5-mysql

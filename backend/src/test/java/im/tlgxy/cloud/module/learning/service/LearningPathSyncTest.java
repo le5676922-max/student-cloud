@@ -5,7 +5,8 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import im.tlgxy.cloud.core.exception.core.BizException;
 import im.tlgxy.cloud.core.util.BackgroundActorContext;
-import im.tlgxy.cloud.module.ai.service.AiAttachmentService;
+import im.tlgxy.cloud.module.learning.application.port.LearningContentExtractor;
+import im.tlgxy.cloud.module.learning.application.port.LearningFileAccess;
 import im.tlgxy.cloud.module.learning.mapper.*;
 import im.tlgxy.cloud.module.learning.model.*;
 import im.tlgxy.cloud.module.user.model.entity.User;
@@ -28,11 +29,14 @@ import static org.mockito.Mockito.*;
 class LearningPathSyncTest {
     final LearningCourseMapper courses = mock(LearningCourseMapper.class);
     final LearningMaterialMapper materials = mock(LearningMaterialMapper.class);
-    final LearningFileReader reader = mock(LearningFileReader.class);
+    final LearningFileAccess reader = mock(LearningFileAccess.class);
     final UserService users = mock(UserService.class);
     final TransactionTemplate transactions = mock(TransactionTemplate.class);
     final LearningLibraryService service = new LearningLibraryService(courses, materials, reader,
-            new AiAttachmentService(), users, transactions);
+            (bytes, name) -> {
+                String content = new String(bytes, StandardCharsets.UTF_8);
+                return new LearningContentExtractor.Extraction(content, content.length(), null, null, false, "已索引");
+            }, users, transactions);
     final byte[] bytes = "test notes".getBytes(StandardCharsets.UTF_8);
     final String hash = LearningLibraryService.fingerprint(bytes);
 

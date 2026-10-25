@@ -35,6 +35,9 @@ public interface StorageSourceMapper extends BaseMapper<StorageSource> {
      */
     List<StorageSource> findUserEnableList(Integer userId);
 
+    /** Fixed global-administrator access, independent of per-account grant rows. */
+    List<StorageSource> findAdministratorEnableList();
+
 
     /**
      * 获取所有存储源列表，按照排序值升序排列

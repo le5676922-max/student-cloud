@@ -7,6 +7,7 @@ import { parse, compileScript } from 'vue/compiler-sfc'
 import * as automation from '../src/utils/automation-context.mjs'
 import * as panel from '../src/components/ai/ai-assistant-panel.mjs'
 import * as uploadIntent from '../src/utils/ai-upload-intent.mjs'
+import * as assistantSupport from '../src/utils/assistant-support.mjs'
 
 // Executes the real SFC setup and Vue watchers, with no browser, model, server or upload.
 // This is runtime logic coverage, not browser/UI rendering coverage.
@@ -46,9 +47,12 @@ const plan = (id = 'preview-one', status = 'PENDING') => ({
 
 function setupAssistant({
 	request = async () => ({ data: plan() }),
+	chat = async () => ({ answer: '测试回答' }),
+	feedback = async () => ({ data: { id: 'f'.repeat(32), status: 'OPEN' } }),
 	token = null,
 } = {}) {
 	const requests = [],
+		feedbackRequests = [],
 		streams = [],
 		uploads = [],
 		notices = [],
@@ -60,7 +64,12 @@ function setupAssistant({
 	})
 	const permission = { move: true, newFolder: true, rename: true }
 	const storage = vue.reactive({
-		loginInfo: { isLogin: true, username: '100000001', tenantId: 2 },
+		loginInfo: {
+			isLogin: true,
+			username: '100000001',
+			tenantId: 2,
+			role: 'USER',
+		},
 		permission,
 		folderConfig: { permission },
 	})
@@ -70,7 +79,9 @@ function setupAssistant({
 	const localValues = new Map(
 		token ? [['tongligong-student-cloud-token', token]] : []
 	)
+	const credential = vue.ref(token || '')
 	const modules = {
+		'@vueuse/core': { useStorage: () => credential },
 		vue: {
 			...vue,
 			onMounted() {},
@@ -88,6 +99,13 @@ function setupAssistant({
 		'~/api/home/ai-agent': {
 			streamWithAiAgentReq: async (...args) => {
 				streams.push(args)
+				return await chat(...args)
+			},
+		},
+		'~/api/home/ai-feedback': {
+			submitAiFeedbackReq: (...args) => {
+				feedbackRequests.push(args)
+				return feedback(...args)
 			},
 		},
 		'~/api/home/agent-tasks': {
@@ -99,6 +117,9 @@ function setupAssistant({
 		'~/utils/automation-context.mjs': automation,
 		'~/components/ai/AiMascotSprite.vue': { default: {} },
 		'~/components/ai/AgentTaskCard.vue': { default: {} },
+		'~/components/ai/AiMemoryPanel.vue': { default: {} },
+		'~/components/support/AssistantSupportChat.vue': { default: {} },
+		'~/utils/assistant-support.mjs': assistantSupport,
 		'~/components/ai/ai-assistant-panel.mjs': panel,
 		'~/api/home/home': {
 			getSourceListReq: async () => ({ data: [] }),
@@ -164,10 +185,12 @@ function setupAssistant({
 		storage,
 		files,
 		requests,
+		feedbackRequests,
 		streams,
 		uploads,
 		notices,
 		localValues,
+		credential,
 		unmount() {
 			for (const cleanup of cleanups) cleanup()
 			scope.stop()
@@ -429,6 +452,311 @@ test('pressing Enter to chat cannot start a model stream while a quick preview i
 		assert.equal(app.streams.length, 0)
 		response.resolve({ data: plan() })
 		await pending
+	} finally {
+		app.unmount()
+	}
+})
+
+test('asking for human service opens a review card in the assistant without invoking AI or creating a conversation', async () => {
+	const app = setupAssistant()
+	try {
+		app.api.inputMessage.value = '人工服务'
+		await app.api.sendMessage()
+		assert.equal(app.streams.length, 0)
+		assert.equal(app.requests.length, 0)
+		assert.match(app.api.supportOffer.value.reason, /转接全局管理员/)
+		assert.equal(app.api.supportMode.value, false)
+		assert.equal(app.api.supportSession.value, null)
+		assert.equal(app.api.supportIssue.value, '我需要人工客服协助。')
+		app.api.supportIssue.value = ''
+		app.api.confirmHumanSupport()
+		assert.equal(
+			app.api.supportMode.value,
+			false,
+			'empty issues require a user description'
+		)
+		app.api.supportIssue.value = '上传文件一直失败，请帮助检查'
+		app.api.confirmHumanSupport()
+		assert.equal(app.api.supportMode.value, true)
+		assert.equal(
+			app.api.supportSession.value.issue,
+			'上传文件一直失败，请帮助检查'
+		)
+		assert.equal(app.api.supportSession.value.issue.includes('AI 对话'), false)
+		const key = app.api.supportSession.value.clientMessageId
+		app.api.supportMode.value = false
+		app.api.requestHumanSupport()
+		assert.equal(app.api.supportMode.value, true)
+		assert.equal(app.api.supportSession.value.clientMessageId, key)
+	} finally {
+		app.unmount()
+	}
+})
+
+test('a model suggestion only opens human review after a repeated unresolved exchange', async () => {
+	const app = setupAssistant({
+		chat: async () => ({
+			answer: '这个问题需要管理员检查。',
+			supportSuggestion: { reason: '需要人工核实空间配置。' },
+		}),
+	})
+	try {
+		app.api.inputMessage.value = '为什么上传完成后文件找不到？'
+		await app.api.sendMessage()
+		assert.equal(app.streams.length, 1)
+		assert.equal(app.api.supportOffer.value, null)
+		app.api.inputMessage.value = '还是不行'
+		await app.api.sendMessage()
+		assert.equal(app.api.supportOffer.value, null)
+		app.api.inputMessage.value = '请继续排查原因'
+		await app.api.sendMessage()
+		assert.equal(app.streams.length, 3)
+		assert.equal(app.api.supportIssue.value, '请继续排查原因')
+		assert.equal(app.api.supportOffer.value.reason, '需要人工核实空间配置。')
+		assert.equal(app.api.supportSession.value, null)
+		app.api.dismissSupportOffer()
+		assert.equal(app.api.supportOffer.value, null)
+		assert.equal(app.api.supportMode.value, false)
+		assert.equal(app.requests.length, 0)
+	} finally {
+		app.unmount()
+	}
+})
+
+test('unhelpful answer feedback offers the relevant question without assistant answer or attachments', async () => {
+	const app = setupAssistant({
+		chat: async () => ({ answer: 'PRIVATE-ASSISTANT-ANSWER' }),
+	})
+	try {
+		app.api.inputMessage.value = '上传提示权限不足怎么办？'
+		app.api.selectedFiles.value = [{ name: 'private.txt', size: 15 }]
+		await app.api.sendMessage()
+		const reply = app.api.messages.value.at(-1)
+		app.api.reportUnhelpful(reply)
+		assert.equal(app.api.supportOffer.value, null)
+		app.api.requestHumanSupport()
+		assert.equal(app.api.supportIssue.value, '上传提示权限不足怎么办？')
+		assert.equal(app.api.supportMode.value, false)
+		assert.equal(app.api.supportSession.value, null)
+		assert.equal(app.api.supportIssue.value.includes('PRIVATE'), false)
+		assert.equal(app.api.supportIssue.value.includes('private.txt'), false)
+		app.api.supportIssue.value = '仅发送这条新描述'
+		app.api.confirmHumanSupport()
+		assert.equal(app.api.supportSession.value.issue, '仅发送这条新描述')
+		assert.equal(
+			app.api.messages.value.at(-1).content,
+			'PRIVATE-ASSISTANT-ANSWER',
+			'AI history remains available when returning'
+		)
+	} finally {
+		app.unmount()
+	}
+})
+
+test('first unresolved feedback continues AI troubleshooting without a handoff prompt', async () => {
+	const app = setupAssistant()
+	try {
+		app.api.inputMessage.value = '上传失败怎么办？'
+		await app.api.sendMessage()
+		app.api.inputMessage.value = '还是不行'
+		await app.api.sendMessage()
+		assert.equal(app.streams.length, 2)
+		assert.equal(app.api.supportOffer.value, null)
+		assert.equal(app.api.supportMode.value, false)
+	} finally {
+		app.unmount()
+	}
+})
+
+test('ordinary answers do not prompt and an explicit decline is passed to AI instead of being rerouted', async () => {
+	for (const chat of [
+		async () => ({ answer: '请继续查看操作步骤。' }),
+		async () => ({
+			answer: '建议人工',
+			supportSuggestion: { reason: '意外的旧服务建议' },
+		}),
+		async () => {
+			throw new Error('网络中断')
+		},
+	]) {
+		const app = setupAssistant({ chat })
+		try {
+			app.api.inputMessage.value = '不要转人工，继续说明操作步骤'
+			await app.api.sendMessage()
+			assert.equal(app.streams.length, 1)
+			assert.equal(app.api.supportOffer.value, null)
+			assert.equal(app.api.supportMode.value, false)
+		} finally {
+			app.unmount()
+		}
+	}
+})
+
+test('a single transport failure or stopped response does not push human service', async () => {
+	for (const error of [
+		new Error('网络中断'),
+		Object.assign(new Error('stopped'), { name: 'AbortError' }),
+	]) {
+		const app = setupAssistant({
+			chat: async () => {
+				throw error
+			},
+		})
+		try {
+			app.api.inputMessage.value = '查一下我的存储空间'
+			await app.api.sendMessage()
+			assert.equal(app.api.supportOffer.value, null)
+			assert.equal(app.api.supportSession.value, null)
+			assert.equal(app.api.supportMode.value, false)
+		} finally {
+			app.unmount()
+		}
+	}
+})
+
+test('global admins cannot open member support and a role or account change clears a confirmed handoff', async () => {
+	const app = setupAssistant()
+	try {
+		app.api.supportIssue.value = '私人问题'
+		app.api.requestHumanSupport()
+		app.api.supportIssue.value = '私人问题'
+		app.api.confirmHumanSupport()
+		assert.equal(app.api.supportMode.value, true)
+		app.storage.loginInfo.role = 'ADMIN'
+		await vue.nextTick()
+		assert.equal(app.api.supportSession.value, null)
+		assert.equal(app.api.supportMode.value, false)
+		app.api.requestHumanSupport()
+		assert.equal(app.api.supportOffer.value, null)
+	} finally {
+		app.unmount()
+	}
+})
+
+test('a late model suggestion cannot open support for the next logged-in account', async () => {
+	const result = deferred()
+	const app = setupAssistant({ chat: () => result.promise })
+	try {
+		app.api.inputMessage.value = '第一个账号的私有问题'
+		const pending = app.api.sendMessage()
+		app.storage.loginInfo.username = 'second-user'
+		await vue.nextTick()
+		result.resolve({
+			answer: 'old answer',
+			supportSuggestion: { reason: 'old private reason' },
+		})
+		await pending
+		assert.equal(app.api.supportOffer.value, null)
+		assert.equal(app.api.supportSession.value, null)
+		assert.equal(app.api.messages.value.length, 1)
+		assert.equal(app.api.isLoading.value, false)
+	} finally {
+		app.unmount()
+	}
+})
+
+test('a credential change clears confirmed handoff synchronously before user profile refresh', async () => {
+	const app = setupAssistant({ token: 'first-session' })
+	try {
+		app.api.requestHumanSupport()
+		app.api.supportIssue.value = '第一个登录身份确认的问题'
+		app.api.confirmHumanSupport()
+		assert.equal(app.api.supportMode.value, true)
+		app.credential.value = 'replacement-session'
+		assert.equal(app.api.supportSession.value, null)
+		assert.equal(app.api.supportMode.value, false)
+		assert.equal(app.api.supportOffer.value, null)
+	} finally {
+		app.unmount()
+	}
+})
+
+test('unresolved feedback records only the reviewed turn and offers human service without creating it', async () => {
+	const app = setupAssistant({ chat: async () => ({ answer: '本轮回答内容' }) })
+	try {
+		app.api.messages.value.push(
+			app.api.createMessage('user', 'PREVIOUS-PRIVATE-QUESTION')
+		)
+		app.api.messages.value.push(
+			app.api.createMessage('assistant', 'PREVIOUS-PRIVATE-ANSWER')
+		)
+		app.api.inputMessage.value = '当前问题'
+		app.api.selectedFiles.value = [{ name: 'PRIVATE-FILE.txt', size: 12 }]
+		await app.api.sendMessage()
+		assert.equal(app.feedbackRequests.length, 0)
+		const reply = app.api.messages.value.at(-1)
+		await app.api.reportUnhelpful(reply)
+		assert.equal(app.feedbackRequests.length, 1)
+		const payload = plain(app.feedbackRequests[0][0])
+		assert.deepEqual(Object.keys(payload).sort(), [
+			'answer',
+			'clientMessageId',
+			'pagePath',
+			'question',
+		])
+		assert.equal(payload.question, '当前问题')
+		assert.equal(payload.answer, '本轮回答内容')
+		assert.equal(JSON.stringify(payload).includes('PRIVATE'), false)
+		assert.equal(reply.feedbackState, 'saved')
+		assert.equal(app.api.supportSession.value, null)
+		assert.equal(app.api.supportOffer.value, null)
+		app.api.requestHumanSupport()
+		assert.ok(app.api.supportOffer.value)
+		assert.equal(app.api.submittedSupportFeedback.value, true)
+		app.api.dismissSupportOffer()
+		assert.equal(app.api.submittedSupportFeedback.value, true)
+		assert.equal(
+			reply.feedbackState,
+			'saved',
+			'canceling handoff keeps submitted feedback'
+		)
+		await app.api.reportUnhelpful(reply)
+		assert.equal(app.feedbackRequests.length, 1)
+	} finally {
+		app.unmount()
+	}
+})
+
+test('uncertain feedback preserves its exact turn and idempotency key on explicit retry', async () => {
+	let attempts = 0
+	const app = setupAssistant({
+		feedback: async () => {
+			if (++attempts === 1) throw new Error('unknown')
+			return { data: { id: 'a'.repeat(32) } }
+		},
+	})
+	try {
+		app.api.inputMessage.value = '原问题'
+		await app.api.sendMessage()
+		const reply = app.api.messages.value.at(-1)
+		await app.api.reportUnhelpful(reply)
+		assert.equal(reply.feedbackState, 'error')
+		const payload = plain(app.feedbackRequests[0][0])
+		app.api.inputMessage.value = '尚未发送的新问题'
+		await app.api.reportUnhelpful(reply)
+		assert.deepEqual(plain(app.feedbackRequests[1][0]), payload)
+		assert.equal(reply.feedbackState, 'saved')
+	} finally {
+		app.unmount()
+	}
+})
+
+test('pending feedback deduplicates clicks and late acknowledgements cannot affect another account', async () => {
+	const response = deferred()
+	const app = setupAssistant({ feedback: () => response.promise })
+	try {
+		app.api.inputMessage.value = '私人问题'
+		await app.api.sendMessage()
+		const reply = app.api.messages.value.at(-1)
+		const pending = app.api.reportUnhelpful(reply)
+		await app.api.reportUnhelpful(reply)
+		assert.equal(app.feedbackRequests.length, 1)
+		app.storage.loginInfo.username = 'other-user'
+		assert.equal(app.feedbackRequests[0][1].signal.aborted, true)
+		response.resolve({ data: { id: 'c'.repeat(32) } })
+		await pending
+		assert.equal(app.api.messages.value.length, 1)
+		assert.equal(app.api.supportOffer.value, null)
 	} finally {
 		app.unmount()
 	}

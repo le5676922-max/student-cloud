@@ -65,7 +65,7 @@ class RegistrationWorkflowTest {
     @DynamicPropertySource
     static void configuration(DynamicPropertyRegistry properties) {
         boolean mysql = MYSQL_URL != null && !MYSQL_URL.isBlank();
-        if (mysql && (!MYSQL_URL.matches("jdbc:mysql://(?:127\\.0\\.0\\.1|localhost):3306/student_cloud_role_test_[a-z0-9_]+(?:\\?.*)?")
+        if (mysql && (!MYSQL_URL.matches("jdbc:mysql://(?:127\\.0\\.0\\.1|localhost):[0-9]{1,5}/student_cloud_role_test_[a-z0-9_]+(?:\\?.*)?")
                 || databaseName(MYSQL_URL).equals(databaseName(System.getenv("CLOUD_TEST_MYSQL_URL"))))) {
             throw new IllegalArgumentException("Registration tests require their own dedicated local student_cloud_role_test_* database");
         }
@@ -136,6 +136,7 @@ class RegistrationWorkflowTest {
         assertFalse(idLogin.path("admin").asBoolean());
         managerAToken = idLogin.path("token").asText();
         managerBToken = login(managerB.email()).path("token").asText();
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM storage_source WHERE tenant_id IN (?,?)", Integer.class, managerA.tenantId(), managerB.tenantId()));
         sharedStorageA = sharedStorage(managerA);
         sharedStorageB = sharedStorage(managerB);
         assertNotEquals(sharedStorageA, sharedStorageB);
@@ -156,7 +157,9 @@ class RegistrationWorkflowTest {
         assertAnonymousDownloadDenied(item.path("url").asText());
         denied(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", otherKey, "path", "/"), managerAToken);
         denied(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", sharedKey, "path", "/"), managerBToken);
-        denied(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", sharedKey, "path", "/"), globalToken);
+        // Global administrators now have fixed ordinary file authority, without a persisted grant.
+        assertTrue(ok(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", sharedKey, "path", "/"), globalToken)
+                .toString().contains("bootstrap"));
         denied(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", sharedKey, "path", "/"), null);
         denied(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", sharedKey, "path", "/../tenant-" + managerB.tenantId()), managerAToken);
         ok(HttpMethod.POST, "/api/file/operator/delete/batch", Map.of("storageKey", sharedKey,
@@ -165,7 +168,7 @@ class RegistrationWorkflowTest {
         assertEquals("TENANT_ADMIN", jdbc.queryForObject("SELECT role FROM `user` WHERE id=?", String.class, managerA.id()));
         assertEquals(managerA.tenantName(), ok(HttpMethod.GET, "/api/workspace-admin/summary", null, managerAToken).path("tenantName").asText());
         assertEquals(managerB.tenantName(), ok(HttpMethod.GET, "/api/workspace-admin/summary", null, managerBToken).path("tenantName").asText());
-        for (String path : List.of("/admin/overview", "/admin/user/list", "/admin/storages", "/admin/tenants", "/admin/config")) {
+        for (String path : List.of("/admin/overview", "/admin/user/list", "/admin/tenants", "/admin/config")) {
             denied(HttpMethod.GET, path, null, managerAToken);
         }
         for (String path : List.of("/api/workspace-admin/summary", "/api/workspace-admin/invitations", "/api/workspace-admin/join-requests")) {
@@ -180,11 +183,12 @@ class RegistrationWorkflowTest {
     void invitationRegistersAnActiveMemberWithoutAcceptingPrivilegeOrForeignGrantInjection() throws Exception {
         ownStorage = storage("registration-own", managerA.tenantId(), "own-marker.txt");
         foreignStorage = storage("registration-foreign", managerB.tenantId(), "foreign-marker.txt");
-        ok(HttpMethod.POST, "/admin/user/saveOrUpdate", Map.of("id", managerA.id(), "username", managerA.accountId(),
-                "nickname", "Registration A manager", "enable", true, "role", "TENANT_ADMIN", "tenantId", managerA.tenantId(),
-                "defaultPermissions", List.of("preview", "download"), "userStorageSourceList", List.of(Map.of(
-                "storageSourceId", ownStorage, "rootPath", "/", "enable", true, "permissions", List.of("preview", "download")), Map.of(
-                "storageSourceId", sharedStorageA, "rootPath", "/", "enable", true, "permissions", List.of("preview", "download")))), globalToken);
+        // Seed restricted manager access only in this disposable database. Global admins
+        // edit account profiles, but are no longer a member-permission assignment API.
+        jdbc.update("UPDATE `user` SET default_permissions='preview,download' WHERE id=?", managerA.id());
+        jdbc.update("DELETE FROM user_storage_source WHERE user_id=?", managerA.id());
+        for (int source : List.of(ownStorage, sharedStorageA)) jdbc.update(
+                "INSERT INTO user_storage_source (user_id,storage_source_id,root_path,enable,permissions) VALUES (?,?,'/',1,'preview,download')", managerA.id(), source);
         // Deliberately corrupt only the disposable test fixture to verify inheritance checks source tenancy.
         jdbc.update("INSERT INTO user_storage_source (user_id,storage_source_id,root_path,enable,permissions) VALUES (?,?,'/',1,'preview,download')", managerA.id(), foreignStorage);
         JsonNode invitation = invitation(managerAToken, 3);
@@ -212,8 +216,11 @@ class RegistrationWorkflowTest {
         assertEquals(invitedMember.accountId(), emailLogin.path("accountId").asText());
         assertEquals("USER", idLogin.path("role").asText());
         String memberToken = idLogin.path("token").asText();
-        assertTrue(ok(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "registration-own", "path", "/"), memberToken).toString().contains("own-marker.txt"));
-        assertTrue(ok(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "workspace-" + managerA.tenantId(), "path", "/"), memberToken).toString().contains("bootstrap"));
+        denied(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "registration-own", "path", "/"), memberToken);
+        authorizeCloud(invitedMember, ownStorage, managerAToken, false);
+        authorizeCloud(invitedMember, sharedStorageA, managerAToken, false);
+        assertFalse(ok(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "registration-own", "path", "/"), memberToken).toString().contains("own-marker.txt"));
+        assertFalse(ok(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "workspace-" + managerA.tenantId(), "path", "/"), memberToken).toString().contains("bootstrap"));
         denied(HttpMethod.POST, "/api/file/operator/upload/file", Map.of("storageKey", "workspace-" + managerA.tenantId(), "path", "/", "name", "read-only-denied.txt", "size", 1), memberToken);
         denied(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "registration-foreign", "path", "/"), memberToken);
         for (String path : List.of("/admin/user/list", "/api/workspace-admin/summary", "/api/workspace-admin/invitations", "/api/workspace-admin/join-requests")) {
@@ -253,7 +260,9 @@ class RegistrationWorkflowTest {
         assertEquals(managerA.id(), jdbc.queryForObject("SELECT reviewer_user_id FROM workspace_join_request WHERE id=?", Integer.class, requestId));
         assertOwnGrants(pending);
         String pendingToken = login(pending.accountId()).path("token").asText();
-        assertTrue(ok(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "workspace-" + managerA.tenantId(), "path", "/"), pendingToken).toString().contains("bootstrap"));
+        denied(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "workspace-" + managerA.tenantId(), "path", "/"), pendingToken);
+        authorizeCloud(pending, sharedStorageA, managerAToken, false);
+        assertFalse(ok(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "workspace-" + managerA.tenantId(), "path", "/"), pendingToken).toString().contains("bootstrap"));
         assertEquals(pending.accountId(), login(pending.email()).path("accountId").asText());
         assertEquals(pending.accountId(), login(pending.accountId()).path("accountId").asText());
         denied(HttpMethod.POST, "/api/workspace-admin/join-requests/" + requestId + "/review", Map.of("approve", false), managerAToken);
@@ -477,9 +486,16 @@ class RegistrationWorkflowTest {
         int storage = sharedStorage(manager);
         Account invited = registerMember("shared-upload-invited", "INVITE", invitation(token, 1).path("code").asText());
         String invitedToken = login(invited.accountId()).path("token").asText();
-        upload(storageKey, "/", "invited.txt", "Inherited workspace shared write access", invitedToken);
+        denied(HttpMethod.POST, "/api/file/operator/upload/file", Map.of("storageKey", storageKey, "path", "/", "name", "invited.txt", "size", 3), invitedToken);
+        String cloudRequest = ok(HttpMethod.POST, "/api/workspace-cloud/" + storage + "/apply", Map.of("reason", "学习资料"), invitedToken).asText();
+        denied(HttpMethod.POST, "/api/workspace-cloud/requests/" + cloudRequest + "/review", Map.of("approve", true, "quotaBytes", 1024), globalToken);
+        ok(HttpMethod.POST, "/api/workspace-cloud/requests/" + cloudRequest + "/review", Map.of("approve", true, "quotaBytes", 1024,
+                "permissions", List.of("preview", "download", "upload", "newFolder")), token);
+        upload(storageKey, "/", "invited.txt", "Approved personal cloud write access", invitedToken);
+        assertEquals(1024L, ok(HttpMethod.GET, "/api/workspace-cloud", null, invitedToken).get(0).path("quotaBytes").asLong());
+        assertNotEquals("0", uploadResult(storageKey, "/", "over-limit.txt", "x".repeat(1025), invitedToken).path("code").asText());
         Path files = WORK.resolve("shared-workspaces/tenant-" + manager.tenantId());
-        assertEquals("Inherited workspace shared write access", Files.readString(files.resolve("invited.txt")));
+        assertEquals("Approved personal cloud write access", Files.readString(files.resolve("members/u" + invited.id() + "/invited.txt")));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE user_id=? AND storage_source_id=?", Integer.class, invited.id(), storage));
         denied(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", "workspace-" + managerB.tenantId(), "path", "/"), invitedToken);
         Account pending = registerMember("shared-upload-pending", "NAME", manager.tenantName());
@@ -487,8 +503,11 @@ class RegistrationWorkflowTest {
         deniedLogin(pending.accountId());
         ok(HttpMethod.POST, "/api/workspace-admin/join-requests/" + joinRequestId(pending) + "/review", Map.of("approve", true), token);
         String approvedToken = login(pending.accountId()).path("token").asText();
+        authorizeCloud(pending, storage, token, true);
         upload(storageKey, "/", "approved.txt", "Approved membership acquires shared-drive access", approvedToken);
-        assertEquals("Approved membership acquires shared-drive access", Files.readString(files.resolve("approved.txt")));
+        assertEquals("Approved membership acquires shared-drive access", Files.readString(files.resolve("members/u" + pending.id() + "/approved.txt")));
+        assertFalse(ok(HttpMethod.POST, "/api/storage/files", Map.of("storageKey", storageKey, "path", "/"), approvedToken).toString().contains("invited.txt"));
+        denied(HttpMethod.POST, "/api/storage/file/item", Map.of("storageKey", storageKey, "path", "/../u" + invited.id() + "/invited.txt"), approvedToken);
         String signedDownload = ok(HttpMethod.POST, "/api/storage/file/item", Map.of("storageKey", storageKey, "path", "/approved.txt"), approvedToken).path("url").asText();
         assertEquals("Approved membership acquires shared-drive access", download(signedDownload, approvedToken));
         assertAnonymousDownloadDenied(signedDownload);
@@ -601,7 +620,22 @@ class RegistrationWorkflowTest {
     }
 
     private int sharedStorage(Account manager) {
+        if (jdbc.queryForObject("SELECT COUNT(*) FROM storage_source WHERE tenant_id=? AND `key`=?", Integer.class, manager.tenantId(), "workspace-" + manager.tenantId()) == 0) {
+            String managerToken = login(manager.accountId()).path("token").asText();
+            String request = ok(HttpMethod.POST, "/api/workspace-storage/local-requests", Map.of("reason", "Synthetic test local storage request"), managerToken).asText();
+            ok(HttpMethod.POST, "/admin/storage-local-requests/" + request + "/review", Map.of("approve", true, "note", "test fixture"), globalToken);
+        }
         return jdbc.queryForObject("SELECT id FROM storage_source WHERE tenant_id=? AND `key`=?", Integer.class, manager.tenantId(), "workspace-" + manager.tenantId());
+    }
+
+    private void authorizeCloud(Account member, int storage, String managerToken, boolean upload) {
+        String path = "/api/workspace-admin/members/" + member.id() + "/permissions";
+        JsonNode view = ok(HttpMethod.GET, path, null, managerToken);
+        JsonNode selected = java.util.stream.StreamSupport.stream(view.path("storages").spliterator(), false)
+                .filter(row -> row.path("storageSourceId").asInt() == storage).findFirst().orElseThrow();
+        ok(HttpMethod.PUT, path, Map.of("defaultPermissions", List.of(), "storages", List.of(Map.of("storageSourceId", storage,
+                "rootPath", selected.path("allowedRootPath").asText(), "enable", true, "quotaBytes", 1048576,
+                "permissions", upload ? List.of("preview", "download", "upload", "newFolder") : List.of("preview", "download")))), managerToken);
     }
 
     private String download(String url, String token) {
@@ -628,6 +662,11 @@ class RegistrationWorkflowTest {
     }
 
     private void upload(String storageKey, String path, String name, String contents, String token) {
+        JsonNode response = uploadResult(storageKey, path, name, contents, token);
+        assertEquals("0", response.path("code").asText(), "Workspace member upload must succeed: " + response);
+    }
+
+    private JsonNode uploadResult(String storageKey, String path, String name, String contents, String token) {
         byte[] bytes = contents.getBytes(StandardCharsets.UTF_8);
         String url = ok(HttpMethod.POST, "/api/file/operator/upload/file", Map.of("storageKey", storageKey, "path", path, "name", name, "size", bytes.length), token).asText();
         LinkedMultiValueMap<String, Object> form = new LinkedMultiValueMap<>();
@@ -639,7 +678,7 @@ class RegistrationWorkflowTest {
         headers.set("axios-from", "http://127.0.0.1:" + port);
         ResponseEntity<JsonNode> response = http.exchange(url, HttpMethod.PUT, new HttpEntity<>(form, headers), JsonNode.class);
         assertNotNull(response.getBody());
-        assertEquals("0", response.getBody().path("code").asText(), "Workspace member upload must succeed: " + response.getBody());
+        return response.getBody();
     }
 
     private Account registerWorkspace(String email, String name) throws Exception {
@@ -709,9 +748,9 @@ class RegistrationWorkflowTest {
     }
 
     private void assertOwnGrants(Account member) {
-        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE user_id=? AND storage_source_id=?", Integer.class, member.id(), ownStorage));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE user_id=? AND storage_source_id=?", Integer.class, member.id(), ownStorage));
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE user_id=? AND storage_source_id=?", Integer.class, member.id(), foreignStorage));
-        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE user_id=? AND storage_source_id=?", Integer.class, member.id(), sharedStorageA));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE user_id=? AND storage_source_id=?", Integer.class, member.id(), sharedStorageA));
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM user_storage_source WHERE user_id=? AND storage_source_id=?", Integer.class, member.id(), sharedStorageB));
     }
 

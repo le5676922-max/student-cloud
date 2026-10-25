@@ -16,7 +16,12 @@ public interface DirectoryMetadataProvider {
         throw new BizException("此存储源暂不支持快速分页，请切换普通浏览");
     }
 
-    record NativePage(List<FileItemResult> files, String nextProviderToken) {
+    /** rawItemCount also counts provider entries omitted from files, e.g. S3 directory placeholders. */
+    record NativePage(List<FileItemResult> files, String nextProviderToken, int rawItemCount) {
         public NativePage { files = List.copyOf(files); }
+
+        public NativePage(List<FileItemResult> files, String nextProviderToken) {
+            this(files, nextProviderToken, files.size());
+        }
     }
 }

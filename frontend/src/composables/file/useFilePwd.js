@@ -33,9 +33,9 @@ export default function useFilePwd() {
 			showRemember = true,
 			defaultRemember = storageConfigStore.globalConfig?.defaultSavePwd,
 			defaultValue = getPathPwd(null, true),
-			title = '提示',
-			message = '此文件夹已加密，请输入密码：',
-			inputPlaceholder = '请输入',
+			title = '文件夹访问验证',
+			message = '此文件夹受密码保护，请输入文件夹访问密码（与账号登录密码不同）：',
+			inputPlaceholder = '请输入文件夹访问密码',
 		} = opts
 
 		const promise = MessageBox.prompt(message, title, {

@@ -1,12 +1,17 @@
 package im.tlgxy.cloud.module.user.service;
 
 import im.tlgxy.cloud.core.util.TlgxyCloudAuthUtil;
+import im.tlgxy.cloud.core.util.RequestActorUserSnapshot;
+import im.tlgxy.cloud.module.storage.mapper.StorageSourceMapper;
 import im.tlgxy.cloud.module.storage.event.StorageSourceCopyEvent;
 import im.tlgxy.cloud.module.storage.event.StorageSourceDeleteEvent;
 import im.tlgxy.cloud.module.storage.model.enums.FileOperatorTypeEnum;
 import im.tlgxy.cloud.module.user.event.UserCopyEvent;
 import im.tlgxy.cloud.module.user.manager.UserManager;
 import im.tlgxy.cloud.module.user.mapper.UserStorageSourceMapper;
+import im.tlgxy.cloud.module.user.mapper.UserMapper;
+import im.tlgxy.cloud.module.user.model.entity.User;
+import im.tlgxy.cloud.module.user.model.enums.UserRoleEnum;
 import im.tlgxy.cloud.module.user.model.entity.UserStorageSource;
 import im.tlgxy.cloud.module.user.model.constant.UserConstant;
 import jakarta.annotation.Resource;
@@ -38,6 +43,12 @@ public class UserStorageSourceService {
     @Resource
     private UserStorageSourceMapper userStorageSourceMapper;
 
+    @Resource
+    private UserMapper userMapper;
+
+    @Resource
+    private StorageSourceMapper storageSourceMapper;
+
 
     /**
      * 根据用户 ID 和存储策略 ID 查询存储策略权限
@@ -52,12 +63,30 @@ public class UserStorageSourceService {
      */
     @Cacheable(key = "#userId + '-' + #storageId",
             unless = "#result == null",
-            condition = "#userId != null && #storageId != null")
+            condition = "#userId != null && #storageId != null && !@userStorageSourceService.hasFixedAdministratorRole(#userId)")
     public UserStorageSource getByUserIdAndStorageId(Integer userId, Integer storageId) {
-        if (UserConstant.ANONYMOUS_ID.equals(userId)) {
+        if (userId == null || storageId == null || UserConstant.ANONYMOUS_ID.equals(userId)) {
             return null;
         }
-        return userStorageSourceMapper.getByUserIdAndStorageId(userId, storageId);
+        User actor = permissionActor(userId);
+        if (actor != null && actor.getRole() == UserRoleEnum.ADMIN) {
+            // A fixed administrator grant must never come from a user-id-only cache
+            // or inherit a stale, disabled, or restricted database grant.
+            return UserStoragePermissionPolicy.effectiveGrant(actor, storageSourceMapper.selectById(storageId), null);
+        }
+        return UserStoragePermissionPolicy.effectiveGrant(actor, storageSourceMapper.selectById(storageId),
+                userStorageSourceMapper.getByUserIdAndStorageId(userId, storageId));
+    }
+
+    /** Cache eligibility is checked before lookup, including disabled ADMIN records. */
+    public boolean hasFixedAdministratorRole(Integer userId) {
+        if (userId == null || UserConstant.ANONYMOUS_ID.equals(userId)) return false;
+        User actor = permissionActor(userId);
+        return actor != null && actor.getRole() == UserRoleEnum.ADMIN;
+    }
+
+    private User permissionActor(Integer userId) {
+        return RequestActorUserSnapshot.load(userId, () -> userMapper.selectById(userId));
     }
 
     /**

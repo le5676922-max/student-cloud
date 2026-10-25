@@ -2,7 +2,7 @@
 export const adminPrimaryNavigation = [
 	{
 		id: 'overview',
-		name: '全局总览',
+		name: '总览',
 		href: '/admin/overview',
 		icon: 'overview',
 	},
@@ -18,27 +18,33 @@ export const adminPrimaryNavigation = [
 		href: '/admin/user-list',
 		icon: 'members',
 	},
+	{
+		id: 'storage',
+		name: '存储源',
+		href: '/admin/storage-list',
+		icon: 'storage',
+	},
+	{
+		id: 'support',
+		name: '人工客服',
+		href: '/admin/support',
+		icon: 'members',
+	},
 ]
 export const adminNavigationGroups = [
 	{
 		id: 'resources',
-		name: '全局资源治理',
+		name: '分享与链接',
 		items: [
 			{
-				id: 'storage',
-				name: '存储源连接',
-				href: '/admin/storage-list',
-				icon: 'storage',
-			},
-			{
 				id: 'shares',
-				name: '全站分享审计',
+				name: '分享记录',
 				href: '/admin/share-link',
 				icon: 'table',
 			},
 			{
 				id: 'short-links',
-				name: '全站短链',
+				name: '短链接',
 				href: '/admin/download-link',
 				icon: 'table',
 			},
@@ -52,11 +58,11 @@ export const adminNavigationGroups = [
 	},
 	{
 		id: 'security',
-		name: '站点与安全',
+		name: '站点设置',
 		items: [
 			{
 				id: 'site',
-				name: '站点设置',
+				name: '基本设置',
 				href: '/admin/site-setting',
 				icon: 'setting',
 			},
@@ -75,12 +81,6 @@ export const adminNavigationGroups = [
 			{ id: 'access', name: '访问控制', href: '/admin/access', icon: 'shield' },
 			{ id: 'sso', name: '单点登录', href: '/admin/sso', icon: 'members' },
 			{
-				id: 'template',
-				name: '新账号权限模板',
-				href: '/admin/user-edit/0',
-				icon: 'shield',
-			},
-			{
 				id: 'global-account',
 				name: '全局管理员账号',
 				href: '/admin/user-edit/1',
@@ -90,7 +90,7 @@ export const adminNavigationGroups = [
 	},
 	{
 		id: 'logs',
-		name: '日志与诊断',
+		name: '日志诊断',
 		items: [
 			{
 				id: 'login-log',
@@ -102,6 +102,12 @@ export const adminNavigationGroups = [
 				id: 'download-log',
 				name: '下载日志',
 				href: '/admin/download-link/log',
+				icon: 'document',
+			},
+			{
+				id: 'ai-feedback',
+				name: 'AI 反馈',
+				href: '/admin/ai-feedback',
 				icon: 'document',
 			},
 			{
@@ -125,6 +131,33 @@ export function activeAdminNavigationGroup(path) {
 	return adminNavigationGroups.find((group) =>
 		group.items.some((item) => isAdminNavigationActive(item, path))
 	)?.id
+}
+// Local UI state only: a route opens its own section, not previously visited sections.
+export function adminNavigationExpansionForPath(path) {
+	const group = activeAdminNavigationGroup(path)
+	return group ? ['more', group] : []
+}
+export function toggleAdminNavigationGroup(expanded, id) {
+	if (id === 'more') return expanded.includes('more') ? [] : ['more']
+	if (!adminNavigationGroups.some((group) => group.id === id))
+		return [...expanded]
+	return expanded.includes(id) ? ['more'] : ['more', id]
+}
+export function workspaceMemberPermissionLink(row, tenantId, loginInfo) {
+	if (
+		loginInfo?.isLogin !== true ||
+		loginInfo?.role !== 'TENANT_ADMIN' ||
+		loginInfo.tenantId !== tenantId ||
+		row?.role !== 'USER' ||
+		row.membershipStatus !== 'ACTIVE' ||
+		!Number.isSafeInteger(row.id) ||
+		row.id <= 2 ||
+		!Number.isSafeInteger(tenantId) ||
+		tenantId <= 0 ||
+		row.tenantId !== tenantId
+	)
+		return null
+	return `/workspace-admin?memberId=${row.id}`
 }
 export function workspaceManagerPreset(query, userId) {
 	if (userId || query?.role !== 'TENANT_ADMIN') return null

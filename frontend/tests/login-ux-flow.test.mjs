@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import test from 'node:test'
 import { createContext, Script } from 'node:vm'
 import * as Vue from 'vue'
+import * as routerTools from 'vue-router'
 import * as navigation from '../src/utils/auth-navigation.mjs'
 import * as preference from '../src/utils/login-preference.mjs'
 
@@ -107,6 +108,7 @@ function createLogin(options = {}) {
 	}
 	const sandbox = createContext({
 		...Vue,
+		...routerTools,
 		...navigation,
 		...preference,
 		...requests,
@@ -125,7 +127,11 @@ function createLogin(options = {}) {
 		ElMessage: message,
 		useRoute: () => route,
 		useRouter: () => ({
-			replace: async (destination) => replacements.push(destination),
+			currentRoute: options.router?.currentRoute,
+			replace: async (destination) => {
+				replacements.push(destination)
+				return options.navigate?.(destination)
+			},
 			push: async (destination) => pushes.push(destination),
 		}),
 		useTitle() {},
@@ -283,6 +289,199 @@ test('login submits a credential snapshot once and navigates without dismissing 
 	assert.deepEqual(view.replacements, ['/learning?course=1'])
 	assert.ok(view.messages.some((item) => item.type === 'success'))
 	assert.equal(view.state.loginSucceeded.value, true)
+})
+
+test('navigation failure retains authentication and retries the destination without resubmitting credentials', async (t) => {
+	let attempts = 0
+	const view = createLogin({
+		redirect: '/learning?course=1',
+		navigate: async () => {
+			if (++attempts === 1) throw new Error('Failed to load route chunk')
+		},
+	})
+	t.after(() => view.unmount())
+	await view.mount()
+	await fillCredentials(view)
+	await view.state.submitForm()
+	assert.equal(view.storage.get(tokenKey), 'test-token')
+	assert.equal(view.state.loginSucceeded.value, true)
+	assert.equal(view.state.loginError.value, '')
+	assert.match(view.state.navigationError.value, /已登录.*页面未能打开/)
+	assert.doesNotMatch(view.state.navigationError.value, /密码错误|检查账号密码/)
+	assert.equal(view.state.formData.value.password, '')
+	assert.equal(view.state.canSubmit.value, false)
+	assert.equal(view.state.loading.value, false)
+	await view.state.submitForm()
+	assert.equal(view.calls.loginReq.length, 1)
+	assert.equal(attempts, 1)
+	await view.state.retryLoginNavigation()
+	assert.equal(view.calls.loginReq.length, 1)
+	assert.equal(view.state.navigationError.value, '')
+	assert.equal(view.state.loginError.value, '')
+	assert.equal(view.state.loginSucceeded.value, true)
+	assert.equal(view.state.loading.value, false)
+	assert.deepEqual(view.replacements, [
+		'/learning?course=1',
+		'/learning?course=1',
+	])
+})
+
+test('a resolved router guard rejection is not reported as an incorrect login password', async (t) => {
+	const router = routerTools.createRouter({
+		history: routerTools.createMemoryHistory(),
+		routes: [
+			{ path: '/login', component: {} },
+			{ path: '/', component: {} },
+		],
+	})
+	await router.push('/login')
+	const removeGuard = router.beforeEach(() => false)
+	const failure = await router.replace('/')
+	assert.ok(
+		routerTools.isNavigationFailure(
+			failure,
+			routerTools.NavigationFailureType.aborted
+		)
+	)
+	const view = createLogin({
+		router,
+		navigate: (destination) => router.replace(destination),
+	})
+	t.after(() => view.unmount())
+	await view.mount()
+	await fillCredentials(view)
+	await view.state.submitForm()
+	assert.equal(view.storage.get(tokenKey), 'test-token')
+	assert.equal(view.state.loginError.value, '')
+	assert.match(view.state.navigationError.value, /已登录/)
+	assert.equal(view.state.loginSucceeded.value, true)
+	assert.equal(view.state.canSubmit.value, false)
+	removeGuard()
+	await view.state.retryLoginNavigation()
+	assert.equal(router.currentRoute.value.path, '/')
+	assert.equal(view.state.navigationError.value, '')
+	assert.equal(view.calls.loginReq.length, 1)
+})
+
+test('duplicate navigation to the authenticated destination is already successful', async (t) => {
+	const router = routerTools.createRouter({
+		history: routerTools.createMemoryHistory(),
+		routes: [{ path: '/', component: {} }],
+	})
+	await router.push('/')
+	const duplicate = await router.replace('/')
+	assert.ok(
+		routerTools.isNavigationFailure(
+			duplicate,
+			routerTools.NavigationFailureType.duplicated
+		)
+	)
+	const view = createLogin({ router, navigate: async () => duplicate })
+	t.after(() => view.unmount())
+	await view.mount()
+	await fillCredentials(view)
+	await view.state.submitForm()
+	assert.equal(view.state.loginError.value, '')
+	assert.equal(view.state.navigationError.value, '')
+	assert.equal(view.state.loginSucceeded.value, true)
+})
+
+test('a guard redirect back to login unlocks the form instead of remaining stuck after success', async (t) => {
+	const router = routerTools.createRouter({
+		history: routerTools.createMemoryHistory(),
+		routes: [
+			{ path: '/login', component: {} },
+			{ path: '/', component: {} },
+		],
+	})
+	await router.push('/login')
+	let allowNavigation = false
+	router.beforeEach((to) =>
+		to.path === '/' && !allowNavigation
+			? { path: '/login', query: { redirect: '/' } }
+			: true
+	)
+	const view = createLogin({
+		router,
+		navigate: (destination) => router.replace(destination),
+	})
+	t.after(() => view.unmount())
+	await view.mount()
+	await fillCredentials(view)
+	await view.state.submitForm()
+	assert.equal(router.currentRoute.value.path, '/login')
+	assert.equal(view.state.loginSucceeded.value, false)
+	assert.equal(view.state.loading.value, false)
+	assert.equal(view.state.canSubmit.value, true)
+	assert.equal(view.state.navigationError.value, '')
+	assert.match(view.state.loginError.value, /未能确认登录状态/)
+	assert.doesNotMatch(
+		view.state.loginError.value,
+		/检查账号密码|账号或密码错误/
+	)
+	assert.equal(view.state.formData.value.password, '')
+	allowNavigation = true
+	await fillCredentials(view)
+	await view.state.submitForm()
+	assert.equal(view.calls.loginReq.length, 2)
+	assert.equal(router.currentRoute.value.path, '/')
+	assert.equal(view.state.loginError.value, '')
+	assert.equal(view.state.loginSucceeded.value, true)
+})
+
+test('an existing session with a route error offers navigation retry rather than a login service error', async (t) => {
+	const view = createLogin({
+		api: {
+			checkLoginReq: async () => ({ data: { isLogin: true, role: 'USER' } }),
+		},
+		navigate: async () => {
+			throw new Error('route unavailable')
+		},
+	})
+	t.after(() => view.unmount())
+	await view.mount()
+	assert.equal(view.state.bootstrapError.value, '')
+	assert.equal(view.state.loginError.value, '')
+	assert.match(view.state.navigationError.value, /已登录.*页面未能打开/)
+	assert.equal(view.state.loginSucceeded.value, true)
+	assert.equal(view.calls.loginReq.length, 0)
+})
+
+test('late navigation rejection cannot show an error after the login page unmounts', async (t) => {
+	const navigation = deferred()
+	const view = createLogin({ navigate: () => navigation.promise })
+	t.after(() => view.unmount())
+	await view.mount()
+	await fillCredentials(view)
+	const submitting = view.state.submitForm()
+	await flush()
+	assert.equal(view.state.loginSucceeded.value, true)
+	view.unmount()
+	navigation.reject(new Error('late route failure'))
+	await submitting
+	assert.equal(view.state.loginError.value, '')
+	assert.equal(view.state.navigationError.value, '')
+	assert.equal(view.storage.get(tokenKey), 'test-token')
+})
+
+test('an old navigation failure cannot overwrite a newly initialized login entry', async (t) => {
+	const navigation = deferred()
+	const view = createLogin({ navigate: () => navigation.promise })
+	t.after(() => view.unmount())
+	await view.mount()
+	await fillCredentials(view)
+	const submitting = view.state.submitForm()
+	await flush()
+	assert.equal(view.state.loginSucceeded.value, true)
+	view.route.params.entry = 'new-entry'
+	await flush()
+	assert.equal(view.state.loginSucceeded.value, false)
+	assert.equal(view.state.loginEntry.value, 'new-entry')
+	navigation.reject(new Error('stale route failure'))
+	await submitting
+	assert.equal(view.state.loginError.value, '')
+	assert.equal(view.state.navigationError.value, '')
+	assert.equal(view.state.loading.value, false)
 })
 
 test('leaving the page cancels login and ignores a late successful reply', async (t) => {

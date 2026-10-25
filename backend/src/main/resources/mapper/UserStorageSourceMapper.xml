@@ -8,6 +8,7 @@
         <result column="user_id" jdbcType="INTEGER" property="userId"/>
         <result column="storage_source_id" jdbcType="INTEGER" property="storageSourceId"/>
         <result column="root_path" jdbcType="LONGVARCHAR" property="rootPath"/>
+        <result column="quota_bytes" jdbcType="BIGINT" property="quotaBytes"/>
         <result column="enable" jdbcType="BIT" property="enable"/>
         <result column="permissions" jdbcType="VARCHAR" property="permissions"
                 typeHandler="im.tlgxy.cloud.core.config.mybatis.CollectionStrTypeHandler"/>
@@ -30,7 +31,7 @@
 
     <sql id="Base_Column_List">
         <!--@mbg.generated-->
-        id, user_id, storage_source_id, root_path, `enable`, permissions
+        id, user_id, storage_source_id, root_path, `enable`, permissions, quota_bytes
     </sql>
 
     <delete id="deleteByUserId">

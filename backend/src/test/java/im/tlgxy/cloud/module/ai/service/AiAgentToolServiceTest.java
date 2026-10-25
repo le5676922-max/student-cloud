@@ -39,7 +39,7 @@ class AiAgentToolServiceTest {
         UserService userService = mock(UserService.class);
         FileChain fileChain = mock(FileChain.class);
         AbstractBaseFileService<?> fileService = mock(AbstractBaseFileService.class);
-        AiAgentToolService service = new AiAgentToolService(storageSourceService, userService, fileChain, null, null, null);
+        AiAgentToolService service = new AiAgentToolService(storageSourceService, userService, fileChain, null, null, null, null);
 
         User user = new User();
         user.setId(4);
@@ -74,6 +74,8 @@ class AiAgentToolServiceTest {
             Map<?, ?> searchResult = resultMap(service.execute("find_files", searchArguments));
             assertEquals(2, searchResult.get("matchCount"));
             assertEquals(2, searchResult.get("scannedDirectories"));
+            assertEquals(false, searchResult.get("ioBounded"));
+            assertTrue(searchResult.get("scanLimitNotice").toString().contains("完整枚举"));
 
             JsonNode summaryArguments = objectMapper.readTree("""
                     {"storageKey":"LOCAL","path":"/"}
@@ -82,6 +84,8 @@ class AiAgentToolServiceTest {
             assertEquals(1, summary.get("fileCount"));
             assertEquals(1L, summary.get("folderCount"));
             assertEquals(2048L, summary.get("totalFileBytes"));
+            assertEquals("LEGACY_FULL_ENUMERATION", summary.get("scanMode"));
+            assertEquals(false, summary.get("ioBounded"));
         }
     }
 
@@ -92,7 +96,7 @@ class AiAgentToolServiceTest {
         AiAgentToolService service = new AiAgentToolService(
                 storageSourceService,
                 userService,
-                mock(FileChain.class), null, null, null
+                mock(FileChain.class), null, null, null, null
         );
 
         User user = new User();

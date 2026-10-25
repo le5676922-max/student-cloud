@@ -66,6 +66,8 @@ services:
       STUDENT_CLOUD_TRUSTED_PROXY_CIDRS: 10.77.0.10/32
       TLGXY_CLOUD_CORS_ALLOWED_ORIGINS: ${APP_ORIGIN:?请填写网站完整访问地址}
       STUDENT_CLOUD_WORKSPACE_STORAGE_ROOT: /app/data/workspaces
+      # 共享课程文件放入持久卷，避免默认相对路径写入只读镜像层。
+      STUDENT_CLOUD_COURSE_STORAGE_ROOT: /app/data/course-materials
       # 分片续传暂存与用户可浏览云盘根目录分离。
       STUDENT_CLOUD_UPLOAD_STAGING_ROOT: /app/upload-staging
       STUDENT_CLOUD_RESUMABLE_UPLOAD_ENABLED: ${STUDENT_CLOUD_RESUMABLE_UPLOAD_ENABLED:-true}

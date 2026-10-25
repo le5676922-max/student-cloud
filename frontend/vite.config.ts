@@ -1,6 +1,26 @@
 import { resolve } from 'path'
 import Tov from './presets/tov'
 import { defineConfig } from 'vite'
+import type { ClientRequest, IncomingMessage } from 'node:http'
+import type { Socket } from 'node:net'
+import { isSameOriginSupportUpgrade } from './src/utils/support-proxy-origin.mjs'
+
+// Vite's newer generic EventEmitter declaration is not represented by this
+// project's older Node typings. Narrow only the one event this hook consumes.
+interface SupportUpgradeProxy {
+	on(
+		event: 'proxyReqWs',
+		listener: (
+			proxyReq: ClientRequest,
+			req: IncomingMessage,
+			socket: Socket
+		) => void
+	): unknown
+}
+
+const supportApiTarget = new URL(
+	process.env.CLOUD_API_TARGET || 'http://127.0.0.1:8080'
+)
 
 export default defineConfig({
 	appType: 'spa',
@@ -37,6 +57,28 @@ export default defineConfig({
 	server: {
 		host: '0.0.0.0',
 		proxy: {
+			'^/ws/support(?:\\?|$)': {
+				target: supportApiTarget.toString(),
+				changeOrigin: true,
+				ws: true,
+				configure(proxyServer) {
+					const proxy = proxyServer as unknown as SupportUpgradeProxy
+					proxy.on('proxyReqWs', (proxyReq, req, socket) => {
+						if (
+							!isSameOriginSupportUpgrade(
+								req.headers,
+								Boolean((req.socket as { encrypted?: boolean }).encrypted)
+							)
+						) {
+							proxyReq.destroy()
+							socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
+							return
+						}
+						// Authentication remains the backend's one-use ticket handshake.
+						proxyReq.setHeader('origin', supportApiTarget.origin)
+					})
+				},
+			},
 			'^/(api|user|admin|file|pd|d|s|directlink|sso|onlyOffice|onedrive|onedirve|gd|s3|sharepoint|115)(/|$)':
 				{
 					target: process.env.CLOUD_API_TARGET || 'http://127.0.0.1:8080',

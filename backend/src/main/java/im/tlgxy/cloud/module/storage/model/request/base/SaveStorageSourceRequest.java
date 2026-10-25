@@ -22,6 +22,9 @@ import lombok.Data;
 @Schema(description = "存储源基本参数")
 public class SaveStorageSourceRequest {
 
+    @Schema(title = "显式验证上传和删除权限；仅写入随机小型测试对象并清理")
+    private boolean verifyWrite;
+
     @Schema(title = "所属工作空间，仅系统管理员创建时可指定")
     private Integer tenantId;
 

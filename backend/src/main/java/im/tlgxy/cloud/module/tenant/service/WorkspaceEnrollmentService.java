@@ -83,7 +83,8 @@ public class WorkspaceEnrollmentService {
         userManager.saveUserInfo(user, List.of());
         tenant.setOwnerUserId(user.getId());
         tenants.updateById(tenant);
-        workspaceStorage.provisionNewWorkspace(tenant.getId());
+        // Registration never consumes server disk implicitly. The manager may attach
+        // external storage immediately, or request an ADMIN-approved managed local drive.
         return new Enrollment(tenant, "ACTIVE");
     }
 
@@ -209,19 +210,10 @@ public class WorkspaceEnrollmentService {
     private void inheritPermissions(User member, User operator, int tenantId) {
         if (operator.getRole() != UserRoleEnum.TENANT_ADMIN || !Objects.equals(operator.getTenantId(), tenantId))
             throw new BizException("管理员与工作空间不匹配");
-        member.setDefaultPermissions(operator.getDefaultPermissions() == null ? Set.of() : Set.copyOf(operator.getDefaultPermissions()));
-        List<UserStorageSource> inherited = new ArrayList<>();
-        for (UserStorageSource grant : grants.selectByUserId(operator.getId())) {
-            StorageSource source = storages.selectById(grant.getStorageSourceId());
-            if (source == null || !Objects.equals(source.getTenantId(), tenantId)) continue;
-            UserStorageSource copy = new UserStorageSource();
-            copy.setStorageSourceId(source.getId());
-            copy.setRootPath(grant.getRootPath());
-            copy.setEnable(grant.getEnable());
-            copy.setPermissions(grant.getPermissions() == null ? Set.of() : Set.copyOf(grant.getPermissions()));
-            inherited.add(copy);
-        }
-        userManager.saveUserInfo(member, inherited);
+        // Membership approval is not permission to browse the manager's personal cloud.
+        // Cloud access is granted separately, with member-specific roots and quota.
+        member.setDefaultPermissions(Set.of());
+        userManager.saveUserInfo(member, List.of());
     }
 
     private Tenant managedTenant() {

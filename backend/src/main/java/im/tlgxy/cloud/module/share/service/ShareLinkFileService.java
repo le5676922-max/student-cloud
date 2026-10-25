@@ -32,6 +32,7 @@ import im.tlgxy.cloud.module.user.model.entity.User;
 import im.tlgxy.cloud.module.user.model.entity.UserStorageSource;
 import im.tlgxy.cloud.module.user.model.enums.UserRoleEnum;
 import im.tlgxy.cloud.module.user.service.UserStorageSourceService;
+import im.tlgxy.cloud.module.user.service.UserStoragePermissionPolicy;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 
@@ -187,7 +188,8 @@ public class ShareLinkFileService {
         Tenant tenant = tenantMapper.selectById(storage.getTenantId());
         if (tenant == null || !Boolean.TRUE.equals(tenant.getEnable())
                 || (owner.getRole() != UserRoleEnum.ADMIN && !Objects.equals(owner.getTenantId(), storage.getTenantId()))) deny();
-        UserStorageSource grant = userStorageSourceMapper.getByUserIdAndStorageId(owner.getId(), storage.getId());
+        UserStorageSource grant = UserStoragePermissionPolicy.effectiveGrant(owner, storage,
+                userStorageSourceMapper.getByUserIdAndStorageId(owner.getId(), storage.getId()));
         if (grant == null || !Boolean.TRUE.equals(grant.getEnable()) || grant.getPermissions() == null
                 || !grant.getPermissions().contains(FileOperatorTypeEnum.SHARE_LINK.getValue())) deny();
         String shareBase = SharePathPolicy.normalize(share.getSharePath());

@@ -74,11 +74,20 @@ export function loginHomePath(loginInfo) {
 }
 
 function roleCanAccess(path, loginInfo) {
+	if (isWorkspaceStorageRoute(path) && loginInfo?.role === 'TENANT_ADMIN')
+		return canAccessWorkspaceAdministration(loginInfo)
 	if (path === '/admin' || path.startsWith('/admin/'))
 		return canAccessAdministration(loginInfo)
 	if (path === '/workspace-admin' || path.startsWith('/workspace-admin/'))
 		return canAccessWorkspaceAdministration(loginInfo)
 	return true
+}
+
+export function isWorkspaceStorageRoute(path) {
+	return (
+		path === '/admin/storage-list' ||
+		/^\/admin\/storage-edit(?:\/[0-9]+)?\/?$/.test(path)
+	)
 }
 
 export function loginDestination(loginInfo, requestedPath) {
@@ -100,38 +109,85 @@ export function createAuthenticationGuard({
 	loadLoginInfo,
 	updateLoginInfo,
 	clearLoginInfo,
+	getCredentialIdentity,
 	navigationTimeoutMs = 10000,
 }) {
 	let navigationId = 0
-	let activeController
+	let activeNavigation
+	let activeCheck
+	const unavailableCredential = Symbol('Unreadable navigation credential')
+	const credentialIdentity = () => {
+		try {
+			return getCredentialIdentity?.()
+		} catch {
+			return unavailableCredential
+		}
+	}
+	const startCheck = (key) => {
+		const controller = new AbortController()
+		let timer, onAbort
+		const check = { key, controller, promise: null }
+		const deadline = new Promise((resolve, reject) => {
+			onAbort = () => reject(new Error('Login check canceled'))
+			controller.signal.addEventListener('abort', onAbort, { once: true })
+			timer = setTimeout(() => {
+				reject(new Error('Login check timed out'))
+				controller.abort()
+			}, navigationTimeoutMs)
+		})
+		check.promise = Promise.race([
+			Promise.resolve().then(() =>
+				loadLoginInfo({
+					signal: controller.signal,
+					timeout: navigationTimeoutMs,
+				})
+			),
+			deadline,
+		]).finally(() => {
+			clearTimeout(timer)
+			controller.signal.removeEventListener('abort', onAbort)
+			if (activeCheck === check) activeCheck = undefined
+		})
+		activeCheck = check
+		return check
+	}
 	return async (to) => {
 		const currentId = ++navigationId
-		activeController?.abort()
-		if (isPublicRoute(to.path)) return true
+		activeNavigation?.abort()
 		const controller = new AbortController()
-		activeController = controller
-		let timer
+		activeNavigation = controller
+		if (isPublicRoute(to.path)) {
+			activeCheck?.controller.abort()
+			return true
+		}
 		let onAbort
+		let key
 		try {
-			// A newer navigation cancels this check, even when its transport ignores abort.
-			const deadline = new Promise((resolve, reject) => {
+			key = credentialIdentity()
+			if (key === unavailableCredential) {
+				activeCheck?.controller.abort()
+				throw new Error('Cannot read navigation credential')
+			}
+			let check = activeCheck
+			if (
+				!check ||
+				typeof key !== 'string' ||
+				!key ||
+				check.key !== key ||
+				check.controller.signal.aborted
+			) {
+				check?.controller.abort()
+				check = startCheck(key)
+			}
+			// Rapid clicks share only the request still in flight for the same credential.
+			// Completed permission results are never cached across navigations.
+			const superseded = new Promise((resolve, reject) => {
 				onAbort = () => reject(new Error('Navigation superseded'))
 				controller.signal.addEventListener('abort', onAbort, { once: true })
-				timer = setTimeout(() => {
-					reject(new Error('Login check timed out'))
-					controller.abort()
-				}, navigationTimeoutMs)
 			})
-			const loginInfo = await Promise.race([
-				Promise.resolve().then(() =>
-					loadLoginInfo({
-						signal: controller.signal,
-						timeout: navigationTimeoutMs,
-					})
-				),
-				deadline,
-			])
-			if (currentId !== navigationId) return false
+			const loginInfo = await Promise.race([check.promise, superseded])
+			if (currentId !== navigationId || key !== credentialIdentity())
+				return false
 			updateLoginInfo(loginInfo)
 			if (!isAuthenticatedUser(loginInfo)) return loginRoute(to.fullPath)
 			if (!roleCanAccess(to.path, loginInfo)) return '/'
@@ -139,13 +195,13 @@ export function createAuthenticationGuard({
 			if (to.path === '/admin/user-edit/2') return '/admin/user-list'
 			return true
 		} catch {
-			if (currentId !== navigationId) return false
+			if (currentId !== navigationId || key !== credentialIdentity())
+				return false
 			clearLoginInfo()
 			return loginRoute(to.fullPath)
 		} finally {
-			clearTimeout(timer)
 			controller.signal.removeEventListener('abort', onAbort)
-			if (activeController === controller) activeController = undefined
+			if (activeNavigation === controller) activeNavigation = undefined
 		}
 	}
 }

@@ -120,7 +120,7 @@ const loadGlobalSiteSetting = () => {
 	place-items: center;
 	min-height: 100%;
 	padding: 24px;
-	background: var(--cloud-canvas);
+	background: var(--cloud-frame);
 }
 .cloud-startup-card {
 	width: min(100%, 440px);
@@ -166,7 +166,7 @@ const loadGlobalSiteSetting = () => {
 	span {
 		height: 10px;
 		border-radius: 5px;
-		background: #edf1ea;
+		background: var(--cloud-soft);
 	}
 	span:nth-child(2) {
 		width: 84%;
@@ -175,9 +175,14 @@ const loadGlobalSiteSetting = () => {
 		width: 64%;
 	}
 }
-.el-container {
-	height: 100%;
-	width: 100%;
+.cloud-workspace {
+	height: calc(100% - 32px);
+	width: calc(100% - 32px);
+	margin: 16px;
+	box-sizing: border-box;
+	border: 1px solid #ffffff24;
+	border-radius: 24px;
+	overflow: hidden;
 	position: relative;
 	background: var(--cloud-canvas);
 
@@ -192,6 +197,7 @@ const loadGlobalSiteSetting = () => {
 		--el-header-height: unset;
 		height: 72px;
 		z-index: 2;
+		background: var(--cloud-surface);
 	}
 
 	// 去除文件区 padding
@@ -211,7 +217,19 @@ const loadGlobalSiteSetting = () => {
 		height: 36px;
 		line-height: 36px;
 		font-size: 12px;
-		background: var(--cloud-canvas);
+		background: var(--cloud-surface);
+	}
+}
+
+@media (max-width: 767px) {
+	.cloud-workspace {
+		width: calc(100% - 16px);
+		height: calc(100% - 16px);
+		margin: 8px;
+		border-radius: 18px;
+		.el-header {
+			height: 64px;
+		}
 	}
 }
 </style>

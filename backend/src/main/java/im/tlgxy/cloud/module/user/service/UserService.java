@@ -8,6 +8,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import im.tlgxy.cloud.core.cache.TlgxyCloudCacheManager;
 import im.tlgxy.cloud.core.exception.ErrorCode;
 import im.tlgxy.cloud.core.exception.core.BizException;
+import im.tlgxy.cloud.core.exception.status.ForbiddenAccessException;
 import im.tlgxy.cloud.core.util.RequestActorUserSnapshot;
 import im.tlgxy.cloud.core.util.StringUtils;
 import im.tlgxy.cloud.module.storage.model.enums.FileOperatorTypeEnum;
@@ -142,8 +143,12 @@ public class UserService {
      */
     public UserDetailResponse getUserDetailById(Integer userId) {
         User user = tenantSecurityService.requireManageUser(userId);
+        requireEditableAccountId(userId);
         requireNotRetiredAccount(user);
-        return userManager.assembleUserDetail(user);
+        return UserDetailResponse.builder().id(user.getId()).username(user.getUsername())
+                .nickname(user.getNickname()).enable(user.getEnable()).createTime(user.getCreateTime())
+                .tenantId(user.getTenantId()).role(user.getRole())
+                .defaultPermissions(Set.of()).userStorageSourceList(List.of()).build();
     }
 
 
@@ -197,6 +202,12 @@ public class UserService {
     @Transactional(rollbackFor = Exception.class)
     public User saveOrUpdate(SaveUserRequest saveUserRequest) {
         tenantSecurityService.requireSystemAdmin();
+        // Global account management never doubles as workspace permission management.
+        // Even an empty caller-selected list would otherwise revoke existing grants.
+        if (saveUserRequest.getDefaultPermissions() != null || saveUserRequest.getUserStorageSourceList() != null) {
+            throw new ForbiddenAccessException(ErrorCode.NO_FORBIDDEN);
+        }
+        requireEditableAccountId(saveUserRequest.getId());
         if (saveUserRequest.getRole() != null && !saveUserRequest.getRole().isLoginRole()) {
             throw new BizException("角色只允许 ADMIN、TENANT_ADMIN、USER");
         }
@@ -207,7 +218,7 @@ public class UserService {
             requireNotRetiredAccount(existing);
         }
 
-        if (existing != null && Objects.equals(existing.getId(), UserConstant.ADMIN_ID)
+        if (existing != null && existing.getRole() == UserRoleEnum.ADMIN
                 && (Boolean.FALSE.equals(saveUserRequest.getEnable())
                 || (saveUserRequest.getRole() != null && saveUserRequest.getRole() != UserRoleEnum.ADMIN))) {
             throw new BizException("系统管理员不能被停用或降级");
@@ -215,7 +226,8 @@ public class UserService {
         if (existing == null && StringUtils.isBlank(saveUserRequest.getPassword())) {
             throw new BizException("新用户密码不能为空");
         }
-        if (existing != null && Boolean.TRUE.equals(saveUserRequest.getEnable())) {
+        if (existing != null && existing.getRole() != UserRoleEnum.ADMIN
+                && Boolean.TRUE.equals(saveUserRequest.getEnable())) {
             requireApprovedWorkspaceMembership(existing.getId());
         }
 
@@ -230,7 +242,7 @@ public class UserService {
         user.setUsername(username);
         user.setNickname(saveUserRequest.getNickname());
         user.setEnable(saveUserRequest.getEnable());
-        user.setDefaultPermissions(saveUserRequest.getDefaultPermissions());
+        user.setDefaultPermissions(existing == null ? Set.of() : existing.getDefaultPermissions());
 
         UserRoleEnum role = existing == null ?
                 Optional.ofNullable(saveUserRequest.getRole()).orElse(UserRoleEnum.USER) : existing.getRole();
@@ -245,24 +257,21 @@ public class UserService {
         if (existing == null && !Set.of(UserRoleEnum.USER, UserRoleEnum.TENANT_ADMIN).contains(role)) {
             throw new BizException("新账号只能创建为普通用户或工作空间管理员");
         }
-        boolean nonLoginAccount = existing != null
-                && Objects.equals(existing.getId(), UserConstant.NEW_USER_TEMPLATE_ID);
-        if (nonLoginAccount && StringUtils.isNotBlank(saveUserRequest.getPassword())) {
-            throw new BizException("新用户权限模板不能设置登录密码");
-        }
         Integer tenantId = role == UserRoleEnum.ADMIN ? null
-                : nonLoginAccount ? existing.getTenantId()
                 : Optional.ofNullable(saveUserRequest.getTenantId())
                         .orElse(existing == null ? UserConstant.DEFAULT_TENANT_ID : existing.getTenantId());
         if (role != UserRoleEnum.ADMIN) {
+            if (existing != null && !Objects.equals(existing.getTenantId(), tenantId)) {
+                throw new BizException("账号不能通过资料编辑迁移工作空间");
+            }
             tenantService.getEnabledById(tenantId);
-        }
-        if (nonLoginAccount) {
-            user.setUsername(existing.getUsername());
         }
         user.setRole(role);
         user.setTenantId(tenantId);
         if (role == UserRoleEnum.ADMIN) {
+            user.setEnable(true);
+            user.setDefaultPermissions(allFilePermissions());
+        } else if (existing == null && role == UserRoleEnum.TENANT_ADMIN) {
             user.setDefaultPermissions(allFilePermissions());
         }
 
@@ -270,10 +279,8 @@ public class UserService {
             passwordEncryptAndSet(saveUserRequest.getPassword(), user);
         }
 
-        List<UserStorageSource> storageAccessList = sanitizeStorageAccess(
-                saveUserRequest.getUserStorageSourceList(), tenantId, role == UserRoleEnum.ADMIN);
         try {
-            userManager.saveUserInfo(user, storageAccessList);
+            userManager.saveAccountProfile(user);
         } catch (DuplicateKeyException exception) {
             throw new BizException(ErrorCode.BIZ_USER_EXIST);
         }
@@ -297,6 +304,7 @@ public class UserService {
     @Transactional(rollbackFor = Exception.class)
     public void updateUserEnable(Integer id, boolean enable) {
         User target = tenantSecurityService.requireManageUser(id);
+        requireEditableAccountId(id);
         requireNotRetiredAccount(target);
         if (target.getRole() == UserRoleEnum.ADMIN) {
             throw new BizException("系统管理员不能被停用");
@@ -470,6 +478,12 @@ public class UserService {
         if (Objects.equals(user.getId(), UserConstant.ANONYMOUS_ID)
                 || user.getRole() == null || !user.getRole().isLoginRole()) {
             throw new BizException("该历史账号已停用");
+        }
+    }
+
+    private static void requireEditableAccountId(Integer userId) {
+        if (Objects.equals(userId, UserConstant.NEW_USER_TEMPLATE_ID)) {
+            throw new BizException("内部注册模板不支持通过账号管理查看或修改，请选择具体账号");
         }
     }
 
@@ -655,13 +669,7 @@ public class UserService {
     }
 
     private Set<String> allFilePermissions() {
-        Set<String> permissions = new HashSet<>();
-        for (FileOperatorTypeEnum value : FileOperatorTypeEnum.values()) {
-            if (!StringUtils.startWith(value.getValue(), "ignore")) {
-                permissions.add(value.getValue());
-            }
-        }
-        return permissions;
+        return UserStoragePermissionPolicy.regularAdministratorPermissions();
     }
 
 }

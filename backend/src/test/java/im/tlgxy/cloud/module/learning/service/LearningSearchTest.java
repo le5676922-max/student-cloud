@@ -1,6 +1,7 @@
 package im.tlgxy.cloud.module.learning.service;
 
 import im.tlgxy.cloud.core.exception.core.BizException;
+import im.tlgxy.cloud.module.learning.application.port.LearningFileAccess;
 import im.tlgxy.cloud.module.learning.model.LearningMaterial;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -16,7 +17,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class LearningSearchTest {
-    private final LearningFileReader reader = mock(LearningFileReader.class);
+    private final LearningFileAccess reader = mock(LearningFileAccess.class);
     private final LearningLibraryService library = new LearningLibraryService(null, null, reader, null, null, null);
 
     @Test

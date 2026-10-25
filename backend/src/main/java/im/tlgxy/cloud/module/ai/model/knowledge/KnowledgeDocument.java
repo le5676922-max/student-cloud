@@ -13,6 +13,9 @@ public class KnowledgeDocument {
 
     private String title;
 
+    /** Optional reviewed question; indexed like a title without changing the display title. */
+    private String question;
+
     private List<String> tags = new ArrayList<>();
 
     private String source;

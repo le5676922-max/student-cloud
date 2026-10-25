@@ -86,6 +86,24 @@ test('missing, unknown and retired guest identities cannot access business pages
 	}
 })
 
+test('a course invitation survives the login round trip for members and workspace administrators', async () => {
+	const invitation = '/courses?invite=' + 'c'.repeat(32)
+	const { guard } = harness({ isLogin: false, role: null })
+	const redirect = await guard({ path: '/courses', fullPath: invitation })
+	assert.deepEqual(redirect, {
+		path: '/login',
+		query: { redirect: invitation },
+	})
+	for (const role of ['USER', 'TENANT_ADMIN']) {
+		const identity = { isLogin: true, role, isAdmin: false }
+		assert.equal(loginDestination(identity, redirect.query.redirect), invitation)
+		assert.equal(
+			await harness(identity).guard({ path: '/courses', fullPath: invitation }),
+			true
+		)
+	}
+})
+
 test('an unavailable login check clears cached identity and fails closed', async () => {
 	const { guard, state } = harness(null, new Error('offline'))
 	assert.deepEqual(
@@ -312,11 +330,31 @@ test('the actual router installs the authentication guard and login uses the sha
 	assert.match(router, /router\.beforeEach\(\s*createAuthenticationGuard/)
 	assert.match(
 		login,
-		/router\.replace\(loginDestination\(response\.data, route\.query\.redirect\)\)/
+		/authenticatedDestination\.value = loginDestination\(\s*response\.data,\s*route\.query\.redirect\s*\)/
 	)
+	assert.match(login, /router\.replace\(authenticatedDestination\.value\)/)
 	assert.doesNotMatch(login, /router\.replace\('\/'\)/)
 	assert.doesNotMatch(navigation, /访客|href: '\/admin\/user-edit\/2'/)
 	assert.doesNotMatch(settings, /guestIndexHtml|访客首页/)
 	assert.doesNotMatch(layout, /res\.data\.guest|\/guest/)
 	assert.doesNotMatch(userEditor, /访客|GUEST/)
+})
+
+test('tenant managers can open only source list/editor within the global administration route prefix', async () => {
+	const identity = { isLogin: true, role: 'TENANT_ADMIN', tenantId: 9 }
+	const { guard } = harness(identity)
+	for (const path of [
+		'/admin/storage-list',
+		'/admin/storage-edit',
+		'/admin/storage-edit/41',
+	])
+		assert.equal(await guard({ path, fullPath: path }), true)
+	for (const path of [
+		'/admin/overview',
+		'/admin/user-list',
+		'/admin/storage-local-requests',
+		'/admin/storage-edit/abc',
+		'/admin/storage-edit/41/extra',
+	])
+		assert.equal(await guard({ path, fullPath: path }), '/')
 })

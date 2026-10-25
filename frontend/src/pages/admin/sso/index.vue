@@ -15,11 +15,11 @@
 			</template>
 		</el-dropdown>
 
-		<div class="text-sm text-gray-400">
-			注意：单点登录后新用户的默认权限取自
-			<router-link to="/admin/user-list" class="link">用户管理</router-link> 中
-			<router-link to="/admin/user-edit/0" class="link">虚拟新用户</router-link>
-			的默认权限设置，请确保该用户有访问权限。
+		<div class="sso-explanation">
+			此页仅配置单点登录服务商。新账号的内部兼容默认规则仍由系统保留，不再提供虚拟账号的权限编辑入口。
+			需要调整权限时，请在
+			<router-link to="/admin/user-list" class="link">空间人员</router-link>
+			中选定具体账号，再修改该账号的权限与存储授权。
 		</div>
 
 		<el-empty
@@ -227,6 +227,12 @@ const serverAddress = computed(() => {
 
 <style scoped lang="scss">
 .student-cloud-admin-sso-setting-wrapper {
+	.sso-explanation {
+		margin: 8px 0 20px;
+		color: var(--cloud-muted);
+		font-size: 13px;
+		line-height: 1.8;
+	}
 	// 修正 el-tabs 给的 padding
 	:deep(.el-tabs__content) {
 		margin-top: -20px;

@@ -11,10 +11,6 @@
 					<CloudArrowUpIcon aria-hidden="true" />
 					<span>学生云盘</span>
 				</router-link>
-				<div class="career-login-art-copy">
-					<p>你的资料，你的空间</p>
-					<h2>整理有序，<br />随时找得到。</h2>
-				</div>
 				<div class="career-login-stage">
 					<LoginCharacters
 						:is-typing="isTyping"
@@ -34,7 +30,7 @@
 					/>
 				</div>
 				<div class="career-login-art-footer">
-					<span>文件 · 学习资料 · 工作空间</span>
+					<router-link to="/">返回云盘</router-link>
 					<button
 						type="button"
 						:aria-pressed="motionPaused"
@@ -58,9 +54,8 @@
 						<CloudArrowUpIcon aria-hidden="true" /><span>学生云盘</span>
 					</router-link>
 					<header class="career-login-intro">
-						<p class="career-login-eyebrow">账号登录</p>
-						<h1 id="career-login-title">欢迎回来</h1>
-						<p>登录后，继续管理你的文件与资料。</p>
+						<h1 id="career-login-title">欢迎回来!</h1>
+						<p>登录学生云盘，继续整理你的资料</p>
 					</header>
 					<el-form
 						ref="loginFormRef"
@@ -228,6 +223,21 @@
 						<p v-if="loginError" class="career-login-feedback" role="alert">
 							{{ loginError }}
 						</p>
+						<div
+							v-if="navigationError"
+							class="career-login-feedback"
+							role="alert"
+						>
+							<p>{{ navigationError }}</p>
+							<button
+								type="button"
+								class="career-login-link"
+								:disabled="loading"
+								@click="retryLoginNavigation"
+							>
+								重新进入
+							</button>
+						</div>
 						<button
 							type="submit"
 							class="career-login-submit"
@@ -283,6 +293,7 @@ import {
 	validateLoginEntryReq,
 } from '~/api/home/user'
 import { installStatusReq } from '~/api/home/install'
+import { isNavigationFailure, NavigationFailureType } from 'vue-router'
 import {
 	ArrowRightIcon,
 	CloudArrowUpIcon,
@@ -298,6 +309,7 @@ import {
 } from '~/utils/login-preference.mjs'
 import {
 	isAuthenticatedUser,
+	isPublicRoute,
 	loginDestination,
 } from '~/utils/auth-navigation.mjs'
 import '~/styles/login.css'
@@ -315,6 +327,8 @@ const captchaLoading = ref(false)
 const captchaError = ref('')
 const loginSucceeded = ref(false)
 const loginError = ref('')
+const navigationError = ref('')
+const authenticatedDestination = ref('')
 const passwordVisible = ref(false)
 const passwordFocused = ref(false)
 const usernameInput = ref()
@@ -368,7 +382,9 @@ const entryDialogVisible = computed({
 })
 const submitLabel = computed(() =>
 	loginSucceeded.value
-		? '登录成功，正在进入'
+		? navigationError.value
+			? '已登录'
+			: '登录成功，正在进入'
 		: loading.value
 		? '正在登录…'
 		: bootstrapChecking.value
@@ -395,6 +411,7 @@ const loginEntryValid = ref(false)
 const canSubmit = computed(
 	() =>
 		!loading.value &&
+		!loginSucceeded.value &&
 		!bootstrapChecking.value &&
 		!bootstrapError.value &&
 		loginEntryValid.value &&
@@ -442,11 +459,55 @@ const formRules = computed(() => ({
 	],
 }))
 
+const navigationFailureMessage =
+	'已登录，但页面未能打开。请重新进入，无需再次输入密码。'
+const completeLoginNavigation = async (epoch) => {
+	navigationError.value = ''
+	try {
+		const failure = await router.replace(authenticatedDestination.value)
+		if (disposed || epoch !== pageEpoch) return
+		if (
+			isNavigationFailure(failure) &&
+			!isNavigationFailure(failure, NavigationFailureType.duplicated)
+		)
+			throw new Error('Navigation did not complete')
+		// A guard redirect can resolve successfully while returning to this page.
+		// Do not leave the form locked in its authenticated transition state.
+		if (isPublicRoute(router.currentRoute?.value.path || '')) {
+			loginSucceeded.value = false
+			authenticatedDestination.value = ''
+			loginError.value = '未能确认登录状态，请重新登录或稍后重试。'
+			await loadLoginVerifyMode()
+			return
+		}
+	} catch {
+		if (!disposed && epoch === pageEpoch)
+			navigationError.value = navigationFailureMessage
+	}
+}
+const retryLoginNavigation = async () => {
+	if (
+		disposed ||
+		loading.value ||
+		!loginSucceeded.value ||
+		!authenticatedDestination.value
+	)
+		return
+	const epoch = pageEpoch
+	loading.value = true
+	try {
+		await completeLoginNavigation(epoch)
+	} finally {
+		if (!disposed && epoch === pageEpoch) loading.value = false
+	}
+}
+
 const submitForm = async () => {
 	if (!canSubmit.value || !loginFormRef.value || disposed) return
 	const epoch = pageEpoch
 	loading.value = true
 	loginError.value = ''
+	navigationError.value = ''
 	try {
 		try {
 			await loginFormRef.value.validate()
@@ -475,12 +536,21 @@ const submitForm = async () => {
 		}
 		saveLoginPreference(loginStorage, remember.value, payload.username)
 		loginSucceeded.value = true
+		authenticatedDestination.value = loginDestination(
+			response.data,
+			route.query.redirect
+		)
 		formData.value.password = ''
+		loginFormRef.value?.clearValidate()
 		ElMessage.success('登录成功')
-		await router.replace(loginDestination(response.data, route.query.redirect))
+		await completeLoginNavigation(epoch)
 	} catch (error) {
 		if (disposed || epoch !== pageEpoch || error?.code === 'ERR_CANCELED')
 			return
+		if (loginSucceeded.value) {
+			navigationError.value = navigationFailureMessage
+			return
+		}
 		loginSucceeded.value = false
 		loginError.value = failureMessage(error, '登录失败，请检查账号密码后重试。')
 		if (loginVerifyMode.value === 'image') await loadLoginVerifyCodeImgData()
@@ -586,6 +656,8 @@ const initializeLogin = async () => {
 	formData.value.verifyCodeUUID = ''
 	loginVerifyCodeImgData.value = {}
 	loginError.value = ''
+	navigationError.value = ''
+	authenticatedDestination.value = ''
 	bootstrapChecking.value = true
 	bootstrapError.value = ''
 	entryAddressInvalid.value = false
@@ -610,9 +682,12 @@ const initializeLogin = async () => {
 		const identity = await checkLoginReq(requestOptions)
 		if (disposed || epoch !== pageEpoch) return
 		if (isAuthenticatedUser(identity.data)) {
-			await router.replace(
-				loginDestination(identity.data, route.query.redirect)
+			loginSucceeded.value = true
+			authenticatedDestination.value = loginDestination(
+				identity.data,
+				route.query.redirect
 			)
+			await completeLoginNavigation(epoch)
 			return
 		}
 		await loadLoginVerifyMode()

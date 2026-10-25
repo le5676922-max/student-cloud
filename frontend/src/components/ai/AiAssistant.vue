@@ -3,7 +3,7 @@
 		<div v-if="showAssistant" class="ai-agent-root">
 			<Transition name="ai-panel">
 				<section
-					v-if="isOpen"
+					v-show="isOpen"
 					class="ai-agent-panel"
 					:class="{
 						'is-file-over': isAgentFileOver,
@@ -61,18 +61,37 @@
 							<span class="ai-agent-title-icon" aria-hidden="true">
 								<AiMascotSprite compact :interactive="false" />
 							</span>
-							<span>小芽</span>
+							<span>{{ supportMode ? '人工客服' : '小芽' }}</span>
 						</div>
 
 						<div class="ai-agent-actions">
+							<el-tooltip
+								v-if="!supportMode"
+								content="长期记忆"
+								placement="bottom"
+							>
+								<button
+									type="button"
+									class="ai-agent-icon-button"
+									aria-label="管理长期记忆"
+									@click="memoryOpen = !memoryOpen"
+								>
+									<i-lucide-brain />
+								</button>
+							</el-tooltip>
 							<router-link
+								v-if="!supportMode"
 								:to="automationRoute"
 								class="ai-agent-icon-button"
 								title="自动化任务"
 								aria-label="打开自动化任务"
 								><i-lucide-list-checks
 							/></router-link>
-							<el-tooltip content="清空对话" placement="bottom">
+							<el-tooltip
+								v-if="!supportMode"
+								content="清空对话"
+								placement="bottom"
+							>
 								<button
 									type="button"
 									class="ai-agent-icon-button"
@@ -100,454 +119,566 @@
 							</el-tooltip>
 						</div>
 					</header>
-					<div class="ai-agent-shortcuts" aria-label="常用文件操作">
-						<div class="ai-agent-shortcuts-heading">
-							<span>快捷操作 · 无需等待 AI</span>
-							<small
-								v-if="automationContext.storageKey"
-								:title="automationContext.path"
-								>{{
-									automationContext.path === '/'
-										? '当前云盘根目录'
-										: automationContext.path
-								}}</small
-							>
-						</div>
-						<div class="ai-agent-shortcut-buttons">
-							<button
-								type="button"
-								:disabled="shortcutBusy"
-								@click="chooseShortcutUpload"
-							>
-								<i-lucide-upload />上传文件
-							</button>
-							<button
-								v-if="canOrganizeDirectory"
-								type="button"
-								:disabled="shortcutBusy"
-								@click="previewDirectory('ORGANIZE_FILES')"
-							>
-								<i-lucide-folders />整理目录
-							</button>
-							<button
-								v-if="canRenameDirectory"
-								type="button"
-								:disabled="shortcutBusy"
-								@click="previewDirectory('RENAME_BY_DATE')"
-							>
-								<i-lucide-calendar-days />日期命名
-							</button>
-							<router-link :to="learningAutomationRoute"
-								><i-lucide-book-open />归档课程</router-link
-							>
-						</div>
-						<small v-if="isQuickPreviewing" role="status"
-							>正在生成预览，不会自动修改文件…</small
+					<AssistantSupportChat
+						v-if="supportSession"
+						v-show="supportMode"
+						:key="supportSession.clientMessageId"
+						:initial-issue="supportSession.issue"
+						:client-message-id="supportSession.clientMessageId"
+						:identity-key="assistantIdentity"
+						@back="supportMode = false"
+						@started="supportSession.status = $event.status"
+						@closed="supportSession.status = 'CLOSED'"
+					/>
+					<template v-if="!supportMode">
+						<button
+							v-if="canContactSupport"
+							type="button"
+							class="ai-agent-support-entry"
+							:disabled="shortcutBusy"
+							@click="requestHumanSupport()"
 						>
-					</div>
+							<span>{{
+								supportSession ? '返回人工客服会话' : 'AI 未解决？转人工客服'
+							}}</span>
+							<small>在当前窗口沟通，确认后才发送问题</small>
+						</button>
+						<AiMemoryPanel
+							v-if="memoryOpen"
+							:identity-key="assistantIdentity"
+							@close="memoryOpen = false"
+						/>
+						<div class="ai-agent-shortcuts" aria-label="常用文件操作">
+							<div class="ai-agent-shortcuts-heading">
+								<span>快捷操作 · 无需等待 AI</span>
+								<small
+									v-if="automationContext.storageKey"
+									:title="automationContext.path"
+									>{{
+										automationContext.path === '/'
+											? '当前云盘根目录'
+											: automationContext.path
+									}}</small
+								>
+							</div>
+							<div class="ai-agent-shortcut-buttons">
+								<button
+									type="button"
+									:disabled="shortcutBusy"
+									@click="chooseShortcutUpload"
+								>
+									<i-lucide-upload />上传文件
+								</button>
+								<button
+									v-if="canOrganizeDirectory"
+									type="button"
+									:disabled="shortcutBusy"
+									@click="previewDirectory('ORGANIZE_FILES')"
+								>
+									<i-lucide-folders />整理目录
+								</button>
+								<button
+									v-if="canRenameDirectory"
+									type="button"
+									:disabled="shortcutBusy"
+									@click="previewDirectory('RENAME_BY_DATE')"
+								>
+									<i-lucide-calendar-days />日期命名
+								</button>
+								<router-link :to="learningAutomationRoute"
+									><i-lucide-book-open />归档课程</router-link
+								>
+							</div>
+							<small v-if="isQuickPreviewing" role="status"
+								>正在生成预览，不会自动修改文件…</small
+							>
+						</div>
 
-					<div
-						ref="messageListRef"
-						class="ai-agent-messages"
-						aria-live="polite"
-					>
 						<div
-							v-for="message in messages"
-							v-show="message.content || message.tools?.length"
-							:key="message.id"
-							class="ai-agent-message-row"
-							:class="`is-${message.role}`"
+							ref="messageListRef"
+							class="ai-agent-messages"
+							aria-live="polite"
 						>
-							<span class="ai-agent-avatar" aria-hidden="true">
-								<i-lucide-bot v-if="message.role === 'assistant'" />
-								<i-lucide-user v-else />
-							</span>
 							<div
-								class="ai-agent-message"
-								:class="{ 'is-error': message.error }"
+								v-for="message in messages"
+								v-show="message.content || message.tools?.length"
+								:key="message.id"
+								class="ai-agent-message-row"
+								:class="`is-${message.role}`"
 							>
-								<div v-if="message.tools?.length" class="ai-agent-tools">
-									<span
-										v-for="tool in message.tools"
-										:key="`${message.id}-${tool.name}-${tool.summary}`"
-										class="ai-agent-tool"
-										:class="{ 'is-failed': !tool.success }"
-									>
-										<i-lucide-check-circle v-if="tool.success" />
-										<i-lucide-alert-circle v-else />
-										{{ tool.summary }}
-									</span>
-								</div>
-								<SafeHtml
-									v-if="message.role === 'assistant'"
-									class="ai-agent-response"
-									:html="message.renderedContent"
-								/>
-								<template v-else>
-									<div
-										v-if="message.attachments?.length"
-										class="ai-agent-message-files"
-									>
-										<span v-for="file in message.attachments" :key="file.name">
-											<i-lucide-file-text />
-											{{ file.name }}
+								<span class="ai-agent-avatar" aria-hidden="true">
+									<i-lucide-bot v-if="message.role === 'assistant'" />
+									<i-lucide-user v-else />
+								</span>
+								<div
+									class="ai-agent-message"
+									:class="{ 'is-error': message.error }"
+								>
+									<div v-if="message.tools?.length" class="ai-agent-tools">
+										<span
+											v-for="tool in message.tools"
+											:key="`${message.id}-${tool.name}-${tool.summary}`"
+											class="ai-agent-tool"
+											:class="{ 'is-failed': !tool.success }"
+										>
+											<i-lucide-check-circle v-if="tool.success" />
+											<i-lucide-alert-circle v-else />
+											{{ tool.summary }}
 										</span>
 									</div>
-									{{ message.content }}
-								</template>
-								<details
-									v-if="message.knowledge?.length"
-									class="ai-material-citations"
-								>
-									<summary>
-										项目知识依据（{{ message.knowledge.length }} 条）
-									</summary>
-									<article v-for="item in message.knowledge" :key="item.id">
-										<strong>[K:{{ item.id }}] {{ item.title }}</strong>
-										<p>{{ item.content }}</p>
-										<small>来源：{{ item.source }}</small>
-									</article>
-								</details>
-								<AgentTaskCard
-									v-for="plan in message.plans || []"
-									:key="plan.id"
-									:plan="plan"
-									@updated="updateMessagePlan(message, $event)"
-									@created="addMessagePlan(message, $event)"
-								/>
-								<details
-									v-if="message.citations?.length"
-									class="ai-material-citations"
-								>
-									<summary>
-										本轮资料依据（{{ message.citations.length }} 个片段）
-									</summary>
-									<article
-										v-for="citation in message.citations"
-										:key="citation.reference"
-									>
-										<strong
-											>[{{ citation.reference }}] {{ citation.name }} · 文本片段
-											{{ citation.segment }}</strong
-										>
-										<p>{{ citation.excerpt }}</p>
-										<router-link
-											:to="{
-												path: '/learning',
-												query: { courseId: citation.courseId },
-											}"
-											>查看所属课程</router-link
-										>
-									</article>
-								</details>
-							</div>
-						</div>
-
-						<div v-if="isLoading" class="ai-agent-message-row is-assistant">
-							<span class="ai-agent-avatar" aria-hidden="true">
-								<i-lucide-bot />
-							</span>
-							<div
-								class="ai-agent-message ai-agent-loading"
-								aria-label="Agent 正在处理"
-							>
-								<span></span>
-								<span></span>
-								<span></span>
-								<small>{{ streamStatus }}</small>
-							</div>
-						</div>
-						<div
-							v-if="uploadIntent"
-							class="ai-agent-message-row is-assistant is-upload-action"
-						>
-							<span class="ai-agent-avatar" aria-hidden="true">
-								<i-lucide-sprout />
-							</span>
-							<div class="ai-agent-upload-card">
-								<div class="ai-agent-upload-card-title">
-									<div>
-										<strong
-											>我接住了 {{ uploadIntent.files.length }} 个文件</strong
-										>
-										<small
-											>共 {{ formatFileSize(uploadIntent.totalSize) }}</small
-										>
-									</div>
-									<i-lucide-files />
-								</div>
-
-								<div class="ai-agent-upload-file-summary">
-									<span
-										v-for="file in uploadIntent.files.slice(0, 3)"
-										:key="`${file.name}-${file.size}-${file.lastModified}`"
-									>
-										<i-lucide-file />
-										{{ file.name }}
-									</span>
-									<small v-if="uploadIntent.files.length > 3">
-										还有 {{ uploadIntent.files.length - 3 }} 个文件
-									</small>
-								</div>
-
-								<template v-if="uploadIntent.phase === 'choose-purpose'">
-									<p>你希望我怎么处理这些文件？</p>
-									<div class="ai-agent-upload-actions">
-										<button
-											type="button"
-											class="ai-agent-action-button is-primary"
-											@click="prepareCloudUpload"
-										>
-											<i-lucide-upload-cloud />
-											存入云盘
-										</button>
-										<button
-											type="button"
-											class="ai-agent-action-button"
-											@click="analyzeDroppedFiles"
-										>
-											<i-lucide-sparkles />
-											分析文件
-										</button>
-										<button
-											type="button"
-											class="ai-agent-action-button is-quiet"
-											@click="cancelUploadIntent"
-										>
-											<i-lucide-x />
-											取消
-										</button>
-									</div>
-								</template>
-
-								<div
-									v-else-if="uploadIntent.phase === 'loading-targets'"
-									class="ai-agent-upload-loading"
-								>
-									<i-lucide-loader-2 />
-									正在检查你有权限使用的云盘
-								</div>
-
-								<template v-else-if="uploadIntent.phase === 'configure'">
-									<label class="ai-agent-upload-field">
-										<span>存储到</span>
-										<el-select
-											v-model="uploadIntent.storageKey"
-											placeholder="选择云盘"
-										>
-											<el-option
-												v-for="target in uploadIntent.targets"
-												:key="target.key"
-												:label="target.name"
-												:value="target.key"
-											/>
-										</el-select>
-									</label>
-									<label class="ai-agent-upload-field">
-										<span>目标目录</span>
-										<el-input
-											v-model="uploadIntent.path"
-											placeholder="例如：/课程资料"
-											maxlength="255"
-										/>
-									</label>
-									<p class="ai-agent-upload-notice">
-										执行前会再次校验上传权限并检查同名文件。
-									</p>
-									<p v-if="uploadIntent.error" class="ai-agent-upload-error">
-										{{ uploadIntent.error }}
-									</p>
-									<div class="ai-agent-upload-actions">
-										<button
-											type="button"
-											class="ai-agent-action-button is-primary"
-											:disabled="!uploadIntent.storageKey"
-											@click="confirmCloudUpload()"
-										>
-											<i-lucide-check />
-											确认上传
-										</button>
-										<button
-											type="button"
-											class="ai-agent-action-button is-quiet"
-											@click="uploadIntent.phase = 'choose-purpose'"
-										>
-											<i-lucide-arrow-left />
-											返回
-										</button>
-									</div>
-								</template>
-
-								<template v-else-if="uploadIntent.phase === 'review-conflicts'">
-									<p>
-										目标目录已有
-										{{ uploadIntent.duplicates.length }} 个同名文件：
-									</p>
-									<p class="ai-agent-upload-notice">
-										{{ uploadIntent.duplicates.slice(0, 3).join('、')
-										}}{{
-											uploadIntent.duplicates.length > 3 ? ' 等' : ''
-										}}。小芽不会主动覆盖它们。
-									</p>
-									<p v-if="uploadIntent.error" class="ai-agent-upload-error">
-										{{ uploadIntent.error }}
-									</p>
-									<div class="ai-agent-upload-actions">
-										<button
-											type="button"
-											class="ai-agent-action-button is-primary"
-											:disabled="
-												uploadIntent.duplicates.length ===
-												uploadIntent.files.length
-											"
-											@click="confirmCloudUpload(true)"
-										>
-											跳过同名并上传其余文件
-										</button>
-										<button
-											type="button"
-											class="ai-agent-action-button is-quiet"
-											@click="uploadIntent.phase = 'configure'"
-										>
-											修改目标目录
-										</button>
-									</div>
-								</template>
-								<template v-else-if="uploadIntent.phase === 'retry-failed'">
-									<p>
-										{{ uploadIntent.files.length }}
-										个文件上传失败，可单独重试；重试前会重新检查权限和同名文件。
-									</p>
-									<div class="ai-agent-upload-actions">
-										<button
-											type="button"
-											class="ai-agent-action-button is-primary"
-											@click="confirmCloudUpload()"
-										>
-											重试失败文件
-										</button>
-										<button
-											type="button"
-											class="ai-agent-action-button is-quiet"
-											@click="cancelUploadIntent"
-										>
-											稍后处理
-										</button>
-									</div>
-								</template>
-								<div
-									v-else-if="uploadIntent.phase === 'uploading'"
-									class="ai-agent-upload-progress"
-								>
-									<div>
-										<span>正在存储 {{ uploadIntent.currentFile }}</span>
-										<strong>
-											{{ uploadIntent.completed }}/{{
-												uploadIntent.uploadCount || uploadIntent.files.length
-											}}
-										</strong>
-									</div>
-									<el-progress
-										:percentage="agentUploadProgress"
-										:stroke-width="8"
-										:show-text="false"
+									<SafeHtml
+										v-if="message.role === 'assistant'"
+										class="ai-agent-response"
+										:html="message.renderedContent"
 									/>
+									<template v-else>
+										<div
+											v-if="message.attachments?.length"
+											class="ai-agent-message-files"
+										>
+											<span
+												v-for="file in message.attachments"
+												:key="file.name"
+											>
+												<i-lucide-file-text />
+												{{ file.name }}
+											</span>
+										</div>
+										{{ message.content }}
+									</template>
+									<details
+										v-if="message.knowledge?.length"
+										class="ai-material-citations"
+									>
+										<summary>
+											项目知识依据（{{ message.knowledge.length }} 条）
+										</summary>
+										<article v-for="item in message.knowledge" :key="item.id">
+											<strong>[K:{{ item.id }}] {{ item.title }}</strong>
+											<p>{{ item.content }}</p>
+											<small>来源：{{ item.source }}</small>
+										</article>
+									</details>
+									<AgentTaskCard
+										v-for="plan in message.plans || []"
+										:key="plan.id"
+										:plan="plan"
+										@updated="updateMessagePlan(message, $event)"
+										@created="addMessagePlan(message, $event)"
+									/>
+									<details
+										v-if="message.citations?.length"
+										class="ai-material-citations"
+									>
+										<summary>
+											本轮资料依据（{{ message.citations.length }} 个片段）
+										</summary>
+										<article
+											v-for="citation in message.citations"
+											:key="citation.reference"
+										>
+											<strong
+												>[{{ citation.reference }}] {{ citation.name }} ·
+												文本片段 {{ citation.segment }}</strong
+											>
+											<p>{{ citation.excerpt }}</p>
+											<router-link
+												:to="{
+													path: '/learning',
+													query: { courseId: citation.courseId },
+												}"
+												>查看所属课程</router-link
+											>
+										</article>
+									</details>
+									<div
+										v-if="
+											canContactSupport &&
+											message.role === 'assistant' &&
+											!message.welcome &&
+											message.content &&
+											!isLoading &&
+											message.feedbackEligible
+										"
+										class="ai-agent-feedback"
+									>
+										<button
+											type="button"
+											class="ai-agent-feedback-button"
+											:disabled="
+												['submitting', 'saved'].includes(message.feedbackState)
+											"
+											title="将本轮问题和回答提交给全局管理员，用于改进知识库"
+											@click="reportUnhelpful(message)"
+										>
+											{{
+												message.feedbackState === 'saved'
+													? '已记录反馈'
+													: message.feedbackState === 'submitting'
+													? '正在记录…'
+													: message.feedbackState === 'error'
+													? '重试反馈'
+													: '没有解决？'
+											}}
+										</button>
+										<small v-if="!message.feedbackState"
+											>提交本轮问答，供管理员改进知识库</small
+										>
+										<small v-if="message.feedbackState === 'error'" role="alert"
+											>反馈结果未确认，可重试；也可继续转人工。</small
+										>
+									</div>
 								</div>
 							</div>
-						</div>
-					</div>
 
-					<footer class="ai-agent-composer">
-						<button
-							type="button"
-							class="ai-agent-answer-style"
-							:aria-label="`回答模式：${
-								answerStyle === 'concise' ? '简洁' : '详细'
-							}，点击切换`"
-							@click="toggleAnswerStyle"
-						>
-							回答：{{ answerStyle === 'concise' ? '简洁' : '详细' }}
-						</button>
-						<input
-							ref="fileInputRef"
-							type="file"
-							class="ai-agent-file-input"
-							:accept="ATTACHMENT_ACCEPT"
-							multiple
-							@change="selectAttachments"
-						/>
-						<input
-							ref="uploadPickerRef"
-							type="file"
-							class="ai-agent-file-input"
-							multiple
-							@change="selectUploadFiles"
-						/>
-						<div v-if="selectedFiles.length" class="ai-agent-selected-files">
-							<span
-								v-for="(file, index) in selectedFiles"
-								:key="`${file.name}-${file.size}-${file.lastModified}`"
-							>
-								<i-lucide-file-text />
-								<span class="ai-agent-selected-file-name">{{ file.name }}</span>
-								<small>{{ formatFileSize(file.size) }}</small>
-								<button
-									type="button"
-									:aria-label="`移除 ${file.name}`"
-									@click="removeAttachment(index)"
+							<div v-if="isLoading" class="ai-agent-message-row is-assistant">
+								<span class="ai-agent-avatar" aria-hidden="true">
+									<i-lucide-bot />
+								</span>
+								<div
+									class="ai-agent-message ai-agent-loading"
+									aria-label="Agent 正在处理"
 								>
-									<i-lucide-x />
-								</button>
-							</span>
+									<span></span>
+									<span></span>
+									<span></span>
+									<small>{{ streamStatus }}</small>
+								</div>
+							</div>
+							<div
+								v-if="uploadIntent"
+								class="ai-agent-message-row is-assistant is-upload-action"
+							>
+								<span class="ai-agent-avatar" aria-hidden="true">
+									<i-lucide-sprout />
+								</span>
+								<div class="ai-agent-upload-card">
+									<div class="ai-agent-upload-card-title">
+										<div>
+											<strong
+												>我接住了 {{ uploadIntent.files.length }} 个文件</strong
+											>
+											<small
+												>共 {{ formatFileSize(uploadIntent.totalSize) }}</small
+											>
+										</div>
+										<i-lucide-files />
+									</div>
+
+									<div class="ai-agent-upload-file-summary">
+										<span
+											v-for="file in uploadIntent.files.slice(0, 3)"
+											:key="`${file.name}-${file.size}-${file.lastModified}`"
+										>
+											<i-lucide-file />
+											{{ file.name }}
+										</span>
+										<small v-if="uploadIntent.files.length > 3">
+											还有 {{ uploadIntent.files.length - 3 }} 个文件
+										</small>
+									</div>
+
+									<template v-if="uploadIntent.phase === 'choose-purpose'">
+										<p>你希望我怎么处理这些文件？</p>
+										<div class="ai-agent-upload-actions">
+											<button
+												type="button"
+												class="ai-agent-action-button is-primary"
+												@click="prepareCloudUpload"
+											>
+												<i-lucide-upload-cloud />
+												存入云盘
+											</button>
+											<button
+												type="button"
+												class="ai-agent-action-button"
+												@click="analyzeDroppedFiles"
+											>
+												<i-lucide-sparkles />
+												分析文件
+											</button>
+											<button
+												type="button"
+												class="ai-agent-action-button is-quiet"
+												@click="cancelUploadIntent"
+											>
+												<i-lucide-x />
+												取消
+											</button>
+										</div>
+									</template>
+
+									<div
+										v-else-if="uploadIntent.phase === 'loading-targets'"
+										class="ai-agent-upload-loading"
+									>
+										<i-lucide-loader-2 />
+										正在检查你有权限使用的云盘
+									</div>
+
+									<template v-else-if="uploadIntent.phase === 'configure'">
+										<label class="ai-agent-upload-field">
+											<span>存储到</span>
+											<el-select
+												v-model="uploadIntent.storageKey"
+												placeholder="选择云盘"
+											>
+												<el-option
+													v-for="target in uploadIntent.targets"
+													:key="target.key"
+													:label="target.name"
+													:value="target.key"
+												/>
+											</el-select>
+										</label>
+										<label class="ai-agent-upload-field">
+											<span>目标目录</span>
+											<el-input
+												v-model="uploadIntent.path"
+												placeholder="例如：/课程资料"
+												maxlength="255"
+											/>
+										</label>
+										<p class="ai-agent-upload-notice">
+											执行前会再次校验上传权限并检查同名文件。
+										</p>
+										<p v-if="uploadIntent.error" class="ai-agent-upload-error">
+											{{ uploadIntent.error }}
+										</p>
+										<div class="ai-agent-upload-actions">
+											<button
+												type="button"
+												class="ai-agent-action-button is-primary"
+												:disabled="!uploadIntent.storageKey"
+												@click="confirmCloudUpload()"
+											>
+												<i-lucide-check />
+												确认上传
+											</button>
+											<button
+												type="button"
+												class="ai-agent-action-button is-quiet"
+												@click="uploadIntent.phase = 'choose-purpose'"
+											>
+												<i-lucide-arrow-left />
+												返回
+											</button>
+										</div>
+									</template>
+
+									<template
+										v-else-if="uploadIntent.phase === 'review-conflicts'"
+									>
+										<p>
+											目标目录已有
+											{{ uploadIntent.duplicates.length }} 个同名文件：
+										</p>
+										<p class="ai-agent-upload-notice">
+											{{ uploadIntent.duplicates.slice(0, 3).join('、')
+											}}{{
+												uploadIntent.duplicates.length > 3 ? ' 等' : ''
+											}}。小芽不会主动覆盖它们。
+										</p>
+										<p v-if="uploadIntent.error" class="ai-agent-upload-error">
+											{{ uploadIntent.error }}
+										</p>
+										<div class="ai-agent-upload-actions">
+											<button
+												type="button"
+												class="ai-agent-action-button is-primary"
+												:disabled="
+													uploadIntent.duplicates.length ===
+													uploadIntent.files.length
+												"
+												@click="confirmCloudUpload(true)"
+											>
+												跳过同名并上传其余文件
+											</button>
+											<button
+												type="button"
+												class="ai-agent-action-button is-quiet"
+												@click="uploadIntent.phase = 'configure'"
+											>
+												修改目标目录
+											</button>
+										</div>
+									</template>
+									<template v-else-if="uploadIntent.phase === 'retry-failed'">
+										<p>
+											{{ uploadIntent.files.length }}
+											个文件上传失败，可单独重试；重试前会重新检查权限和同名文件。
+										</p>
+										<div class="ai-agent-upload-actions">
+											<button
+												type="button"
+												class="ai-agent-action-button is-primary"
+												@click="confirmCloudUpload()"
+											>
+												重试失败文件
+											</button>
+											<button
+												type="button"
+												class="ai-agent-action-button is-quiet"
+												@click="cancelUploadIntent"
+											>
+												稍后处理
+											</button>
+										</div>
+									</template>
+									<div
+										v-else-if="uploadIntent.phase === 'uploading'"
+										class="ai-agent-upload-progress"
+									>
+										<div>
+											<span>正在存储 {{ uploadIntent.currentFile }}</span>
+											<strong>
+												{{ uploadIntent.completed }}/{{
+													uploadIntent.uploadCount || uploadIntent.files.length
+												}}
+											</strong>
+										</div>
+										<el-progress
+											:percentage="agentUploadProgress"
+											:stroke-width="8"
+											:show-text="false"
+										/>
+									</div>
+								</div>
+							</div>
+							<form
+								v-if="supportOffer"
+								class="ai-agent-support-offer"
+								aria-label="转人工确认"
+								@submit.prevent="confirmHumanSupport"
+							>
+								<strong>需要人工帮助吗？</strong>
+								<p>{{ supportOffer.reason }}</p>
+								<label for="assistant-support-issue"
+									>发给全局管理员的问题</label
+								>
+								<textarea
+									id="assistant-support-issue"
+									v-model="supportIssue"
+									maxlength="2000"
+									rows="3"
+									placeholder="请简要描述需要帮助的问题"
+								/>
+								<small
+									>转人工仅发送上方问题，不自动共享其他 AI
+									对话、附件或长期记忆。管理员离线时，留言会保存等待回复。</small
+								>
+								<small v-if="submittedSupportFeedback"
+									>已提交的改进反馈会保留，取消转人工不会撤回反馈。</small
+								>
+								<div>
+									<button
+										type="submit"
+										class="is-primary"
+										:disabled="!supportIssue.trim() || shortcutBusy"
+									>
+										确认转人工
+									</button>
+									<button type="button" @click="dismissSupportOffer">
+										继续 AI 对话
+									</button>
+								</div>
+							</form>
 						</div>
-						<div class="ai-agent-composer-row">
-							<el-tooltip
-								content="添加附件，内容将发送给 AI 分析"
-								placement="top"
+
+						<footer class="ai-agent-composer">
+							<button
+								type="button"
+								class="ai-agent-answer-style"
+								:aria-label="`回答模式：${
+									answerStyle === 'concise' ? '简洁' : '详细'
+								}，点击切换`"
+								@click="toggleAnswerStyle"
 							>
-								<button
-									type="button"
-									class="ai-agent-attach-button"
-									:disabled="
-										isLoading ||
-										isAgentUploading ||
-										selectedFiles.length >= MAX_ATTACHMENT_FILES
-									"
-									aria-label="添加附件"
-									@click="openAttachmentPicker"
-								>
-									<i-lucide-paperclip />
-								</button>
-							</el-tooltip>
-							<el-input
-								ref="inputRef"
-								v-model="inputMessage"
-								type="textarea"
-								resize="none"
-								maxlength="2000"
-								:disabled="shortcutBusy"
-								:autosize="{ minRows: 2, maxRows: 4 }"
-								placeholder="输入问题，或添加附件"
-								aria-label="输入问题"
-								@keydown.enter.exact.prevent="sendMessage"
+								回答：{{ answerStyle === 'concise' ? '简洁' : '详细' }}
+							</button>
+							<input
+								ref="fileInputRef"
+								type="file"
+								class="ai-agent-file-input"
+								:accept="ATTACHMENT_ACCEPT"
+								multiple
+								@change="selectAttachments"
 							/>
-							<el-tooltip
-								:content="isLoading ? '停止生成' : '发送'"
-								placement="top"
-							>
-								<button
-									type="button"
-									class="ai-agent-send-button"
-									:disabled="!isLoading && !canSend"
-									:aria-label="isLoading ? '停止生成' : '发送消息'"
-									@click="isLoading ? stopGeneration() : sendMessage()"
+							<input
+								ref="uploadPickerRef"
+								type="file"
+								class="ai-agent-file-input"
+								multiple
+								@change="selectUploadFiles"
+							/>
+							<div v-if="selectedFiles.length" class="ai-agent-selected-files">
+								<span
+									v-for="(file, index) in selectedFiles"
+									:key="`${file.name}-${file.size}-${file.lastModified}`"
 								>
-									<i-lucide-square v-if="isLoading" />
-									<i-lucide-send v-else />
-								</button>
-							</el-tooltip>
-						</div>
-					</footer>
+									<i-lucide-file-text />
+									<span class="ai-agent-selected-file-name">{{
+										file.name
+									}}</span>
+									<small>{{ formatFileSize(file.size) }}</small>
+									<button
+										type="button"
+										:aria-label="`移除 ${file.name}`"
+										@click="removeAttachment(index)"
+									>
+										<i-lucide-x />
+									</button>
+								</span>
+							</div>
+							<div class="ai-agent-composer-row">
+								<el-tooltip
+									content="添加附件，内容将发送给 AI 分析"
+									placement="top"
+								>
+									<button
+										type="button"
+										class="ai-agent-attach-button"
+										:disabled="
+											isLoading ||
+											isAgentUploading ||
+											selectedFiles.length >= MAX_ATTACHMENT_FILES
+										"
+										aria-label="添加附件"
+										@click="openAttachmentPicker"
+									>
+										<i-lucide-paperclip />
+									</button>
+								</el-tooltip>
+								<el-input
+									ref="inputRef"
+									v-model="inputMessage"
+									type="textarea"
+									resize="none"
+									maxlength="2000"
+									:disabled="shortcutBusy"
+									:autosize="{ minRows: 2, maxRows: 4 }"
+									placeholder="输入问题，或添加附件"
+									aria-label="输入问题"
+									@keydown.enter.exact.prevent="sendMessage"
+								/>
+								<el-tooltip
+									:content="isLoading ? '停止生成' : '发送'"
+									placement="top"
+								>
+									<button
+										type="button"
+										class="ai-agent-send-button"
+										:disabled="!isLoading && !canSend"
+										:aria-label="isLoading ? '停止生成' : '发送消息'"
+										@click="isLoading ? stopGeneration() : sendMessage()"
+									>
+										<i-lucide-square v-if="isLoading" />
+										<i-lucide-send v-else />
+									</button>
+								</el-tooltip>
+							</div>
+						</footer>
+					</template>
 				</section>
 			</Transition>
 
@@ -611,10 +742,12 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useStorage } from '@vueuse/core'
 import { marked } from 'marked'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { streamWithAiAgentReq } from '~/api/home/ai-agent'
+import { submitAiFeedbackReq } from '~/api/home/ai-feedback'
 import { agentTaskRequest } from '~/api/home/agent-tasks'
 import {
 	automationContextFromRoute,
@@ -623,6 +756,15 @@ import {
 } from '~/utils/automation-context.mjs'
 import AiMascotSprite from '~/components/ai/AiMascotSprite.vue'
 import AgentTaskCard from '~/components/ai/AgentTaskCard.vue'
+import AiMemoryPanel from '~/components/ai/AiMemoryPanel.vue'
+import AssistantSupportChat from '~/components/support/AssistantSupportChat.vue'
+import {
+	requestsHumanSupport,
+	declinesHumanSupport,
+	isUnresolvedFeedback,
+	supportIssueFromMessages,
+	supportSuggestionReason,
+} from '~/utils/assistant-support.mjs'
 import {
 	clampPanelSize as clampStoredPanelSize,
 	restorePanelSize as restoreStoredPanelSize,
@@ -725,10 +867,37 @@ const fileDataStore = useFileDataStore()
 const { silentUploadFile } = useFileUpload()
 
 const isOpen = ref(false)
+const memoryOpen = ref(false)
+const assistantCredential = useStorage(
+	'tongligong-student-cloud-token',
+	'',
+	undefined,
+	{ writeDefaults: false }
+)
+const supportMode = ref(false)
+const supportSession = ref(null)
+const supportOffer = ref(null)
+const supportIssue = ref('')
+const submittedSupportFeedback = computed(() =>
+	messages.value.some((message) => message.feedbackState === 'saved')
+)
+const canContactSupport = computed(
+	() =>
+		storageConfigStore.loginInfo.isLogin &&
+		['USER', 'TENANT_ADMIN'].includes(storageConfigStore.loginInfo.role)
+)
+const assistantIdentity = computed(() =>
+	storageConfigStore.loginInfo.username
+		? `${storageConfigStore.loginInfo.username}\n${
+				storageConfigStore.loginInfo.tenantId ?? ''
+		  }\n${storageConfigStore.loginInfo.role ?? ''}`
+		: ''
+)
 const isLoading = ref(false)
 const isQuickPreviewing = ref(false)
 let quickPreviewController = null
 let assistantDisposed = false
+const feedbackControllers = new Set()
 const automationContext = computed(() => automationContextFromRoute(route))
 const automationRoute = computed(() =>
 	buildAutomationRoute(automationContext.value)
@@ -753,7 +922,11 @@ const canRenameDirectory = computed(() =>
 	)
 )
 const shortcutBusy = computed(
-	() => isLoading.value || isAgentUploading.value || isQuickPreviewing.value
+	() =>
+		isLoading.value ||
+		isAgentUploading.value ||
+		isQuickPreviewing.value ||
+		supportMode.value
 )
 const streamStatus = ref('正在连接 AI 助手')
 let chatAbortController = null
@@ -807,6 +980,7 @@ const canSend = computed(
 	() =>
 		(inputMessage.value.trim().length > 0 || selectedFiles.value.length > 0) &&
 		!isLoading.value &&
+		!supportMode.value &&
 		!isAgentUploading.value &&
 		!isQuickPreviewing.value
 )
@@ -850,6 +1024,8 @@ watch(
 
 watch(showAssistant, (visible) => {
 	if (!visible) {
+		resetSupportState()
+		memoryOpen.value = false
 		isOpen.value = false
 		stopGeneration()
 		cancelQuickPreview()
@@ -862,12 +1038,17 @@ watch(
 	[
 		() => storageConfigStore.loginInfo.username,
 		() => storageConfigStore.loginInfo.tenantId,
+		() => storageConfigStore.loginInfo.role,
+		() => assistantCredential.value,
 	],
 	() => {
+		resetSupportState()
+		memoryOpen.value = false
 		cancelQuickPreview()
 		stopGeneration()
 		clearMessages()
-	}
+	},
+	{ flush: 'sync' }
 )
 
 onMounted(() => {
@@ -882,6 +1063,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
 	assistantDisposed = true
+	cancelFeedbackRequests()
 	cancelQuickPreview()
 	stopGeneration()
 	window.removeEventListener('resize', keepAssistantInViewport)
@@ -1199,10 +1381,13 @@ function openPanel() {
 }
 
 function closePanel() {
+	memoryOpen.value = false
 	isOpen.value = false
 }
 
 function clearMessages() {
+	cancelFeedbackRequests()
+	dismissSupportOffer()
 	messages.value = [
 		createMessage('assistant', WELCOME_MESSAGE, { welcome: true }),
 	]
@@ -1215,6 +1400,117 @@ function clearMessages() {
 	if (fileInputRef.value) {
 		fileInputRef.value.value = ''
 	}
+}
+
+function resetSupportState() {
+	supportMode.value = false
+	supportSession.value = null
+	dismissSupportOffer()
+}
+
+function dismissSupportOffer() {
+	supportOffer.value = null
+	supportIssue.value = ''
+}
+
+function offerHumanSupport(reason, proposed = '') {
+	if (!canContactSupport.value || supportMode.value) return
+	supportOffer.value = { reason: String(reason).slice(0, 300) }
+	supportIssue.value =
+		supportIssueFromMessages(messages.value, proposed) || '我需要人工客服协助。'
+	scrollToBottom()
+}
+
+function requestHumanSupport() {
+	if (!canContactSupport.value || shortcutBusy.value) return
+	if (supportSession.value && supportSession.value.status !== 'CLOSED') {
+		supportMode.value = true
+		memoryOpen.value = false
+		return
+	}
+	offerHumanSupport(
+		'可以在当前窗口联系全局管理员。请确认要发送的问题。',
+		inputMessage.value
+	)
+}
+
+function cancelFeedbackRequests() {
+	for (const controller of feedbackControllers) controller.abort()
+	feedbackControllers.clear()
+}
+
+async function reportUnhelpful(message) {
+	if (
+		!canContactSupport.value ||
+		shortcutBusy.value ||
+		['submitting', 'saved'].includes(message.feedbackState)
+	)
+		return
+	message.supportOffered = true
+	const index = messages.value.findIndex((item) => item.id === message.id)
+	if (index < 0 || message.role !== 'assistant' || !message.feedbackEligible)
+		return
+	const question = supportIssueFromMessages(messages.value.slice(0, index))
+	// Feedback and human support are independent. One bad answer is recorded for
+	// curation without interrupting the conversation with a handoff prompt.
+	if (!question || !message.content) return
+	if (!message.feedbackRequest) {
+		const bounded = (text, limit) =>
+			String(text)
+				.slice(0, limit)
+				.replace(/[\uD800-\uDBFF]$/, '')
+		message.feedbackRequest = {
+			clientMessageId: `feedback-${Date.now()}-${Math.random()
+				.toString(36)
+				.slice(2)}`,
+			question: bounded(question, 2000),
+			answer: bounded(message.content, 12000),
+			pagePath: message.feedbackPagePath || route.path,
+			...(message.feedbackCourseId
+				? { courseId: message.feedbackCourseId }
+				: {}),
+		}
+	}
+	const controller = new AbortController()
+	feedbackControllers.add(controller)
+	message.feedbackState = 'submitting'
+	const current = () =>
+		!assistantDisposed &&
+		!controller.signal.aborted &&
+		messages.value.includes(message)
+	try {
+		const result = await submitAiFeedbackReq(
+			{ ...message.feedbackRequest },
+			{ signal: controller.signal }
+		)
+		if (!current()) return
+		if (!/^[a-f0-9]{32}$/.test(result.data?.id || ''))
+			throw new Error('Invalid feedback acknowledgement')
+		message.feedbackState = 'saved'
+	} catch {
+		if (current()) message.feedbackState = 'error'
+	} finally {
+		feedbackControllers.delete(controller)
+	}
+}
+
+function confirmHumanSupport() {
+	if (!canContactSupport.value || !supportOffer.value || shortcutBusy.value)
+		return
+	const issue = supportIssue.value.trim()
+	if (!issue || issue.length > 2000) return
+	// Mounting the human chat is the only path that can create a conversation.
+	// Keep the key across closing/reopening the panel so uncertain writes dedupe.
+	supportSession.value = {
+		issue,
+		clientMessageId: `assistant-${Date.now()}-${Math.random()
+			.toString(36)
+			.slice(2)}`,
+		status: 'WAITING',
+	}
+	dismissSupportOffer()
+	memoryOpen.value = false
+	supportMode.value = true
 }
 
 function chooseShortcutUpload() {
@@ -1314,6 +1610,7 @@ function isFileDrag(event) {
 }
 
 function handleAgentDragEnter(event) {
+	if (supportMode.value) return
 	if (!isFileDrag(event)) {
 		return
 	}
@@ -1322,6 +1619,7 @@ function handleAgentDragEnter(event) {
 }
 
 function handleAgentDragOver(event) {
+	if (supportMode.value) return
 	if (!isFileDrag(event)) {
 		return
 	}
@@ -1342,6 +1640,7 @@ function handleAgentDragLeave() {
 }
 
 function handleAgentFileDrop(event) {
+	if (supportMode.value) return
 	fileDragDepth = 0
 	isAgentFileOver.value = false
 	stageUploadFiles(Array.from(event.dataTransfer?.files || []))
@@ -1721,6 +2020,20 @@ async function sendMessage() {
 		return
 	}
 	const content = inputContent || '请分析这些附件。'
+	if (canContactSupport.value && requestsHumanSupport(content)) {
+		const issue = supportIssueFromMessages(messages.value, content)
+		messages.value.push(createMessage('user', content))
+		inputMessage.value = ''
+		messages.value.push(
+			createMessage(
+				'assistant',
+				'可以转接人工客服。请在下方确认要发送的问题。',
+				{ supportOffered: true }
+			)
+		)
+		offerHumanSupport('小芽暂未解决你的问题，是否转接全局管理员？', issue)
+		return
+	}
 	if (isUploadCommand(content)) {
 		messages.value.push(createMessage('user', content))
 		inputMessage.value = ''
@@ -1756,15 +2069,32 @@ async function sendMessage() {
 	)
 	inputMessage.value = ''
 	selectedFiles.value = []
+	dismissSupportOffer()
 	isLoading.value = true
 	streamStatus.value = '正在连接 AI 助手'
-	chatAbortController = new AbortController()
-	messages.value.push(createMessage('assistant', ''))
+	const controller = new AbortController()
+	chatAbortController = controller
+	messages.value.push(
+		createMessage('assistant', '', {
+			feedbackEligible: true,
+			feedbackPagePath: route.path,
+			feedbackCourseId:
+				route.path === '/courses' &&
+				/^[a-f0-9]{32}$/.test(String(route.query?.course || ''))
+					? String(route.query.course)
+					: null,
+		})
+	)
 	const reply = messages.value[messages.value.length - 1]
+	const currentChat = () =>
+		!assistantDisposed &&
+		chatAbortController === controller &&
+		messages.value.includes(reply)
 	let renderTimer = null
 	const renderReply = () => {
 		if (renderTimer) window.clearTimeout(renderTimer)
 		renderTimer = null
+		if (!currentChat()) return
 		reply.renderedContent = renderAssistantContent(reply.content)
 		scrollToBottom()
 	}
@@ -1778,8 +2108,9 @@ async function sendMessage() {
 
 	try {
 		const result = await streamWithAiAgentReq(request, filesToSend, {
-			signal: chatAbortController.signal,
+			signal: controller.signal,
 			onEvent: (event, data) => {
+				if (!currentChat() || controller.signal.aborted) return
 				if (event === 'progress') {
 					streamStatus.value = data.message
 					if (data.stage === 'model') {
@@ -1794,6 +2125,7 @@ async function sendMessage() {
 				}
 			},
 		})
+		if (!currentChat() || controller.signal.aborted) return
 		Object.assign(reply, {
 			content: result.answer,
 			tools: result.tools || [],
@@ -1801,7 +2133,26 @@ async function sendMessage() {
 			knowledge: result.knowledge || [],
 			plans: result.plans || [],
 		})
+		const reason = supportSuggestionReason(result.supportSuggestion)
+		const recentHistory = messages.value.slice(0, -1).slice(-6)
+		const repeatedUnresolved =
+			recentHistory.filter(
+				(item) => item.role === 'assistant' && !item.welcome && !item.error
+			).length >= 2 &&
+			recentHistory.some(
+				(item) => item.role === 'user' && isUnresolvedFeedback(item.content)
+			)
+		if (
+			reason &&
+			repeatedUnresolved &&
+			canContactSupport.value &&
+			!declinesHumanSupport(content)
+		) {
+			reply.supportOffered = true
+			offerHumanSupport(reason, content)
+		}
 	} catch (error) {
+		if (!currentChat()) return
 		const errorMessage =
 			error?.name === 'AbortError'
 				? '已停止生成。以上未完成内容仅供参考，不会作为下一轮对话依据。'
@@ -1812,9 +2163,11 @@ async function sendMessage() {
 		reply.error = true
 	} finally {
 		renderReply()
-		chatAbortController = null
-		isLoading.value = false
-		nextTick(() => inputRef.value?.focus())
+		if (chatAbortController === controller) {
+			chatAbortController = null
+			isLoading.value = false
+			nextTick(() => inputRef.value?.focus())
+		}
 	}
 }
 
@@ -1841,10 +2194,10 @@ function scrollToBottom() {
 }
 .ai-material-citations summary {
 	cursor: pointer;
-	color: #2563eb;
+	color: var(--cloud-accent);
 }
 .ai-material-citations article {
-	border-top: 1px solid #dbeafe;
+	border-top: 1px solid var(--cloud-line);
 	padding-top: 10px;
 	margin-top: 10px;
 }
@@ -1855,6 +2208,7 @@ function scrollToBottom() {
 	overflow-y: auto;
 }
 .ai-agent-panel {
+	--ai-agent-header-height: 64px;
 	position: fixed;
 	right: 24px;
 	bottom: 88px;
@@ -1864,11 +2218,12 @@ function scrollToBottom() {
 	height: min(520px, calc(100dvh - 120px));
 	flex-direction: column;
 	overflow: hidden;
-	color: #1f2937;
-	background: #ffffff;
-	border: 1px solid #dfe3e8;
-	border-radius: 8px;
-	box-shadow: 0 18px 48px rgb(15 23 42 / 18%);
+	color: var(--cloud-ink);
+	background: var(--cloud-surface);
+	border: 1px solid var(--cloud-line);
+	border-radius: var(--cloud-radius);
+	box-shadow: 0 24px 64px rgb(28 29 32 / 20%);
+	transform-origin: bottom right;
 }
 
 .ai-agent-panel.is-resizing {
@@ -1884,19 +2239,19 @@ function scrollToBottom() {
 	width: 30px;
 	height: 30px;
 	padding: 0;
-	color: #64748b;
-	background: #f8fafc;
-	border: 1px solid #e2e8f0;
-	border-radius: 5px;
+	color: var(--cloud-muted);
+	background: var(--cloud-soft);
+	border: 1px solid var(--cloud-line);
+	border-radius: 10px;
 	cursor: nwse-resize;
 	place-items: center;
 	touch-action: none;
 }
 
 .ai-agent-resize-handle:hover {
-	color: #2563eb;
-	background: #eff6ff;
-	border-color: #bfdbfe;
+	color: var(--cloud-accent);
+	background: var(--cloud-lilac);
+	border-color: var(--cloud-accent);
 }
 
 .ai-agent-resize-handle svg {
@@ -1904,14 +2259,125 @@ function scrollToBottom() {
 	height: 15px;
 }
 
+.ai-agent-support-entry {
+	display: grid;
+	flex-shrink: 0;
+	gap: 3px;
+	padding: 10px 16px;
+	border: 0;
+	border-bottom: 1px solid var(--cloud-line, #e5e7eb);
+	color: var(--cloud-ink, #25262a);
+	background: var(--cloud-surface, #fff);
+	text-align: left;
+	font: inherit;
+	text-decoration: none;
+	font-size: 12px;
+	cursor: pointer;
+}
+.ai-agent-support-entry:hover {
+	background: var(--cloud-soft, #f6f6f7);
+}
+.ai-agent-support-entry small {
+	color: var(--cloud-muted, #72747c);
+	font-size: 11px;
+}
+.ai-agent-support-entry:disabled {
+	opacity: 0.5;
+	cursor: wait;
+}
+.ai-agent-feedback-button {
+	display: block;
+	margin-top: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--cloud-muted);
+	font: inherit;
+	font-size: 11px;
+	cursor: pointer;
+}
+.ai-agent-feedback {
+	display: grid;
+	gap: 3px;
+	margin-top: 10px;
+	padding-top: 8px;
+	border-top: 1px solid var(--cloud-line);
+}
+.ai-agent-feedback > small {
+	color: var(--cloud-muted);
+	font-size: 10px;
+}
+.ai-agent-feedback-button:disabled {
+	cursor: default;
+	opacity: 0.7;
+}
+.ai-agent-feedback-button:hover {
+	color: var(--cloud-accent);
+}
+.ai-agent-support-offer {
+	display: grid;
+	gap: 8px;
+	padding: 14px;
+	border: 1px solid var(--cloud-line);
+	border-radius: 14px;
+	background: var(--cloud-surface);
+	font-size: 12px;
+	line-height: 1.6;
+}
+.ai-agent-support-offer p {
+	margin: 0;
+}
+.ai-agent-support-offer small {
+	color: var(--cloud-muted);
+}
+.ai-agent-support-offer textarea {
+	width: 100%;
+	min-height: 70px;
+	padding: 8px;
+	border: 1px solid var(--cloud-line);
+	border-radius: 8px;
+	background: var(--cloud-canvas);
+	color: var(--cloud-ink);
+	font: inherit;
+	resize: vertical;
+}
+.ai-agent-support-offer > div {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+.ai-agent-support-offer button {
+	padding: 7px 10px;
+	border: 1px solid var(--cloud-line);
+	border-radius: 8px;
+	background: var(--cloud-soft);
+	color: var(--cloud-ink);
+	font: inherit;
+	cursor: pointer;
+}
+.ai-agent-support-offer button.is-primary {
+	background: var(--cloud-ink);
+	color: var(--cloud-surface);
+}
+.ai-agent-support-offer button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+.ai-agent-support-offer button:focus-visible,
+.ai-agent-support-offer textarea:focus-visible,
+.ai-agent-feedback-button:focus-visible,
+.ai-agent-support-entry:focus-visible {
+	outline: 2px solid var(--cloud-accent);
+	outline-offset: 2px;
+}
 .ai-agent-header {
 	display: flex;
-	min-height: 56px;
+	min-height: var(--ai-agent-header-height);
 	align-items: center;
 	justify-content: space-between;
 	padding: 0 12px 0 48px;
-	background: #ffffff;
-	border-bottom: 1px solid #e5e7eb;
+	background: var(--cloud-surface);
+	border-bottom: 1px solid var(--cloud-line);
 }
 
 .ai-agent-title,
@@ -1936,8 +2402,10 @@ function scrollToBottom() {
 }
 
 .ai-agent-title-icon {
-	width: 30px;
-	height: 33px;
+	width: 38px;
+	height: 38px;
+	border-radius: 12px;
+	background: var(--cloud-lilac);
 }
 
 .ai-agent-title-icon svg,
@@ -1968,14 +2436,14 @@ function scrollToBottom() {
 .ai-agent-icon-button {
 	width: 34px;
 	height: 34px;
-	color: #6b7280;
+	color: var(--cloud-muted);
 	background: transparent;
-	border-radius: 6px;
+	border-radius: 10px;
 }
 
 .ai-agent-icon-button:hover:not(:disabled) {
-	color: #111827;
-	background: #f3f4f6;
+	color: var(--cloud-ink);
+	background: var(--cloud-soft);
 }
 
 .ai-agent-icon-button:disabled,
@@ -1988,9 +2456,9 @@ function scrollToBottom() {
 .ai-agent-shortcuts {
 	flex-shrink: 0;
 	padding: 10px 16px;
-	border-bottom: 1px solid #e2e8df;
-	background: #f6f7f2;
-	color: #526456;
+	border-bottom: 1px solid var(--cloud-line);
+	background: var(--cloud-soft);
+	color: var(--cloud-muted);
 }
 .ai-agent-shortcuts-heading {
 	display: flex;
@@ -2017,10 +2485,10 @@ function scrollToBottom() {
 	align-items: center;
 	gap: 5px;
 	padding: 6px 9px;
-	border: 1px solid #d8e0d4;
-	border-radius: 7px;
-	background: #fff;
-	color: #354b3c;
+	border: 1px solid var(--cloud-line);
+	border-radius: 999px;
+	background: var(--cloud-surface);
+	color: var(--cloud-ink);
 	font: inherit;
 	font-size: 12px;
 	text-decoration: none;
@@ -2036,20 +2504,21 @@ function scrollToBottom() {
 }
 .ai-agent-shortcut-buttons button:focus-visible,
 .ai-agent-shortcut-buttons a:focus-visible {
-	outline: 2px solid #2b7160;
+	outline: 2px solid var(--cloud-accent);
 	outline-offset: 2px;
 }
 .ai-agent-shortcut-buttons button:not(:disabled):hover,
 .ai-agent-shortcut-buttons a:hover {
-	background: #eaf1e8;
-	border-color: #9aad9f;
+	background: var(--cloud-lilac);
+	border-color: var(--cloud-accent);
+	transform: translateY(-1px);
 }
 .ai-agent-messages {
 	flex: 1;
 	min-height: 0;
 	padding: 16px;
 	overflow-y: auto;
-	background: #f8fafc;
+	background: var(--cloud-canvas);
 }
 
 .ai-agent-message-row {
@@ -2066,10 +2535,10 @@ function scrollToBottom() {
 .ai-agent-avatar {
 	width: 28px;
 	height: 28px;
-	color: #4b5563;
-	background: #ffffff;
-	border: 1px solid #dfe3e8;
-	border-radius: 7px;
+	color: var(--cloud-muted);
+	background: var(--cloud-surface);
+	border: 1px solid var(--cloud-line);
+	border-radius: 10px;
 }
 
 .ai-agent-avatar svg {
@@ -2084,9 +2553,9 @@ function scrollToBottom() {
 	line-height: 1.6;
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
-	background: #ffffff;
-	border: 1px solid #e5e7eb;
-	border-radius: 8px;
+	background: var(--cloud-surface);
+	border: 1px solid var(--cloud-line);
+	border-radius: 14px;
 }
 
 .ai-agent-message-files {
@@ -2129,7 +2598,7 @@ function scrollToBottom() {
 .ai-agent-response :deep(h3),
 .ai-agent-response :deep(h4) {
 	margin: 10px 0 5px;
-	color: #111827;
+	color: var(--cloud-ink);
 	font-size: 14px;
 	font-weight: 650;
 	line-height: 1.45;
@@ -2157,7 +2626,7 @@ function scrollToBottom() {
 	max-width: 100%;
 	padding: 9px 10px;
 	overflow-x: auto;
-	background: #111827;
+	background: var(--cloud-frame);
 	border-radius: 6px;
 }
 
@@ -2171,11 +2640,11 @@ function scrollToBottom() {
 .ai-agent-response :deep(blockquote) {
 	padding-left: 9px;
 	color: #4b5563;
-	border-left: 3px solid #93c5fd;
+	border-left: 3px solid var(--cloud-accent);
 }
 
 .ai-agent-response :deep(a) {
-	color: #2563eb;
+	color: var(--cloud-accent);
 	text-decoration: underline;
 	text-underline-offset: 2px;
 }
@@ -2196,8 +2665,8 @@ function scrollToBottom() {
 }
 .is-user .ai-agent-message {
 	color: #ffffff;
-	background: #2563eb;
-	border-color: #2563eb;
+	background: var(--cloud-primary);
+	border-color: var(--cloud-primary);
 }
 
 .ai-agent-message.is-error {
@@ -2265,7 +2734,7 @@ function scrollToBottom() {
 }
 
 .ai-agent-panel.is-file-over {
-	border-color: #22c55e;
+	border-color: var(--cloud-accent);
 }
 
 .ai-agent-drop-dock {
@@ -2281,8 +2750,8 @@ function scrollToBottom() {
 	min-height: 54px;
 	padding: 6px 12px 6px 8px;
 	background: rgb(255 255 255 / 96%);
-	border: 1px solid #86efac;
-	border-radius: 8px;
+	border: 1px solid var(--cloud-accent);
+	border-radius: 14px;
 	box-shadow: 0 8px 24px rgb(15 23 42 / 12%);
 	pointer-events: none;
 }
@@ -2303,9 +2772,9 @@ function scrollToBottom() {
 	display: grid;
 	width: 28px;
 	height: 28px;
-	color: #15803d;
-	background: #f0fdf4;
-	border-radius: 6px;
+	color: var(--cloud-accent);
+	background: var(--cloud-lilac);
+	border-radius: 9px;
 	place-items: center;
 }
 
@@ -2322,7 +2791,7 @@ function scrollToBottom() {
 }
 
 .ai-agent-drop-dock-copy strong {
-	color: #166534;
+	color: var(--cloud-ink);
 	font-size: 13px;
 	line-height: 1.35;
 }
@@ -2355,9 +2824,9 @@ function scrollToBottom() {
 	width: calc(100% - 36px);
 	min-width: 0;
 	padding: 12px;
-	background: #ffffff;
-	border: 1px solid #d1d5db;
-	border-radius: 8px;
+	background: var(--cloud-surface);
+	border: 1px solid var(--cloud-line);
+	border-radius: 14px;
 }
 
 .ai-agent-upload-card-title {
@@ -2390,7 +2859,7 @@ function scrollToBottom() {
 	width: 20px;
 	height: 20px;
 	flex: 0 0 auto;
-	color: #16a34a;
+	color: var(--cloud-accent);
 }
 
 .ai-agent-upload-file-summary {
@@ -2399,9 +2868,9 @@ function scrollToBottom() {
 	gap: 4px;
 	margin: 10px 0;
 	padding: 8px;
-	background: #f8fafc;
-	border: 1px solid #e5e7eb;
-	border-radius: 6px;
+	background: var(--cloud-soft);
+	border: 1px solid var(--cloud-line);
+	border-radius: 10px;
 }
 
 .ai-agent-upload-file-summary span {
@@ -2409,7 +2878,7 @@ function scrollToBottom() {
 	min-width: 0;
 	align-items: center;
 	gap: 6px;
-	color: #374151;
+	color: var(--cloud-ink);
 	font-size: 12px;
 	line-height: 1.4;
 	overflow-wrap: anywhere;
@@ -2445,27 +2914,28 @@ function scrollToBottom() {
 	color: #374151;
 	font-size: 12px;
 	font-weight: 600;
-	background: #ffffff;
-	border: 1px solid #d1d5db;
-	border-radius: 6px;
+	background: var(--cloud-surface);
+	border: 1px solid var(--cloud-line);
+	border-radius: 999px;
 	cursor: pointer;
 }
 
 .ai-agent-action-button:hover:not(:disabled) {
-	color: #1d4ed8;
-	border-color: #60a5fa;
+	color: var(--cloud-accent);
+	border-color: var(--cloud-accent);
+	transform: translateY(-1px);
 }
 
 .ai-agent-action-button.is-primary {
 	color: #ffffff;
-	background: #2563eb;
-	border-color: #2563eb;
+	background: var(--cloud-primary);
+	border-color: var(--cloud-primary);
 }
 
 .ai-agent-action-button.is-primary:hover:not(:disabled) {
 	color: #ffffff;
-	background: #1d4ed8;
-	border-color: #1d4ed8;
+	background: var(--cloud-primary-dark);
+	border-color: var(--cloud-primary-dark);
 }
 
 .ai-agent-action-button.is-quiet {
@@ -2558,17 +3028,17 @@ function scrollToBottom() {
 	flex-direction: column;
 	gap: 8px;
 	padding: 12px;
-	background: #ffffff;
-	border-top: 1px solid #e5e7eb;
+	background: var(--cloud-surface);
+	border-top: 1px solid var(--cloud-line);
 }
 
 .ai-agent-answer-style {
 	align-self: flex-end;
 	padding: 2px 8px;
-	border: 1px solid #d8dee8;
+	border: 1px solid var(--cloud-line);
 	border-radius: 12px;
-	background: #f8fafc;
-	color: #475569;
+	background: var(--cloud-soft);
+	color: var(--cloud-muted);
 	font-size: 11px;
 	cursor: pointer;
 }
@@ -2643,38 +3113,38 @@ function scrollToBottom() {
 	width: 40px;
 	height: 40px;
 	color: #4b5563;
-	background: #ffffff;
-	border: 1px solid #d1d5db;
-	border-radius: 6px;
+	background: var(--cloud-surface);
+	border: 1px solid var(--cloud-line);
+	border-radius: 12px;
 }
 
 .ai-agent-attach-button:hover:not(:disabled) {
-	color: #2563eb;
-	border-color: #2563eb;
+	color: var(--cloud-accent);
+	border-color: var(--cloud-accent);
 }
 
 .ai-agent-composer :deep(.el-textarea__inner) {
 	min-height: 64px !important;
 	padding: 9px 11px;
 	line-height: 1.5;
-	border-radius: 6px;
-	box-shadow: 0 0 0 1px #d1d5db inset;
+	border-radius: 12px;
+	box-shadow: 0 0 0 1px var(--cloud-line) inset;
 }
 
 .ai-agent-composer :deep(.el-textarea__inner:focus) {
-	box-shadow: 0 0 0 1px #2563eb inset;
+	box-shadow: 0 0 0 1px var(--cloud-accent) inset;
 }
 
 .ai-agent-send-button {
 	width: 40px;
 	height: 40px;
 	color: #ffffff;
-	background: #2563eb;
-	border-radius: 6px;
+	background: var(--cloud-primary);
+	border-radius: 12px;
 }
 
 .ai-agent-send-button:hover:not(:disabled) {
-	background: #1d4ed8;
+	background: var(--cloud-primary-dark);
 }
 
 .ai-agent-floating-button {
@@ -2705,8 +3175,63 @@ function scrollToBottom() {
 	display: block;
 	width: 96px;
 	height: 104px;
+	isolation: isolate;
 	transform-origin: 50% 88%;
-	transition: transform 180ms ease;
+	transition: transform 240ms var(--cloud-ease);
+}
+
+/* A quiet lilac landing pad, rather than a continuously moving decoration. */
+.ai-agent-mascot-stage::before {
+	position: absolute;
+	z-index: -1;
+	right: 9px;
+	bottom: 0;
+	left: 9px;
+	height: 16px;
+	border: 1px solid rgb(109 66 246 / 16%);
+	border-radius: 50%;
+	background: var(--cloud-lilac);
+	content: '';
+	transition: transform 240ms var(--cloud-ease);
+}
+
+.ai-agent-mascot-stage::after {
+	position: absolute;
+	top: 19px;
+	right: 6px;
+	width: 10px;
+	height: 10px;
+	border: 2px solid var(--cloud-surface);
+	border-radius: 50%;
+	background: var(--cloud-accent);
+	box-shadow: 0 1px 4px rgb(28 29 32 / 16%);
+	content: '';
+}
+
+.ai-agent-floating-button:focus-visible {
+	outline: 2px solid var(--cloud-accent);
+	outline-offset: 4px;
+	border-radius: 20px;
+}
+
+.ai-agent-floating-button:focus-visible .ai-agent-mascot-stage {
+	transform: translateY(-4px);
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.ai-agent-floating-button.is-hovered:not(.is-dragging):not(.is-file-over)
+		.ai-agent-mascot-stage {
+		transform: translateY(-4px) rotate(-2deg);
+	}
+
+	.ai-agent-floating-button.is-hovered .ai-agent-mascot-stage::before {
+		transform: translateY(4px) scaleX(0.9);
+	}
+}
+
+.ai-agent-floating-button:active:not(.is-dragging):not(.is-file-over)
+	.ai-agent-mascot-stage {
+	transform: translateY(1px) scale(0.96);
 }
 
 .ai-agent-floating-button.is-file-over .ai-agent-mascot-stage {
@@ -2725,9 +3250,9 @@ function scrollToBottom() {
 	display: grid;
 	width: 30px;
 	height: 36px;
-	color: #2563eb;
-	background: #ffffff;
-	border: 1px solid #bfdbfe;
+	color: var(--cloud-accent);
+	background: var(--cloud-surface);
+	border: 1px solid var(--cloud-line);
 	border-radius: 4px;
 	box-shadow: 0 5px 12px rgb(15 23 42 / 14%);
 	transform: translateX(-50%);
@@ -2741,7 +3266,7 @@ function scrollToBottom() {
 	right: -1px;
 	width: 8px;
 	height: 8px;
-	background: linear-gradient(225deg, #dbeafe 50%, #ffffff 50%);
+	background: linear-gradient(225deg, var(--cloud-lilac) 50%, #ffffff 50%);
 	border-top-right-radius: 3px;
 	content: '';
 }
@@ -2783,13 +3308,45 @@ function scrollToBottom() {
 
 .ai-panel-enter-active,
 .ai-panel-leave-active {
-	transition: opacity 160ms ease, transform 160ms ease;
+	transition: opacity 200ms ease, transform 240ms var(--cloud-ease);
 }
 
 .ai-panel-enter-from,
 .ai-panel-leave-to {
 	opacity: 0;
-	transform: translateY(10px);
+	transform: translateY(12px) scale(0.98);
+}
+
+.ai-agent-panel button:focus-visible,
+.ai-agent-panel a:focus-visible,
+.ai-agent-panel summary:focus-visible {
+	outline: 2px solid var(--cloud-accent);
+	outline-offset: 3px;
+}
+
+.ai-agent-icon-button:hover:not(:disabled) {
+	transform: translateY(-1px);
+}
+
+.ai-agent-action-button:active:not(:disabled),
+.ai-agent-send-button:active:not(:disabled),
+.ai-agent-attach-button:active:not(:disabled) {
+	transform: scale(0.96);
+}
+
+.ai-agent-message-row {
+	animation: ai-agent-message-arrive 180ms var(--cloud-ease);
+}
+
+@keyframes ai-agent-message-arrive {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
 }
 
 @keyframes ai-agent-file-ready {
@@ -2878,12 +3435,27 @@ function scrollToBottom() {
 @media (prefers-reduced-motion: reduce) {
 	.ai-panel-enter-active,
 	.ai-panel-leave-active,
+	.ai-drop-dock-enter-active,
+	.ai-drop-dock-leave-active,
+	.ai-agent-message-row,
+	.ai-agent-mascot-stage,
+	.ai-agent-mascot-stage::before,
 	.ai-agent-loading span,
 	.ai-agent-catch-file,
 	.ai-agent-floating-button.is-catching .ai-agent-mascot-stage,
 	.ai-agent-upload-loading svg {
 		transition: none;
 		animation: none;
+	}
+
+	.ai-agent-floating-button:focus-visible .ai-agent-mascot-stage,
+	.ai-agent-floating-button.is-hovered .ai-agent-mascot-stage,
+	.ai-agent-floating-button.is-hovered .ai-agent-mascot-stage::before,
+	.ai-agent-floating-button:active .ai-agent-mascot-stage,
+	.ai-agent-panel button:hover,
+	.ai-agent-panel button:active,
+	.ai-agent-panel a:hover {
+		transform: none !important;
 	}
 }
 </style>

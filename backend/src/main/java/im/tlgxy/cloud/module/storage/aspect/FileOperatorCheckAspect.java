@@ -48,6 +48,14 @@ import java.util.Set;
 @Slf4j
 public class FileOperatorCheckAspect {
 
+    @Resource private im.tlgxy.cloud.module.tenant.service.MemberStorageQuotaService memberQuota;
+
+    private Object memberWrite(ProceedingJoinPoint point, long increase) throws Throwable {
+        if (memberQuota == null) return point.proceed(); // Standalone legacy unit fixtures.
+        return memberQuota.write(TlgxyCloudAuthUtil.getCurrentUserId(),
+                (AbstractBaseFileService<?>) point.getTarget(), increase, point::proceed);
+    }
+
 	/**
 	 * 存储源服务，用于根据存储源 key 查找存储源 ID 等操作。
 	 */
@@ -155,7 +163,7 @@ public class FileOperatorCheckAspect {
 	@Around("execution(public * im.tlgxy.cloud.module.storage.service.base.AbstractBaseFileService.newFolder(..))")
 	public Object newFolderAround(ProceedingJoinPoint point) throws Throwable {
 		checkPermission(point, FileOperatorTypeEnum.NEW_FOLDER);
-		return point.proceed();
+		return memberWrite(point, 0);
 	}
 
 	/**
@@ -175,7 +183,7 @@ public class FileOperatorCheckAspect {
 	public Object deleteAround(ProceedingJoinPoint point) throws Throwable {
 		checkPermission(point, FileOperatorTypeEnum.DELETE);
 
-		Object result = point.proceed();
+		Object result = memberWrite(point, 0);
 
 		// 删除成功后清除 OnlyOffice 缓存
 		boolean isFolder = point.getSignature().getName().equals("deleteFolder");
@@ -223,7 +231,18 @@ public class FileOperatorCheckAspect {
 			throw new IllegalArgumentException("上传校验异常.");
 		}
 
-		Object result = point.proceed();
+		Object result;
+		if (memberQuota != null && memberQuota.applies(TlgxyCloudAuthUtil.getCurrentUserId())) {
+			if (Objects.equals(methodName, "getUploadUrl")) {
+				result = memberQuota.uploadUrl(TlgxyCloudAuthUtil.getCurrentUserId(), targetService,
+						(String) args[0], (String) args[1], (Long) args[2]);
+			} else {
+				args[1] = im.tlgxy.cloud.module.tenant.service.MemberStorageQuotaService.bounded(
+						(java.io.InputStream) args[1], (Long) args[2]);
+				result = memberQuota.write(TlgxyCloudAuthUtil.getCurrentUserId(), targetService,
+						(Long) args[2], () -> point.proceed(args));
+			}
+		} else result = point.proceed();
 		// 上传成功后清除 OnlyOffice 缓存
 		clearOnlyOfficeCache(fullPath, targetService.storageId, false);
 
@@ -258,7 +277,7 @@ public class FileOperatorCheckAspect {
 		String sourceFullPath = StringUtils.concat(currentUserBasePath, path, name);
 		String targetFullPath = StringUtils.concat(currentUserBasePath, path, newName);
 
-		Object result = point.proceed();
+		Object result = memberWrite(point, 0);
 		// 清除源路径的 OnlyOffice 缓存
 		clearOnlyOfficeCache(sourceFullPath, targetService.storageId, Objects.equals(point.getSignature().getName(), "renameFolder"));
 
@@ -281,7 +300,7 @@ public class FileOperatorCheckAspect {
 	@Around("execution(public * im.tlgxy.cloud.module.storage.service.base.AbstractBaseFileService.move*(..))")
 	public Object moveAround(ProceedingJoinPoint point) throws Throwable {
 		checkPermission(point, FileOperatorTypeEnum.MOVE);
-		Object result = point.proceed();
+		Object result = memberWrite(point, 0);
 
 		// 移动成功后清除 OnlyOffice 缓存
 		AbstractBaseFileService<?> targetService = (AbstractBaseFileService<?>) point.getTarget();
@@ -308,7 +327,10 @@ public class FileOperatorCheckAspect {
 	@Around("execution(public * im.tlgxy.cloud.module.storage.service.base.AbstractBaseFileService.copy*(..))")
 	public Object copyAround(ProceedingJoinPoint point) throws Throwable {
 		checkPermission(point, FileOperatorTypeEnum.COPY);
-		return point.proceed();
+		if (memberQuota == null) return point.proceed();
+		var service = (AbstractBaseFileService<?>) point.getTarget();
+		return memberQuota.write(TlgxyCloudAuthUtil.getCurrentUserId(), service,
+				() -> memberQuota.copySize(service, (String) point.getArgs()[0], (String) point.getArgs()[1]), point::proceed);
 	}
 
 	/**

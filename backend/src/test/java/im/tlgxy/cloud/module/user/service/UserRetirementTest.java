@@ -133,8 +133,7 @@ class UserRetirementTest {
         ReflectionTestUtils.setField(manager, "userStorageSourceMapper", grants);
         manager.addDefaultPermissionsForTenantUsersInStorageSource(123, 1);
         ArgumentCaptor<UserStorageSource> inserted = ArgumentCaptor.forClass(UserStorageSource.class);
-        verify(grants, times(2)).insert(inserted.capture());
-        assertEquals(List.of(0, 10), inserted.getAllValues().stream().map(UserStorageSource::getUserId).toList());
+        verifyNoInteractions(grants);
     }
 
     @Test

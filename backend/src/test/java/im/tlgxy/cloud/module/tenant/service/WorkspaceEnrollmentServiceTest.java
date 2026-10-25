@@ -64,7 +64,7 @@ class WorkspaceEnrollmentServiceTest {
         assertEquals(99, result.tenant().getOwnerUserId());
         assertTrue(applicant.getEnable());
         verify(manager).saveUserInfo(eq(applicant), eq(List.of()));
-        verify(workspaceStorage).provisionNewWorkspace(20);
+        verifyNoInteractions(workspaceStorage);
         verifyNoInteractions(grants, storages);
     }
 
@@ -108,7 +108,7 @@ class WorkspaceEnrollmentServiceTest {
     }
 
     @Test
-    void invitationInheritsOnlyIssuerGrantsFromMatchingWorkspace() {
+    void invitationConfirmsMembershipWithoutCopyingManagerPrivateCloudGrants() {
         WorkspaceInvitation invitation = invitation();
         when(invitations.selectOne(any(Wrapper.class))).thenReturn(invitation);
         when(invitations.lockEnabledIssuer(3, 10)).thenReturn(1);
@@ -123,9 +123,9 @@ class WorkspaceEnrollmentServiceTest {
         var result = service.joinWorkspace(applicant, "INVITE", "WI_" + "a".repeat(43));
         var copied = ArgumentCaptor.forClass(List.class);
         verify(manager).saveUserInfo(eq(applicant), copied.capture());
-        assertEquals(1, copied.getValue().size());
-        assertEquals(5, ((UserStorageSource) copied.getValue().getFirst()).getStorageSourceId());
-        assertEquals(Set.of("upload"), applicant.getDefaultPermissions());
+        assertTrue(copied.getValue().isEmpty());
+        assertEquals(Set.of(), applicant.getDefaultPermissions());
+        verifyNoInteractions(grants, storages);
         assertTrue(applicant.getEnable());
         assertEquals("ACTIVE", result.status());
     }

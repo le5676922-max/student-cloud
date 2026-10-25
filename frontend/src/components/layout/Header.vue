@@ -75,6 +75,35 @@
 								@click="router.push('/workspace-admin')"
 								>工作空间管理</el-dropdown-item
 							>
+							<el-dropdown-item
+								v-if="
+									['USER', 'TENANT_ADMIN'].includes(
+										storageConfigStore.loginInfo.role
+									)
+								"
+								@click="router.push('/courses')"
+								>共享课程 / 邀请加入</el-dropdown-item
+							>
+							<el-dropdown-item
+								v-if="
+									['ADMIN', 'USER', 'TENANT_ADMIN'].includes(
+										storageConfigStore.loginInfo.role
+									)
+								"
+								@click="
+									router.push(
+										storageConfigStore.loginInfo.role === 'ADMIN'
+											? '/admin/support'
+											: '/support'
+									)
+								"
+							>
+								{{
+									storageConfigStore.loginInfo.role === 'ADMIN'
+										? '客服工作台'
+										: '人工客服'
+								}}
+							</el-dropdown-item>
 							<el-dropdown-item @click="openUpdatePwdDialog">
 								<i-mdi-lock class="mr-3" />
 								修改密码
@@ -316,8 +345,22 @@
 						<div class="border-gray-200 border-t"></div>
 
 						<template v-if="storageConfigStore.loginInfo.isLogin">
+							<el-dropdown-item
+								v-if="storageConfigStore.loginInfo.role === 'USER'"
+								@click="router.push('/cloud-access')"
+								>申请云盘 / 查看容量</el-dropdown-item
+							>
+							<el-dropdown-item
+								v-if="
+									['USER', 'TENANT_ADMIN'].includes(
+										storageConfigStore.loginInfo.role
+									)
+								"
+								@click="router.push('/courses')"
+								>共享课程 / 邀请加入</el-dropdown-item
+							>
 							<el-dropdown-item @click="router.push('/learning')"
-								>课程资料</el-dropdown-item
+								>个人资料库</el-dropdown-item
 							>
 							<el-dropdown-item @click="openMyShare">
 								<i-mdi-share-variant
@@ -341,6 +384,26 @@
 								@click="router.push('/workspace-admin')"
 								>工作空间管理</el-dropdown-item
 							>
+							<el-dropdown-item
+								v-if="
+									['ADMIN', 'USER', 'TENANT_ADMIN'].includes(
+										storageConfigStore.loginInfo.role
+									)
+								"
+								@click="
+									router.push(
+										storageConfigStore.loginInfo.role === 'ADMIN'
+											? '/admin/support'
+											: '/support'
+									)
+								"
+							>
+								{{
+									storageConfigStore.loginInfo.role === 'ADMIN'
+										? '客服工作台'
+										: '人工客服'
+								}}
+							</el-dropdown-item>
 							<el-dropdown-item @click="openUpdatePwdDialog">
 								<i-mdi-lock class="w-4 h-4 mr-2 text-gray-500" name="lock" />
 								修改密码
@@ -500,7 +563,7 @@ if (storageConfigStore.globalConfig.customCss) {
 	}
 }
 import HeaderLogo from '~/components/file/HeaderLogo.vue'
-import { checkLoginReq, logoutReq } from '~/api/home/user'
+import { logoutReq } from '~/api/home/user'
 import UpdateUserNameAndPwd from '~/components/user/UpdateUserNameAndPwd.vue'
 const MyShareDialog = defineAsyncComponent(() =>
 	import('~/components/share/MyShareDialog.vue')
@@ -552,10 +615,8 @@ onMounted(() => {
 	})
 })
 
-// 如果已登录, 则自动跳转到 admin.
-checkLoginReq().then((response) => {
-	storageConfigStore.updateLoginInfo(response.data)
-})
+// The router has already checked this navigation. A second request here both
+// delays the file header and can overwrite a newer account with a late reply.
 
 const logout = () => {
 	logoutReq().finally(() => {
@@ -657,12 +718,13 @@ const openMyShare = () => {
 	flex-shrink: 0;
 	padding: 0;
 	border: 1px solid transparent;
-	border-radius: 9px;
-	background: #f3f4ef;
-	color: #667872;
+	border-radius: 12px;
+	background: var(--cloud-soft);
+	color: var(--cloud-muted);
 	cursor: pointer;
 	line-height: 1;
-	transition: color 150ms ease, background-color 150ms ease;
+	transition: color 180ms ease, background-color 180ms ease,
+		transform 180ms var(--cloud-ease), box-shadow 180ms ease;
 }
 .header-icon-button :deep(svg),
 .header-account-chevron {
@@ -670,14 +732,32 @@ const openMyShare = () => {
 	height: 20px;
 	flex-shrink: 0;
 }
-.header-icon-button:hover,
-.header-icon-button.is-active {
-	background: #e8f1ec;
+.header-icon-button:hover {
+	background: var(--cloud-lilac);
 	color: var(--cloud-primary);
+}
+.header-icon-button.is-active {
+	background: var(--cloud-primary);
+	color: #fff;
+}
+.header-icon-button:active,
+.header-account-button:active {
+	transform: scale(0.94);
+}
+@media (hover: hover) and (pointer: fine) {
+	.header-icon-button:hover,
+	.header-account-button:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 10px #24242810;
+	}
+	.header-icon-button:active,
+	.header-account-button:active {
+		transform: translateY(0) scale(0.94);
+	}
 }
 .header-icon-button:focus-visible,
 .header-account-button:focus-visible {
-	outline: 2px solid var(--cloud-primary);
+	outline: 2px solid var(--cloud-accent);
 	outline-offset: 3px;
 }
 .header-account-button {
@@ -687,15 +767,15 @@ const openMyShare = () => {
 	min-height: 38px;
 	padding: 3px 7px 3px 4px;
 	border: 1px solid var(--cloud-line);
-	border-radius: 9px;
+	border-radius: 12px;
 	background: var(--cloud-surface);
 	color: var(--cloud-ink);
 	cursor: pointer;
 	line-height: 1;
 }
 .header-account-button:hover {
-	border-color: #a7beb4;
-	background: #f7f8f3;
+	border-color: #c9c0e4;
+	background: var(--cloud-soft);
 }
 .header-account-avatar {
 	display: grid;
@@ -704,8 +784,8 @@ const openMyShare = () => {
 	height: 28px;
 	flex-shrink: 0;
 	border-radius: 7px;
-	background: #efe8d8;
-	color: #786341;
+	background: var(--cloud-lilac);
+	color: #6043a5;
 	font-size: 13px;
 	font-weight: 650;
 }
@@ -737,6 +817,8 @@ const openMyShare = () => {
 
 @media only screen and (max-width: 767px) {
 	.student-cloud-header {
+		height: 64px;
+		min-height: 64px;
 		:deep(.el-breadcrumb__separator) {
 			display: none !important;
 		}
@@ -776,7 +858,9 @@ const openMyShare = () => {
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.header-icon-button {
+	.header-icon-button,
+	.header-account-button {
+		transform: none !important;
 		transition: none;
 	}
 }

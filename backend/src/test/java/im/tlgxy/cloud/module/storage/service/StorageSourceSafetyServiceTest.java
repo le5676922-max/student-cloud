@@ -12,6 +12,7 @@ import im.tlgxy.cloud.module.storage.model.request.base.SaveStorageSourceRequest
 import im.tlgxy.cloud.module.tenant.service.TenantSecurityService;
 import im.tlgxy.cloud.module.tenant.service.TenantService;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
@@ -40,6 +41,11 @@ class StorageSourceSafetyServiceTest {
     private final StorageSourceSafetyService service = new StorageSourceSafetyService(security, tenants, configs, policy, factory);
     @TempDir Path temporary;
     @AfterEach void close() { service.close(); }
+    @BeforeEach void actor() {
+        var admin = new im.tlgxy.cloud.module.user.model.entity.User();
+        admin.setId(1); admin.setRole(im.tlgxy.cloud.module.user.model.enums.UserRoleEnum.ADMIN);
+        when(security.requireStorageAdministrator()).thenReturn(admin);
+    }
 
     private SaveStorageSourceRequest request(StorageTypeEnum type) {
         SaveStorageSourceRequest result = new SaveStorageSourceRequest();
@@ -74,7 +80,7 @@ class StorageSourceSafetyServiceTest {
     @Test void localCheckIsReadOnlyAndNeverReadsConfigurationOrCreatesDirectory() throws Exception {
         var request = request(StorageTypeEnum.LOCAL); request.getStorageSourceAllParam().setFilePath(temporary.toString());
         assertTrue(service.testConnection(request).passed());
-        verify(security).requireSystemAdmin(); verify(tenants).getEnabledById(1);
+        verify(security).requireStorageAdministrator(); verify(tenants).getEnabledById(1);
         try (var entries = Files.list(temporary)) { assertEquals(0, entries.count()); }
         verifyNoInteractions(configs, policy, factory, client);
     }
@@ -113,6 +119,7 @@ class StorageSourceSafetyServiceTest {
     }
     @Test void failedAuthorizationOccursBeforeDnsCredentialsOrConfigurationRead() {
         doThrow(new BizException("forbidden")).when(security).requireSystemAdmin();
+        doThrow(new BizException("forbidden")).when(security).requireStorageAdministrator();
         assertThrows(BizException.class, () -> service.testConnection(request(StorageTypeEnum.S3)));
         assertThrows(BizException.class, () -> service.applySavedCors(42, true));
         verifyNoInteractions(tenants, configs, policy, factory, client);

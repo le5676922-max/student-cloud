@@ -22,9 +22,11 @@ import java.beans.Beans;
 @Tag(name = "服务端代理上传")
 @RestController
 public class ProxyUploadController {
+    @jakarta.annotation.Resource private im.tlgxy.cloud.module.storage.service.LocalResumableUploadAccess access;
 
 	@PutMapping("/file/upload/{storageKey}/**")
 	@ResponseBody
+	@im.tlgxy.cloud.core.annotation.DemoDisable
 	public AjaxJson<?> upload(@RequestParam MultipartFile file, @PathVariable("storageKey") String storageKey, @RequestParam(value = "filename", required = false) String filename) throws Exception {
 		if (file == null) {
 			throw new BizException(ErrorCode.BIZ_UPLOAD_FILE_NOT_EMPTY);
@@ -32,6 +34,7 @@ public class ProxyUploadController {
 
 		// 获取上传路径
 		String filePath = SpringMvcUtils.getExtractPathWithinPattern();
+		if (!filePath.startsWith("/")) filePath = "/" + filePath;
 		filePath = filename != null ? filePath + StringUtils.SLASH + filename : filePath;
 
 		AbstractBaseFileService<?> storageServiceByKey = StorageSourceContext.getByStorageKey(storageKey);
@@ -43,7 +46,13 @@ public class ProxyUploadController {
 
 		// 进行上传.
 		AbstractProxyTransferService<?> proxyUploadService = (AbstractProxyTransferService<?>) storageServiceByKey;
-		proxyUploadService.uploadFile(filePath, file.getInputStream(), file.getSize());
+		int split = filePath.lastIndexOf('/');
+		String parent = split <= 0 ? "/" : filePath.substring(0, split);
+		String name = split < 0 ? filePath : filePath.substring(split + 1);
+		access.require(im.tlgxy.cloud.core.util.TlgxyCloudAuthUtil.getCurrentUserId(), storageKey, parent, name,
+				im.tlgxy.cloud.module.storage.service.UploadDirectoryPassword.decode(
+						im.tlgxy.cloud.core.util.RequestHolder.getRequest().getHeader("X-Upload-Directory-Password")));
+		try (var input = file.getInputStream()) { proxyUploadService.uploadFile(filePath, input, file.getSize()); }
 		return AjaxJson.getSuccess();
 	}
 

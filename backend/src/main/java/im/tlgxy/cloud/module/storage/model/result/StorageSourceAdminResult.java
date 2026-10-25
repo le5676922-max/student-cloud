@@ -140,6 +140,8 @@ public class StorageSourceAdminResult {
 
     private Integer tenantId;
 
+    private String tenantName;
+
     private Integer ownerUserId;
 
 }

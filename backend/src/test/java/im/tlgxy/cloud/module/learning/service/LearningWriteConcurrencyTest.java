@@ -5,7 +5,8 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import im.tlgxy.cloud.core.exception.core.BizException;
 import im.tlgxy.cloud.core.util.BackgroundActorContext;
-import im.tlgxy.cloud.module.ai.service.AiAttachmentService;
+import im.tlgxy.cloud.module.learning.application.port.LearningContentExtractor;
+import im.tlgxy.cloud.module.learning.application.port.LearningFileAccess;
 import im.tlgxy.cloud.module.learning.mapper.*;
 import im.tlgxy.cloud.module.learning.model.*;
 import im.tlgxy.cloud.module.user.model.entity.User;
@@ -27,8 +28,8 @@ import static org.mockito.Mockito.*;
 class LearningWriteConcurrencyTest {
     private final LearningCourseMapper courses = mock(LearningCourseMapper.class);
     private final LearningMaterialMapper materials = mock(LearningMaterialMapper.class);
-    private final LearningFileReader reader = mock(LearningFileReader.class);
-    private final AiAttachmentService extractor = mock(AiAttachmentService.class);
+    private final LearningFileAccess reader = mock(LearningFileAccess.class);
+    private final LearningContentExtractor extractor = mock(LearningContentExtractor.class);
     private final UserService users = mock(UserService.class);
     private final TransactionTemplate transactions = mock(TransactionTemplate.class);
     private final LearningLibraryService library = new LearningLibraryService(courses, materials, reader, extractor, users, transactions);
@@ -47,7 +48,7 @@ class LearningWriteConcurrencyTest {
         when(materials.selectCount(any())).thenReturn(0L);
         when(reader.read(anyString(), anyString())).thenReturn(text);
         when(reader.fingerprint(anyString(), anyString())).thenReturn(LearningLibraryService.fingerprint(text));
-        when(extractor.extractLearningContent(any(), anyString())).thenAnswer(call -> {
+        when(extractor.extract(any(), anyString())).thenAnswer(call -> {
             assertFalse(transactionActive.get(), "Parsing must not keep the DB transaction open");
             return extraction("课程资料");
         });
@@ -64,7 +65,7 @@ class LearningWriteConcurrencyTest {
     @Test void slowParsingDoesNotBlockAnotherUsersIndexAndParsingIsOutsideTransactions() throws Exception {
         var started = new CountDownLatch(1);
         var release = new CountDownLatch(1);
-        when(extractor.extractLearningContent(any(), eq("slow.txt"))).thenAnswer(call -> {
+        when(extractor.extract(any(), eq("slow.txt"))).thenAnswer(call -> {
             assertFalse(transactionActive.get());
             started.countDown();
             assertTrue(release.await(4, TimeUnit.SECONDS));
@@ -92,7 +93,7 @@ class LearningWriteConcurrencyTest {
     @Test void simultaneousSameOwnerImportsRecheckDuplicateAfterParsing() throws Exception {
         var bothParsing = new CountDownLatch(2);
         AtomicInteger inserted = new AtomicInteger();
-        when(extractor.extractLearningContent(any(), anyString())).thenAnswer(call -> {
+        when(extractor.extract(any(), anyString())).thenAnswer(call -> {
             bothParsing.countDown();
             assertTrue(bothParsing.await(3, TimeUnit.SECONDS));
             return extraction("content");
@@ -138,8 +139,8 @@ class LearningWriteConcurrencyTest {
     }
 
     private static LearningRequests.Material request(String path) { return new LearningRequests.Material(1, "local", path, ""); }
-    private static AiAttachmentService.LearningExtraction extraction(String text) {
-        return new AiAttachmentService.LearningExtraction(text, text.length(), null, null, false, "已索引");
+    private static LearningContentExtractor.Extraction extraction(String text) {
+        return new LearningContentExtractor.Extraction(text, text.length(), null, null, false, "已索引");
     }
     private static <T> T as(int owner, Supplier<T> action) {
         AtomicReference<T> value = new AtomicReference<>();

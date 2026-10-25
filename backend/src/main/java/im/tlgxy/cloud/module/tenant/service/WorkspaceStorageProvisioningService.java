@@ -220,7 +220,7 @@ public class WorkspaceStorageProvisioningService {
 
     private void grantCurrentMembers(StorageSource source, int tenantId) {
         List<User> members = users.selectList(Wrappers.<User>lambdaQuery().eq(User::getTenantId, tenantId)
-                .gt(User::getId, 2).eq(User::getEnable, true).in(User::getRole, UserRoleEnum.TENANT_ADMIN, UserRoleEnum.USER));
+                .gt(User::getId, 2).eq(User::getEnable, true).eq(User::getRole, UserRoleEnum.TENANT_ADMIN));
         Set<Integer> unapproved = new HashSet<>();
         for (WorkspaceJoinRequest request : requests.selectList(Wrappers.<WorkspaceJoinRequest>lambdaQuery()
                 .eq(WorkspaceJoinRequest::getTenantId, tenantId).ne(WorkspaceJoinRequest::getStatus, "APPROVED"))) {
@@ -230,7 +230,7 @@ public class WorkspaceStorageProvisioningService {
             // Recheck fixtures/invariant here, rather than trusting a malformed legacy row or mapper result.
             if (user.getId() == null || user.getId() <= 2 || !Objects.equals(user.getTenantId(), tenantId)
                     || !Boolean.TRUE.equals(user.getEnable()) || unapproved.contains(user.getId())) continue;
-            if (user.getRole() == UserRoleEnum.TENANT_ADMIN || user.getRole() == UserRoleEnum.USER) grantIfAbsent(user, source);
+            if (user.getRole() == UserRoleEnum.TENANT_ADMIN) grantIfAbsent(user, source);
         }
     }
 

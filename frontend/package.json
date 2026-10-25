@@ -1,6 +1,6 @@
 {
 	"name": "student-cloud-drive",
-	"version": "4.6.0",
+	"version": "5.0.0",
 	"description": "学生云盘 - 面向个人学习与文件管理的云存储项目",
 	"author": "Zhao Jun",
 	"browserslist": [
@@ -150,7 +150,7 @@
 		"vite-plugin-restart": "^0.3.1",
 		"vite-plugin-use-modules": "^1.4.5",
 		"vite-plugin-vue-meta-layouts": "^0.2.2",
-		"vue": "^3.3.4",
+		"vue": "3.5.42",
 		"vue-request": "^2.0.4",
 		"vue-router": "^4.2.2",
 		"vue-tsc": "^2.2.12"

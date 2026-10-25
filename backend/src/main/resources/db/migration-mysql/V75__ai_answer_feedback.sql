@@ -1,0 +1,22 @@
+CREATE TABLE ai_answer_feedback (
+    id VARCHAR(32) NOT NULL PRIMARY KEY,
+    user_id INT NOT NULL,
+    tenant_id INT NULL,
+    client_message_id VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    payload_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    question TEXT NOT NULL,
+    answer MEDIUMTEXT NOT NULL,
+    page_path VARCHAR(500) NOT NULL DEFAULT '',
+    status VARCHAR(16) NOT NULL DEFAULT 'OPEN',
+    corrected_answer MEDIUMTEXT NOT NULL,
+    note TEXT NOT NULL,
+    reviewed_by INT NULL,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    CONSTRAINT uq_ai_feedback_user_client UNIQUE (user_id, client_message_id),
+    CONSTRAINT fk_ai_feedback_user FOREIGN KEY (user_id) REFERENCES `user` (id) ON DELETE CASCADE,
+    CONSTRAINT fk_ai_feedback_tenant FOREIGN KEY (tenant_id) REFERENCES tenant (id) ON DELETE SET NULL,
+    CONSTRAINT fk_ai_feedback_reviewer FOREIGN KEY (reviewed_by) REFERENCES `user` (id) ON DELETE SET NULL,
+    INDEX idx_ai_feedback_status_created (status, created_at, id),
+    INDEX idx_ai_feedback_user_created (user_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

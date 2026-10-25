@@ -23,6 +23,16 @@ public class AiChatResult {
     private List<AiKnowledgeResult> knowledge;
     private List<Automation.View> plans;
 
+    /** A suggestion only. Creating a support conversation still requires an explicit page confirmation. */
+    private SupportSuggestion supportSuggestion;
+
+    public record SupportSuggestion(String reason) { }
+
+    public AiChatResult(String answer, List<AiToolTrace> tools, List<MaterialCitation> citations,
+                        List<AiKnowledgeResult> knowledge, List<Automation.View> plans) {
+        this(answer, tools, citations, knowledge, plans, null);
+    }
+
     public AiChatResult(String answer, List<AiToolTrace> tools, List<MaterialCitation> citations) {
         this(answer, tools, citations, List.of(), List.of());
     }

@@ -41,6 +41,8 @@ import im.tlgxy.cloud.module.user.model.constant.UserConstant;
 import im.tlgxy.cloud.module.user.model.entity.User;
 import im.tlgxy.cloud.module.user.model.entity.UserStorageSource;
 import im.tlgxy.cloud.module.user.service.UserStorageSourceService;
+import im.tlgxy.cloud.module.user.service.UserService;
+import im.tlgxy.cloud.module.user.model.enums.UserRoleEnum;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.framework.AopContext;
@@ -97,6 +99,9 @@ public class StorageSourceService {
     private UserStorageSourceService userStorageSourceService;
 
     @Resource
+    private UserService userService;
+
+    @Resource
     private ReadmeConfigService readmeConfigService;
 
     @Resource
@@ -128,9 +133,11 @@ public class StorageSourceService {
     }
 
     public List<StorageSource> findManageableOrderByOrderNum() {
-        tenantSecurityService.requireSystemAdmin();
+        User actor = tenantSecurityService.requireStorageAdministrator();
         // Never cache this method/authorization: check the current role before reading display metadata.
-        return storageMetadataCache.orderedList(storageSourceMapper::findAllOrderByOrderNum);
+        List<StorageSource> all = storageMetadataCache.orderedList(storageSourceMapper::findAllOrderByOrderNum);
+        return actor.getRole() == UserRoleEnum.ADMIN ? all : all.stream()
+                .filter(source -> Objects.equals(source.getTenantId(), actor.getTenantId())).toList();
     }
 
 
@@ -150,6 +157,11 @@ public class StorageSourceService {
         // 用户 ID 为空时返回空列表（未登录用户）
         if (userId == null) {
             return Collections.emptyList();
+        }
+        // Check the current identity before consulting an account-keyed display cache.
+        User actor = userService.requireLoginUser(userId);
+        if (actor.getRole() == UserRoleEnum.ADMIN) {
+            return storageSourceMapper.findAdministratorEnableList();
         }
         // 通过缓存管理器获取，减少数据库查询
         return studentCloudCacheManager.findAllEnableOrderByOrderNum(userId,
@@ -425,7 +437,21 @@ public class StorageSourceService {
      */
     @Transactional(rollbackFor = Exception.class)
     public Integer saveStorageSource(SaveStorageSourceRequest saveStorageSourceRequest) {
-        tenantSecurityService.requireSystemAdmin();
+        User operator = tenantSecurityService.requireStorageAdministrator();
+        if (saveStorageSourceRequest == null || saveStorageSourceRequest.getType() == null)
+            throw new BizException("请选择存储类型");
+        if (operator.getRole() != UserRoleEnum.ADMIN) {
+            if (saveStorageSourceRequest.getType() == StorageTypeEnum.LOCAL)
+                throw new BizException("服务器本地存储需要全局管理员审批，请提交本地云盘申请；不能自行填写服务器路径");
+            if (saveStorageSourceRequest.getTenantId() != null
+                    && !Objects.equals(operator.getTenantId(), saveStorageSourceRequest.getTenantId()))
+                throw new BizException("只能管理自己的工作空间存储源");
+            if (saveStorageSourceRequest.getId() != null
+                    && tenantSecurityService.requireManageStorage(saveStorageSourceRequest.getId()).getType() == StorageTypeEnum.LOCAL)
+                throw new BizException("已审批本地云盘的路径和类型只能由全局管理员修改");
+            saveStorageSourceRequest.setTenantId(operator.getTenantId());
+            saveStorageSourceRequest.setEnableFileAnnoOperator(false);
+        }
         try (var mutation = StorageSourceMutationGuard.acquire()) {
         // The preflight endpoint is optional; protect the actual write even for disabled LOCAL sources.
         if (saveStorageSourceRequest.getType() == StorageTypeEnum.LOCAL) {
@@ -444,7 +470,6 @@ public class StorageSourceService {
         // 转换为存储源 entity 对象
         StorageSource storageSource = storageSourceConvert.saveRequestToEntity(saveStorageSourceRequest);
         storageSource.setSearchMode(SearchModeEnum.SEARCH_ALL_MODE);
-        User operator = tenantSecurityService.currentUser();
 
         // 更新期间旧连接继续可用，候选验证成功并提交事务后才切换。
         if (isSave) {
@@ -648,6 +673,8 @@ public class StorageSourceService {
         Integer fromStorageId = copyStorageSourceRequest.getFromId();
         StorageSource storageSource = tenantSecurityService.requireManageStorage(fromStorageId);
         if (storageSource.getType() == StorageTypeEnum.LOCAL) {
+            if (!tenantSecurityService.isSystemAdmin(tenantSecurityService.currentUser()))
+                throw new BizException("本地云盘不能复制，请重新申请并由全局管理员审批");
             List<StorageSourceConfig> roots = storageSourceConfigService.selectFreshStorageConfigByStorageId(fromStorageId)
                     .stream().filter(value -> "filePath".equals(value.getName())).toList();
             if (roots.size() != 1) throw new BizException("本地存储路径配置不完整，不能安全复制");
@@ -681,6 +708,8 @@ public class StorageSourceService {
         StorageSourceContext.init(storageSourceInitDTO);
         log.info("初始化存储源成功, id: {}, name: {}, config size: {}",
                 newStorageId, dbSaveResult.getName(), storageSourceConfigList.size());
+
+        userStorageSourceService.addDefaultPermissionsForTenantUsersInStorageSource(newStorageId, dbSaveResult.getTenantId());
 
         return newStorageId;
         }
