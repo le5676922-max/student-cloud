@@ -10,6 +10,8 @@ import {
 	storageListErrorMessage,
 	storageStatusCounts,
 	normalizeStorageStatusFilter,
+	storageListRouteState,
+	storageListRouteQuery,
 } from '../src/utils/storage-list-controller.mjs'
 
 const deferred = () => {
@@ -237,6 +239,84 @@ test('storage filtering normalizes whitespace and handles missing type fields sa
 	assert.deepEqual(filterStorageItems(items, '本地'), [items[0]])
 	assert.deepEqual(filterStorageItems(items, 'archive'), [items[1]])
 	assert.deepEqual(filterStorageItems(items, 'missing'), [])
+})
+
+test('storage list URL state restores only a bounded text query and known status', () => {
+	assert.deepEqual(
+		storageListRouteState({
+			q: '  课程\u0000资料\n S3  ',
+			status: 'disabled',
+			secretKey: 'never-read-this',
+			endpoint: 'https://private.example',
+		}),
+		{ query: '课程资料 S3', status: 'disabled' }
+	)
+	assert.deepEqual(
+		storageListRouteState({ q: '盘'.repeat(121), status: 'token-error' }),
+		{ query: '盘'.repeat(120), status: 'token-error' }
+	)
+	for (const q of [
+		null,
+		undefined,
+		['one', 'two'],
+		{ toString: () => 'secret' },
+	]) {
+		assert.deepEqual(storageListRouteState({ q, status: 'unknown' }), {
+			query: '',
+			status: 'all',
+		})
+	}
+	for (const query of [null, undefined, [], 'q=secret']) {
+		assert.deepEqual(storageListRouteState(query), { query: '', status: 'all' })
+	}
+})
+
+test('storage list URL serialization discards unapproved fields and round-trips filters', () => {
+	for (const status of ['all', 'enabled', 'disabled', 'token-error']) {
+		const state = { query: '课程 archive', status }
+		const query = storageListRouteQuery({
+			...state,
+			secretKey: 'never-write-this',
+			endpoint: 'https://private.example',
+			params: { password: 'never-write-this' },
+		})
+		assert.deepEqual(query, {
+			q: '课程 archive',
+			...(status === 'all' ? {} : { status }),
+		})
+		assert.deepEqual(storageListRouteState(query), state)
+		assert.doesNotMatch(
+			JSON.stringify(query),
+			/secret|password|endpoint|private/
+		)
+	}
+	assert.deepEqual(
+		storageListRouteQuery({ query: '  ', status: 'unknown' }),
+		{}
+	)
+	assert.deepEqual(
+		storageListRouteQuery({ query: '\u0001云盘\u007f', status: 'enabled' }),
+		{ q: '云盘', status: 'enabled' }
+	)
+})
+
+test('reordering preserves every mount identity and metadata without rewriting source records', () => {
+	const items = [
+		{ id: 21, orderNum: 7, type: { key: 'LOCAL' }, tenantId: 2 },
+		{ id: 3, orderNum: 4, type: { key: 'S3' }, mountRevision: 9 },
+		{ id: 11, orderNum: 2, type: { key: 'ALIYUN_OSS' }, enable: false },
+	]
+	const before = structuredClone(items)
+	const moved = reorderStorageItems(items, 2, 0)
+	assert.deepEqual(
+		moved.map(({ id }) => id),
+		[11, 21, 3]
+	)
+	assert.deepEqual(moved, [items[2], items[0], items[1]])
+	assert.equal(moved[0], items[2])
+	assert.equal(moved[1], items[0])
+	assert.equal(moved[2], items[1])
+	assert.deepEqual(items, before)
 })
 
 test('error descriptions are actionable and do not expose raw backend diagnostics', () => {

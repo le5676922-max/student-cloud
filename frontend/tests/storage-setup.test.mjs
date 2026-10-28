@@ -231,6 +231,35 @@ test('base paths reject traversal and controls but retain real folder names and 
 		assert.equal(issues('sftp', { basePath }).length, 1)
 })
 
+test('independent object prefixes accept the server representation without allowing reserved or ambiguous segments', () => {
+	const check = (basePath) =>
+		storageSetupIssues({
+			type: 's3',
+			params: { basePath },
+			fields: [field('basePath', false)],
+			objectPrefix: true,
+		})
+	for (const prefix of [
+		'',
+		'/',
+		'private/courses/',
+		'/private/courses',
+		'学习资料/',
+	])
+		assert.deepEqual(check(prefix), [], prefix)
+	for (const prefix of [
+		'../private',
+		'private/../secret',
+		'private/./notes',
+		'private//notes',
+		'private\\notes',
+		'private/.studentcloud-probes/',
+		'.STUDENTCLOUD-cache/',
+		'private\nnotes',
+	])
+		assert.equal(check(prefix).length, 1, prefix)
+})
+
 test('port validation requires an integer from 1 to 65535, and host does not absorb the port or protocol', () => {
 	for (const port of [1, 22, 65535, '22', '65535'])
 		assert.deepEqual(issues('sftp', { port }), [])

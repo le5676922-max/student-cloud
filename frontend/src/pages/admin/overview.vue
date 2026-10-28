@@ -41,7 +41,8 @@
 			class="metrics"
 			:aria-busy="overviewLoading"
 		>
-			<router-link
+			<component
+				:is="metric.to ? 'router-link' : 'article'"
 				v-for="metric in metrics"
 				:key="metric.label"
 				class="metric"
@@ -56,19 +57,38 @@
 				<span class="metric-label">{{ metric.label }}</span>
 				<strong>{{ formatOverviewCount(metric.value) }}</strong>
 				<small>{{ metric.note }}</small>
-			</router-link>
+			</component>
 		</div>
 		<p
-			v-if="overview && !overviewLoading && incompleteSummary"
+			v-if="overview && !refreshing && incompleteSummary"
 			class="summary-warning"
 			role="status"
 		>
-			部分统计或诊断数据尚未返回，“—”表示未知，不代表 0 或正常。可刷新重试。
+			{{
+				independent
+					? '部分数量统计暂不可用，“—”表示未知，不代表 0。可刷新重试。'
+					: '部分统计或诊断数据尚未返回，“—”表示未知，不代表 0 或正常。可刷新重试。'
+			}}
 		</p>
 
+		<AdminFileBusinessPanel
+			v-if="independent"
+			managed
+			:overview="fileBusiness"
+			:pending="fileBusinessLoading"
+			:failure="fileBusinessError"
+			:period="fileBusinessDays"
+			@refresh="loadFileBusiness"
+		/>
 		<template v-if="overview">
-			<AdminSummaryCharts :overview="overview" />
-			<AdminBusinessCharts :workspaces="overview.workspacePreview || []" />
+			<AdminSummaryCharts :overview="summaryOverview" />
+			<AdminBusinessCharts
+				v-if="!independent"
+				:workspaces="overview.workspacePreview || []"
+			/>
+			<p v-else class="hint business-availability" role="status">
+				课程、资料与分享数据见上方文件统计。跨业务申请、知识反馈和各空间课程用量暂未提供汇总。
+			</p>
 			<section class="panel attention-panel" aria-labelledby="attention-title">
 				<div class="section-heading">
 					<h2 id="attention-title">运营提醒</h2>
@@ -94,7 +114,11 @@
 					当前没有上述待处理事项。停用、过期及异常记录会在此提示。
 				</p>
 				<p v-if="!attention.complete" class="incomplete-note">
-					部分待处理指标尚未返回，无法判断是否全部正常，请刷新后重试。
+					{{
+						independent
+							? '当前提醒仅包含已提供的空间状态与加入审核；任务、计划及过期分享暂未提供汇总。'
+							: '部分待处理指标尚未返回，无法判断是否全部正常，请刷新后重试。'
+					}}
 				</p>
 			</section>
 
@@ -111,14 +135,20 @@
 						<section class="panel" aria-labelledby="login-trend-title">
 							<div class="section-heading">
 								<h2 id="login-trend-title">最近 7 天登录记录</h2>
-								<router-link to="/admin/login-log">查看登录日志 →</router-link>
+								<router-link v-if="!independent" to="/admin/login-log"
+									>查看登录日志 →</router-link
+								>
 							</div>
 							<p
 								:class="
 									overview.loginLoggingEnabled === true ? 'hint' : 'log-note'
 								"
 							>
-								{{ overviewLoginLoggingNote(overview.loginLoggingEnabled) }}
+								{{
+									independent
+										? '当前暂未提供登录日志与趋势统计。'
+										: overviewLoginLoggingNote(overview.loginLoggingEnabled)
+								}}
 							</p>
 							<div class="login-totals">
 								<div>
@@ -210,7 +240,11 @@
 								</tbody>
 							</table>
 							<p v-if="!trend.length" class="incomplete-note">
-								趋势数据未返回，不能将其视为 0 次登录。
+								{{
+									independent
+										? '暂无可展示的登录趋势，不代表 0 次登录。'
+										: '趋势数据未返回，不能将其视为 0 次登录。'
+								}}
 							</p>
 						</section>
 
@@ -237,7 +271,11 @@
 								<div>
 									<dt>数据库探测耗时</dt>
 									<dd>
-										{{ formatLatency(overview.runtime?.databaseLatencyMs) }}
+										{{
+											independent && overview.runtime?.databaseLatencyMs == null
+												? '暂未提供'
+												: formatLatency(overview.runtime?.databaseLatencyMs)
+										}}
 									</dd>
 								</div>
 								<div>
@@ -256,7 +294,12 @@
 									<dt>运行中 Agent 任务</dt>
 									<dd>
 										{{
-											formatOverviewCount(overview.statuses?.runningAgentTasks)
+											independent &&
+											overview.statuses?.runningAgentTasks == null
+												? '暂未提供'
+												: formatOverviewCount(
+														overview.statuses?.runningAgentTasks
+												  )
 										}}
 									</dd>
 								</div>
@@ -264,7 +307,11 @@
 									<dt>已启用自动化计划</dt>
 									<dd>
 										{{
-											formatOverviewCount(overview.statuses?.enabledSchedules)
+											independent && overview.statuses?.enabledSchedules == null
+												? '暂未提供'
+												: formatOverviewCount(
+														overview.statuses?.enabledSchedules
+												  )
 										}}
 									</dd>
 								</div>
@@ -284,14 +331,16 @@
 					<section class="panel" aria-labelledby="recent-logins-title">
 						<div class="section-heading">
 							<h2 id="recent-logins-title">最近登录尝试</h2>
-							<router-link to="/admin/login-log">完整记录 →</router-link>
+							<router-link v-if="!independent" to="/admin/login-log"
+								>完整记录 →</router-link
+							>
 						</div>
-						<p class="hint">
+						<p v-if="!independent" class="hint">
 							最近 8
 							条已记录的尝试。失败记录中的账号来自输入内容，不代表该用户一定存在。
 						</p>
 						<el-table
-							v-if="Array.isArray(overview.recentLogins)"
+							v-if="!independent && Array.isArray(overview.recentLogins)"
 							:data="recentLogins"
 							empty-text="暂无已记录的登录尝试"
 						>
@@ -328,7 +377,11 @@
 							>
 						</el-table>
 						<p v-else class="incomplete-note">
-							最近登录记录未返回，请刷新重试。
+							{{
+								independent
+									? '当前暂未提供最近登录记录。'
+									: '最近登录记录未返回，请刷新重试。'
+							}}
 						</p>
 					</section>
 				</div>
@@ -368,7 +421,11 @@
 				<p class="hint">
 					搜索全部空间，查看成员与存储规模；这里不展示成员的私人文件和任务内容。
 				</p>
-				<form class="workspace-filters" @submit.prevent="applyFilters">
+				<form
+					novalidate
+					class="workspace-filters"
+					@submit.prevent="applyFilters"
+				>
 					<label class="filter-field"
 						><span>空间名称 / ID</span
 						><el-input
@@ -504,7 +561,12 @@ import {
 	onBeforeUnmount,
 	onMounted,
 	ref,
+	watch,
 } from 'vue'
+import { useStorage } from '@vueuse/core'
+import useStorageConfigStore from '~/stores/storage-config'
+import { getFileBusinessOverviewReq } from '~/api/admin/file-business'
+import { createLatestRequest } from '~/utils/latest-request.mjs'
 import {
 	ArrowPathIcon,
 	BuildingOffice2Icon,
@@ -538,7 +600,60 @@ const AdminBusinessCharts = defineAsyncComponent({
 	loader: () => import('~/components/admin/AdminBusinessCharts.vue'),
 	suspensible: false,
 })
+const AdminFileBusinessPanel = defineAsyncComponent({
+	loader: () => import('~/components/admin/AdminFileBusinessPanel.vue'),
+	suspensible: false,
+})
 const overview = ref(null)
+const store = useStorageConfigStore()
+const credential = useStorage('tongligong-student-cloud-token', '', undefined, {
+	writeDefaults: false,
+})
+const independent = computed(
+	() => store.globalConfig?.accountModel === 'independent'
+)
+const fileBusiness = ref(null)
+const fileBusinessLoading = ref(false)
+const fileBusinessError = ref('')
+const fileBusinessDays = ref(7)
+const fileBusinessRequests = createLatestRequest()
+const identity = computed(() =>
+	JSON.stringify([
+		store.globalConfig?.accountModel,
+		store.loginInfo?.id,
+		store.loginInfo?.accountId,
+		store.loginInfo?.username,
+		store.loginInfo?.role,
+		store.loginInfo?.tenantId,
+		store.loginInfo?.isLogin,
+		credential.value,
+	])
+)
+const authorized = computed(
+	() => store.loginInfo?.isLogin === true && store.loginInfo?.role === 'ADMIN'
+)
+function contentCount(key) {
+	const metric = fileBusiness.value?.metrics?.[key]
+	return metric?.available === true &&
+		Number.isSafeInteger(metric.value) &&
+		metric.value >= 0
+		? metric.value
+		: null
+}
+const summaryOverview = computed(() =>
+	independent.value
+		? {
+				...(overview.value || {}),
+				accountModel: 'independent',
+				storageSources: contentCount('mounts'),
+				shares: contentCount('shares'),
+				statuses: {
+					...overview.value?.statuses,
+					enabledStorages: contentCount('enabledMounts'),
+				},
+		  }
+		: overview.value
+)
 const overviewLoading = ref(false)
 const overviewError = ref('')
 const workspacePage = ref(null)
@@ -555,10 +670,13 @@ function setSectionOpen(section, event) {
 		expandedSections.value = { ...expandedSections.value, [section]: open }
 }
 const workspaceQuery = ref(normalizeOverviewWorkspaceQuery())
-const overviewGate = createOverviewRequestGate()
-const workspaceGate = createOverviewRequestGate()
+let overviewGate = createOverviewRequestGate()
+let workspaceGate = createOverviewRequestGate()
 const refreshing = computed(
-	() => overviewLoading.value || workspacesLoading.value
+	() =>
+		overviewLoading.value ||
+		workspacesLoading.value ||
+		fileBusinessLoading.value
 )
 const timeZone = computed(() => overview.value?.timeZone || 'Asia/Shanghai')
 const attention = computed(() => overviewAttention(overview.value))
@@ -577,8 +695,17 @@ const memberStateDescription = computed(
 		)}（不含待审核 / 拒绝）`
 )
 const incompleteSummary = computed(() => {
-	const value = overview.value
+	const value = summaryOverview.value
 	if (!value) return false
+	if (independent.value)
+		return [
+			value.workspaces,
+			value.members,
+			value.workspaceAdmins,
+			value.storageSources,
+			value.shares,
+			value.statuses?.enabledStorages,
+		].some((count) => overviewNumber(count) === null)
 	return (
 		[
 			value.workspaces,
@@ -638,7 +765,7 @@ const metrics = computed(() => [
 		)}`,
 	},
 	{
-		label: '成员账号',
+		label: independent.value ? '普通成员账号' : '成员账号',
 		icon: 'members',
 		tone: 'amber',
 		value: overview.value?.members,
@@ -651,21 +778,25 @@ const metrics = computed(() => [
 		label: '存储源',
 		icon: 'storage',
 		tone: 'slate',
-		value: overview.value?.storageSources,
+		value: summaryOverview.value?.storageSources,
 		to: '/admin/storage-list',
 		note: `已启用 ${formatOverviewCount(
-			overview.value?.statuses?.enabledStorages
+			summaryOverview.value?.statuses?.enabledStorages
 		)} · 所有空间汇总`,
 	},
 	{
-		label: '分享记录',
+		label: independent.value ? '受控分享记录' : '分享记录',
 		icon: 'shares',
 		tone: 'slate',
-		value: overview.value?.shares,
-		to: '/admin/share-link',
-		note: `已过期 ${formatOverviewCount(
-			overview.value?.statuses?.expiredShares
-		)} · 所有空间汇总`,
+		value: summaryOverview.value?.shares,
+		to: independent.value ? null : '/admin/share-link',
+		note: independent.value
+			? `有效 ${formatOverviewCount(
+					contentCount('activeShares')
+			  )} · 全部记录，只读汇总`
+			: `已过期 ${formatOverviewCount(
+					overview.value?.statuses?.expiredShares
+			  )} · 所有空间汇总`,
 	},
 ])
 
@@ -676,8 +807,45 @@ function formatLatency(value) {
 		: `${formatOverviewCount(Number(number.toFixed(1)))} ms`
 }
 
+async function loadFileBusiness(days = fileBusinessDays.value) {
+	fileBusinessRequests.cancel()
+	fileBusiness.value = null
+	fileBusinessError.value = ''
+	fileBusinessLoading.value = false
+	if (!independent.value || !authorized.value) return
+	fileBusinessDays.value = days === 30 ? 30 : 7
+	const request = fileBusinessRequests.begin()
+	fileBusinessLoading.value = true
+	try {
+		const response = await getFileBusinessOverviewReq(fileBusinessDays.value, {
+			signal: request.signal,
+		})
+		if (!request.isCurrent()) return
+		if (
+			response?.data?.scope !== 'GLOBAL' ||
+			response.data.workspaceId != null ||
+			!response.data.metrics ||
+			typeof response.data.metrics !== 'object' ||
+			Array.isArray(response.data.metrics)
+		)
+			throw new Error('文件统计范围与当前账号不符，请重新登录后重试。')
+		fileBusiness.value = response.data
+	} catch (failure) {
+		if (request.isCurrent())
+			fileBusinessError.value = overviewFailureMessage(
+				failure,
+				failure?.message === '文件统计范围与当前账号不符，请重新登录后重试。'
+					? failure.message
+					: '文件统计暂不可用，请刷新重试。'
+			)
+	} finally {
+		if (request.isCurrent()) fileBusinessLoading.value = false
+	}
+}
+
 async function loadOverview() {
-	const request = overviewGate.begin()
+	const gate = overviewGate
+	const request = gate.begin()
 	if (!request) return
 	overviewLoading.value = true
 	overviewError.value = ''
@@ -688,7 +856,7 @@ async function loadOverview() {
 			timeout: 20000,
 			showDefaultMsg: false,
 		})
-		if (!overviewGate.isCurrent(request)) return
+		if (!gate.isCurrent(request)) return
 		if (
 			!response?.data ||
 			typeof response.data !== 'object' ||
@@ -697,19 +865,20 @@ async function loadOverview() {
 			throw new Error('Invalid overview response')
 		overview.value = response.data
 	} catch (failure) {
-		if (overviewGate.isCurrent(request))
+		if (gate.isCurrent(request))
 			overviewError.value = overviewFailureMessage(
 				failure,
 				'总览加载失败，请刷新重试。未获取的指标不会显示为 0 或健康。'
 			)
 	} finally {
-		if (overviewGate.isCurrent(request)) overviewLoading.value = false
-		overviewGate.finish(request)
+		if (gate.isCurrent(request)) overviewLoading.value = false
+		gate.finish(request)
 	}
 }
 
 async function loadWorkspaces(params = workspaceQuery.value) {
-	const request = workspaceGate.begin()
+	const gate = workspaceGate
+	const request = gate.begin()
 	if (!request) return
 	const query = normalizeOverviewWorkspaceQuery(params)
 	workspaceQuery.value = query
@@ -722,7 +891,7 @@ async function loadWorkspaces(params = workspaceQuery.value) {
 			timeout: 20000,
 			showDefaultMsg: false,
 		})
-		if (!workspaceGate.isCurrent(request)) return
+		if (!gate.isCurrent(request)) return
 		const data = response?.data
 		if (
 			!Array.isArray(data?.records) ||
@@ -742,20 +911,21 @@ async function loadWorkspaces(params = workspaceQuery.value) {
 			pageSize: data.pageSize,
 		}
 	} catch (failure) {
-		if (workspaceGate.isCurrent(request))
+		if (gate.isCurrent(request))
 			workspacesError.value = overviewFailureMessage(
 				failure,
 				'工作空间加载失败，请重试。'
 			)
 	} finally {
-		if (workspaceGate.isCurrent(request)) workspacesLoading.value = false
-		workspaceGate.finish(request)
+		if (gate.isCurrent(request)) workspacesLoading.value = false
+		gate.finish(request)
 	}
 }
 
 function refreshAll() {
 	if (refreshing.value) return
-	return Promise.all([loadOverview(), loadWorkspaces()])
+	if (!authorized.value) return
+	return Promise.all([loadOverview(), loadWorkspaces(), loadFileBusiness()])
 }
 
 function applyFilters() {
@@ -781,10 +951,31 @@ function changePageSize(pageSize) {
 	return loadWorkspaces({ ...workspaceQuery.value, page: 1, pageSize })
 }
 
+watch(
+	identity,
+	() => {
+		overviewGate.dispose()
+		workspaceGate.dispose()
+		fileBusinessRequests.cancel()
+		overviewGate = createOverviewRequestGate()
+		workspaceGate = createOverviewRequestGate()
+		overview.value = null
+		workspacePage.value = null
+		fileBusiness.value = null
+		overviewLoading.value =
+			workspacesLoading.value =
+			fileBusinessLoading.value =
+				false
+		overviewError.value = workspacesError.value = fileBusinessError.value = ''
+		if (authorized.value) refreshAll()
+	},
+	{ flush: 'sync' }
+)
 onMounted(refreshAll)
 onBeforeUnmount(() => {
 	overviewGate.dispose()
 	workspaceGate.dispose()
+	fileBusinessRequests.cancel()
 })
 </script>
 

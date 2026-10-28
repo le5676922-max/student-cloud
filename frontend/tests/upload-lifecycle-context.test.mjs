@@ -43,6 +43,9 @@ test('identity excludes cosmetic account fields but differentiates login and ten
 		uploadAccountIdentity(signedIn)
 	)
 	assert.equal(uploadAccountIdentity({ ...signedIn, isLogin: false }), '')
+	for (const field of ['id', 'accountId', 'role']) {
+		assert.notEqual(uploadAccountIdentity({ ...signedIn, [field]: 'new-value' }), uploadAccountIdentity(signedIn))
+	}
 })
 
 test('targets require authenticated identity, exact upload permission, path and known provider', () => {

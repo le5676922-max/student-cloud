@@ -52,22 +52,28 @@
 				><small>可以正常访问空间</small>
 			</div>
 			<div>
-				<span>本空间存储源</span
-				><strong>{{ summary?.storageCount ?? '—' }}</strong
-				><small>空间可用的文件存储</small>
+				<span>本空间存储源</span><strong>{{ storageCountDisplay }}</strong
+				><small>{{ storageCountHint }}</small>
 			</div>
 		</div>
 		<el-alert
-			v-if="summary && summary.storageCount === 0"
+			v-if="
+				summary &&
+				summary.storageCountAvailable !== false &&
+				summary.storageCount === 0
+			"
 			title="本空间暂未配置云盘。可在“管理云盘”添加第三方存储；使用服务器本地空间需提交申请。"
 			type="info"
 			:closable="false"
 			show-icon
 		/>
+		<AdminFileBusinessPanel
+			v-if="store.globalConfig?.accountModel === 'independent'"
+		/>
 		<details class="member-panel" open>
 			<summary>成员管理 <span>查看账号状态，按成员分配权限</span></summary>
 			<div class="member-toolbar">
-				<form class="member-search" @submit.prevent="searchMembers">
+				<form novalidate class="member-search" @submit.prevent="searchMembers">
 					<el-input
 						v-model="search"
 						placeholder="搜索账号、邮箱或昵称"
@@ -265,7 +271,7 @@
 			:before-close="closePasswordReset"
 			destroy-on-close
 		>
-			<form autocomplete="off" @submit.prevent="submitPasswordReset">
+			<form novalidate autocomplete="off" @submit.prevent="submitPasswordReset">
 				<p>
 					为
 					{{ passwordMember?.nickname || passwordMember?.username }}
@@ -310,13 +316,25 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import {
+	computed,
+	defineAsyncComponent,
+	onMounted,
+	onBeforeUnmount,
+	reactive,
+	ref,
+	watch,
+} from 'vue'
 import useStorageConfigStore from '~/stores/storage-config'
 import { createLatestRequest } from '~/utils/latest-request.mjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import WorkspaceRegistrationAdmin from '~/components/auth/WorkspaceRegistrationAdmin.vue'
 import WorkspaceMemberPermissions from '~/components/auth/WorkspaceMemberPermissions.vue'
 import WorkspaceCloudAccess from '~/components/auth/WorkspaceCloudAccess.vue'
+const AdminFileBusinessPanel = defineAsyncComponent({
+	loader: () => import('~/components/admin/AdminFileBusinessPanel.vue'),
+	suspensible: false,
+})
 import {
 	getWorkspaceSummaryReq,
 	getWorkspaceMembersReq,
@@ -325,6 +343,16 @@ import {
 	resetWorkspaceMemberPasswordReq,
 } from '~/api/home/workspace-admin'
 const summary = ref(null)
+const storageCountDisplay = computed(() =>
+	summary.value?.storageCountAvailable === false
+		? '—'
+		: summary.value?.storageCount ?? '—'
+)
+const storageCountHint = computed(() =>
+	summary.value?.storageCountAvailable === false
+		? '存储统计暂不可用，请稍后刷新'
+		: '空间可用的文件存储'
+)
 const store = useStorageConfigStore()
 const identity = computed(
 	() =>

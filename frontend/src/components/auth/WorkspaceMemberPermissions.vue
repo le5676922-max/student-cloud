@@ -62,16 +62,43 @@
 							/>允许此成员使用存储源</label
 						>
 						<template v-if="row.enable">
+							<label class="permission-preset"
+								><span>操作预设</span>
+								<select
+									:value="row.preset"
+									:data-permission-preset="row.storageSourceId"
+									:disabled="saving"
+									@change="applyPreset(row, $event.target.value)"
+								>
+									<option value="read">只读</option>
+									<option value="upload">上传协作</option>
+									<option value="custom">自定义</option>
+								</select>
+							</label>
+							<p class="permission-range">
+								仅调整当前成员在此存储源的操作权限，按可授范围取交集；目录与容量上限保留。
+							</p>
 							<label class="permission-root"
 								><span>授权根目录</span
 								><input
 									v-model="row.rootPath"
 									maxlength="1024"
-									:disabled="saving"
+									:disabled="
+										saving || store.globalConfig?.accountModel === 'independent'
+									"
 									spellcheck="false"
 							/></label>
 							<p class="permission-range">
-								可授予范围：<code>{{ row.allowedRootPath }}</code> 及其子目录
+								{{
+									store.globalConfig?.accountModel === 'independent'
+										? '系统分配的个人目录：'
+										: '可授予范围：'
+								}}<code>{{ row.allowedRootPath }}</code
+								><template
+									v-if="store.globalConfig?.accountModel !== 'independent'"
+								>
+									及其子目录</template
+								>
 							</p>
 							<label class="permission-root"
 								><span>容量上限（GB）</span>
@@ -99,10 +126,14 @@
 											type="checkbox"
 											:value="option.value"
 											:disabled="saving"
+											@change="row.preset = 'custom'"
 										/>{{ option.name }}</label
 									>
 								</div>
 							</fieldset>
+							<p v-if="!row.permissions.length" class="permission-error">
+								开启存储源后，请至少选择一项操作。
+							</p>
 						</template>
 					</div>
 				</details>
@@ -112,16 +143,29 @@
 						你目前没有可委派的存储源授权，请先确认空间的存储源和当前账号授权。
 					</p>
 					<p v-if="defaultOptions.length">
-						下方可设置审批云盘申请时的权限预设，不会自动开通云盘。
+						{{
+							store.globalConfig?.accountModel === 'independent'
+								? '下方可保存此成员的操作预设；实际开通仍需管理员审批。'
+								: '下方可设置审批云盘申请时的权限预设，不会自动开通云盘。'
+						}}
 					</p>
 				</div>
 				<details class="permission-advanced">
 					<summary>
-						<span>云盘申请权限预设</span><small>高级设置</small>
+						<span>{{
+							store.globalConfig?.accountModel === 'independent'
+								? '成员操作预设'
+								: '云盘申请权限预设'
+						}}</span
+						><small>高级设置</small>
 					</summary>
 					<div class="advanced-content">
 						<p>
-							审批申请时未另选操作权限才采用此预设，不自动开通云盘，也不修改已有授权。
+							{{
+								store.globalConfig?.accountModel === 'independent'
+									? '仅保存为当前成员的个人预设，暂不自动应用到审批或新增云盘；实际授权以上方存储源设置为准。'
+									: '审批申请时未另选操作权限才采用此预设，不自动开通云盘，也不修改已有授权。'
+							}}
 						</p>
 						<div v-if="defaultOptions.length" class="permission-options">
 							<label v-for="option in defaultOptions" :key="option.value"
@@ -188,7 +232,8 @@ const allowed = computed(
 		store.loginInfo?.isLogin === true &&
 		store.loginInfo?.role === 'TENANT_ADMIN' &&
 		Number.isInteger(props.member?.id) &&
-		props.member.id > 2 &&
+		props.member.id >
+			(store.globalConfig?.accountModel === 'independent' ? 0 : 2) &&
 		!['PENDING', 'REJECTED'].includes(props.member.membershipStatus)
 )
 const optionsFor = (permissions) =>
@@ -198,6 +243,45 @@ const optionsFor = (permissions) =>
 const defaultOptions = computed(() =>
 	optionsFor(draft.value?.allowedDefaultPermissions || [])
 )
+const presetPermissions = {
+	read: ['list', 'read', 'preview', 'download'],
+	upload: [
+		'list',
+		'read',
+		'preview',
+		'download',
+		'mkdir',
+		'newFolder',
+		'upload',
+	],
+}
+const presetValues = (name, allowedPermissions) =>
+	(presetPermissions[name] || []).filter((permission) =>
+		allowedPermissions.includes(permission)
+	)
+function initialPreset(row) {
+	for (const name of ['read', 'upload']) {
+		const permissions = presetValues(name, row.allowedPermissions)
+		if (
+			permissions.length === row.permissions.length &&
+			permissions.every((permission) => row.permissions.includes(permission))
+		)
+			return name
+	}
+	return 'custom'
+}
+function applyPreset(row, name) {
+	if (
+		saving.value ||
+		!allowed.value ||
+		!draft.value?.storages.includes(row) ||
+		!['read', 'upload', 'custom'].includes(name)
+	)
+		return
+	row.preset = name
+	if (name !== 'custom')
+		row.permissions = presetValues(name, row.allowedPermissions)
+}
 const hasScopeConflict = computed(
 	() =>
 		!!draft.value &&
@@ -223,7 +307,8 @@ const canSave = computed(
 			(row) =>
 				Number.isFinite(row.quotaGB) &&
 				row.quotaGB >= 0 &&
-				row.quotaGB <= 102400
+				row.quotaGB <= 102400 &&
+				(!row.enable || row.permissions.length > 0)
 		) &&
 		(draft.value.storages.length > 0 ||
 			defaultOptions.value.length > 0 ||
@@ -302,6 +387,7 @@ async function load() {
 			defaultPermissions: [...result.data.defaultPermissions],
 			storages: result.data.storages.map((row) => ({
 				...row,
+				preset: initialPreset(row),
 				quotaGB: (row.quotaBytes ?? 5368709120) / 1073741824,
 				permissions: [...row.permissions],
 			})),
@@ -321,6 +407,7 @@ function narrowToAllowed() {
 		(permission) => draft.value.allowedDefaultPermissions.includes(permission)
 	)
 	for (const row of draft.value.storages) {
+		row.preset = 'custom'
 		row.permissions = row.permissions.filter((permission) =>
 			row.allowedPermissions.includes(permission)
 		)
@@ -544,6 +631,19 @@ input[type='checkbox'] {
 	background: var(--cloud-surface, #fff);
 	color: inherit;
 	font: inherit;
+}
+.permission-preset {
+	display: grid;
+	gap: 8px;
+}
+.permission-preset select {
+	width: 100%;
+	padding: 9px 10px;
+	color: inherit;
+	font: inherit;
+	background: var(--cloud-surface, #fff);
+	border: 1px solid var(--cloud-line, #dedede);
+	border-radius: 8px;
 }
 .permission-range {
 	overflow-wrap: anywhere;

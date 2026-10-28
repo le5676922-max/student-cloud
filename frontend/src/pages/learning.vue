@@ -154,7 +154,7 @@
 							>
 						</div>
 					</article>
-					<form class="learning-search" @submit.prevent="search">
+					<form novalidate class="learning-search" @submit.prevent="search">
 						<h2>检索课程资料</h2>
 						<p>
 							检索当前课程；文件变化或权限失效后会跳过旧索引。修改文件后，请点击“重新索引”。

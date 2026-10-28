@@ -21,6 +21,11 @@
 	--cloud-warm: #fff0e7;
 	--cloud-radius: 20px;
 	--cloud-ease: cubic-bezier(0.22, 1, 0.36, 1);
+	--cloud-scroll-thumb: #c5c5cc;
+	--cloud-scroll-hover: #949499;
+	--cloud-scroll-active: #606067;
+	--cloud-scroll-track: transparent;
+	scrollbar-color: var(--cloud-scroll-thumb) var(--cloud-scroll-track);
 	--el-color-primary: #262629;
 	--el-color-primary-light-3: #67676c;
 	--el-color-primary-light-5: #949499;
@@ -140,6 +145,15 @@ a,
 /*
 * 全局滚动条
 */
+* {
+	scrollbar-width: thin;
+}
+
+button:not(:disabled),
+a[href] {
+	cursor: pointer;
+}
+
 ::-webkit-scrollbar {
 	width: 8px;
 	height: 8px;
@@ -147,13 +161,31 @@ a,
 }
 
 ::-webkit-scrollbar-thumb {
-	background-color: #c5c5cc;
+	background-color: var(--cloud-scroll-thumb);
 	border-radius: 10px;
 }
 
 ::-webkit-scrollbar-track {
-	background-color: transparent;
+	background-color: var(--cloud-scroll-track);
 	border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background-color: var(--cloud-scroll-hover);
+}
+
+::-webkit-scrollbar-thumb:active {
+	background-color: var(--cloud-scroll-active);
+}
+
+@media (forced-colors: active) {
+	* {
+		scrollbar-color: auto;
+		scrollbar-width: auto;
+	}
+	::-webkit-scrollbar-thumb {
+		background-color: ButtonText;
+	}
 }
 
 /*.icon {*/

@@ -19,6 +19,11 @@ export const uploadCourseMaterial = (id, file, config = {}) => {
 }
 
 export async function downloadCourseMaterial(courseId, material, config = {}) {
+	// Construct a protected same-origin endpoint. Never trust a download URL supplied by a row.
+	const validId = (value) =>
+		/^(?:[1-9][0-9]{0,18}|[a-f0-9]{32})$/.test(String(value))
+	if (!validId(courseId) || !validId(material?.id))
+		throw new Error('课程资料标识无效，请刷新后重试')
 	const response = await courseRequest(
 		`/${courseId}/materials/${material.id}/download`,
 		'get',

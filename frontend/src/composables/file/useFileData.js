@@ -79,6 +79,7 @@ const {
 	openVideo,
 	open3d,
 	openKkFileView,
+	openProtectedPreview,
 } = useFilePreview()
 
 // 文件操作相关
@@ -174,6 +175,7 @@ export default function useFileData() {
 		param.path = loadPath
 		// Explicit refresh/navigation fetches fresh metadata; cursor pages reuse a short snapshot.
 		param.refreshMetadata = !initParam?.pageCursor
+		if(storageConfigStore.globalConfig?.accountModel === 'independent') param.refreshMetadata = initParam?.forceMetadata === true
 		param.nativePagination = initParam?.nativePagination ?? nativeActive.value
 		Object.assign(
 			param,
@@ -396,6 +398,15 @@ export default function useFileData() {
 			const permission = storageConfigStore.folderConfig.permission
 			if (!permission.preview && !permission.download) return
 			const { batchDownloadFile } = useFileOperator()
+			if (row.authenticatedContent === true && permission.preview) {
+				if (row.previewAvailable === true) openProtectedPreview(row)
+				else if (permission.download) {
+					ElMessage.info('此格式或大小暂不支持预览，可下载后查看')
+					batchDownloadFile(row)
+				}
+				clearSelection()
+				return
+			}
 
 			// 获取文件类型
 			let fileType = row.fileType

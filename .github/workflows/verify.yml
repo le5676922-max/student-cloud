@@ -1,10 +1,8 @@
-name: Verify student cloud
+name: Verify historical monolith (manual)
 
 on:
-  push:
-    branches: [main, 'feature/**']
-  pull_request:
-    branches: [main]
+  # Historical backend/ and docker/ pipelines remain available for migration work.
+  # Current automatic verification lives in independent-verify.yml.
   workflow_dispatch:
 
 permissions:

@@ -20,7 +20,16 @@
 					}"
 					@click="openGalleryImage(colItem)"
 				>
-					<template v-if="colItem?.url">
+					<button
+						v-if="colItem.authenticatedContent === true"
+						class="private-gallery-item"
+						type="button"
+						@click.stop="openImage(colItem)"
+					>
+						<span aria-hidden="true">▧</span><strong>{{ colItem.name }}</strong
+						><small>点击验证权限并预览图片</small>
+					</button>
+					<template v-else-if="colItem?.url">
 						<img
 							class="student-cloud-gallery-img lazyload"
 							data-sizes="auto"
@@ -158,6 +167,30 @@ const loadImg = (e) => {
 </script>
 
 <style lang="scss" scoped>
+.private-gallery-item {
+	display: grid;
+	place-items: center;
+	gap: 8px;
+	min-height: 160px;
+	width: 100%;
+	padding: 20px;
+	color: var(--cloud-ink);
+	background: var(--cloud-soft);
+	border: 1px solid var(--cloud-line);
+	border-radius: 12px;
+}
+.private-gallery-item span {
+	font-size: 32px;
+	color: var(--cloud-muted);
+}
+.private-gallery-item strong {
+	font-size: 13px;
+	overflow-wrap: anywhere;
+}
+.private-gallery-item small {
+	font-size: 11px;
+	color: var(--cloud-muted);
+}
 .student-cloud-gallery-body {
 	height: 100%;
 	margin-top: 10px;

@@ -39,12 +39,15 @@
 				>
 				<el-table-column label="到期时间" min-width="170"
 					><template #default="scope">{{
-						formatTime(scope.row.expiresAt)
+						invitationExpiry(scope.row.expiresAt)
 					}}</template></el-table-column
 				>
 				<el-table-column label="已使用 / 上限" min-width="130"
 					><template #default="scope"
-						>{{ scope.row.useCount }} / {{ scope.row.maxUses }}</template
+						>{{ scope.row.useCount }} /
+						{{
+							scope.row.maxUses == null ? '不限人数' : scope.row.maxUses
+						}}</template
 					></el-table-column
 				>
 				<el-table-column label="状态" width="100"
@@ -156,8 +159,16 @@
 					<el-button :loading="copying" @click="copyInvitation">复制</el-button>
 				</div>
 				<p class="registration-hint">
-					有效期至 {{ formatTime(createdInvitation.expiresAt) }}，最多可加入
-					{{ createdInvitation.maxUses }} 位成员。
+					{{
+						createdInvitation.expiresAt == null
+							? '长期有效'
+							: `有效期至 ${formatTime(createdInvitation.expiresAt)}`
+					}}，
+					{{
+						createdInvitation.maxUses == null
+							? '不限加入人数'
+							: `最多可加入 ${createdInvitation.maxUses} 位成员`
+					}}。
 				</p>
 			</template>
 			<el-form
@@ -261,12 +272,17 @@ const formatTime = (value) => {
 }
 const invitationStatus = (invitation) => {
 	if (invitation.revoked) return { label: '已撤销', type: 'info' }
-	if (new Date(invitation.expiresAt).getTime() <= Date.now())
+	if (
+		invitation.expiresAt != null &&
+		new Date(invitation.expiresAt).getTime() <= Date.now()
+	)
 		return { label: '已过期', type: 'info' }
-	if (invitation.useCount >= invitation.maxUses)
+	if (invitation.maxUses != null && invitation.useCount >= invitation.maxUses)
 		return { label: '已用完', type: 'warning' }
 	return { label: '有效', type: 'success' }
 }
+const invitationExpiry = (value) =>
+	value == null ? '长期有效' : formatTime(value)
 async function loadInvitations() {
 	const current = ++invitationRequest
 	invitationsLoading.value = true

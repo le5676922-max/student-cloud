@@ -191,7 +191,7 @@ const enforceAdminRoute = () => {
 		router.replace('/')
 }
 // The route guard has already checked the current identity. Do not check twice
-// or read all site settings every time a management page mounts.
+// or read all administrator settings every time a management page mounts.
 watch(
 	() => route.path,
 	() => {

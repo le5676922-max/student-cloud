@@ -98,6 +98,7 @@ const inputValue = async (input, value) => {
 
 async function mount({
 	rows = [member()],
+	summaryData = {},
 	initialPage = 1,
 	readMembers,
 	create = async () => ({ data: { id: 30 } }),
@@ -174,6 +175,7 @@ async function mount({
 						memberCount: rows.length,
 						enabledMemberCount: rows.length,
 						storageCount: 1,
+						...summaryData,
 					},
 				}
 			},
@@ -406,6 +408,20 @@ async function mount({
 		},
 	}
 }
+
+test('unavailable storage statistics do not present a stale zero as an empty workspace', async () => {
+	const app = await mount({
+		summaryData: { storageCount: 0, storageCountAvailable: false },
+	})
+	try {
+		const storageStat = app.host.querySelectorAll('.stats > div')[2]
+		assert.equal(storageStat.querySelector('strong').textContent, '—')
+		assert.match(storageStat.querySelector('small').textContent, /统计暂不可用/)
+		assert.equal(app.host.querySelector('[title^="本空间暂未配置云盘"]'), null)
+	} finally {
+		app.dispose()
+	}
+})
 
 test('only admitted actual members can open a body-mounted drawer instead of extending the member page', async () => {
 	const rows = [

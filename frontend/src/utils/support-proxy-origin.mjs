@@ -1,4 +1,4 @@
-/** Only a browser request already same-origin with Vite may have its Origin rewritten upstream. */
+/** Only an already same-origin browser upgrade may be forwarded, with either preserved or legacy Origin. */
 export function isSameOriginSupportUpgrade(headers = {}, encrypted = false) {
 	if (typeof headers.origin !== 'string' || typeof headers.host !== 'string')
 		return false

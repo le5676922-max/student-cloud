@@ -3,31 +3,45 @@
 		<h2>知识库整理</h2>
 		<p>先核对并保存正确答案，再确认发布。AI 仅辅助润色，不会自动采信原回答。</p>
 		<div class="curation-actions">
-			<button type="button" :disabled="busy || !answer?.trim()" @click="refine">
+			<button
+				type="button"
+				:disabled="
+					busy ||
+					loading ||
+					!state ||
+					!answer?.trim() ||
+					state?.canRefine === false
+				"
+				@click="refine"
+			>
 				{{ operation === 'refine' ? '正在润色…' : 'AI 辅助润色' }}
 			</button>
-			<small>点击后仅将脱敏的问题与当前修订答案交给已配置的 AI 服务。</small>
+			<small>{{
+				state?.canRefine === false
+					? '尚未配置润色模型，可继续人工整理。'
+					: '点击后将问题与当前修订答案交给已配置的 AI 服务，请先删除个人信息。'
+			}}</small>
 		</div>
 		<div v-if="preview !== null" class="curation-preview">
 			<label
 				>润色草稿 · 请人工复核<textarea
 					v-model="preview"
+					style="resize: none"
 					rows="6"
 					maxlength="12000"
 					:disabled="busy"
 				/>
 			</label>
-			<button
-				type="button"
-				:disabled="busy || !preview.trim()"
-				@click="applyPreview"
-			>
+			<button type="button" :disabled="!canApplyPreview" @click="applyPreview">
 				采用草稿，继续编辑
 			</button>
 			<small>采用后仍需点击“保存整理结果”；不会直接发布。</small>
 		</div>
 		<p v-if="error" class="curation-error" role="alert">{{ error }}</p>
 		<p v-if="notice" class="curation-notice" role="status">{{ notice }}</p>
+		<p v-if="publicationBlocked" class="curation-notice" role="status">
+			{{ publicationNotice }}
+		</p>
 		<div class="publication-status">
 			<span>{{
 				loading ? '正在读取知识状态…' : state ? stateLabel : '知识状态暂不可用'
@@ -37,7 +51,7 @@
 			</button>
 		</div>
 		<label
-			>发布范围<select v-model="scope" :disabled="busy">
+			>发布范围<select v-model="scope" :disabled="busy || publicationBlocked">
 				<template v-if="detail.courseId"
 					><option value="COURSE">仅原反馈课程</option></template
 				><template v-else
@@ -53,7 +67,7 @@
 			><input
 				v-model="confirmGlobal"
 				type="checkbox"
-				:disabled="busy"
+				:disabled="busy || publicationBlocked"
 			/>已核对：这是通用说明，不包含个人资料、私人文件内容或课程专属内容。</label
 		>
 		<p v-if="!savedCorrection">
@@ -139,6 +153,7 @@ const state = ref(null),
 	error = ref(''),
 	notice = ref(''),
 	preview = ref(null),
+	previewSource = ref(null),
 	scope = ref('TENANT'),
 	confirmGlobal = ref(false),
 	history = ref(null)
@@ -150,6 +165,16 @@ const savedCorrection = computed(
 		!!props.detail.correctedAnswer?.trim() &&
 		props.answer.trim() === props.detail.correctedAnswer.trim()
 )
+const publicationBlocked = computed(
+	() => props.detail.canPublish === false || state.value?.canPublish === false
+)
+const publicationNotice = computed(() =>
+	String(
+		props.detail.publicationNotice ||
+			state.value?.publicationNotice ||
+			'此反馈来自私有上下文，可继续人工整理，不能直接发布到共享知识库。'
+	).slice(0, 1000)
+)
 const canPublish = computed(
 	() =>
 		!!(
@@ -157,6 +182,7 @@ const canPublish = computed(
 			!busy.value &&
 			!loading.value &&
 			state.value &&
+			!publicationBlocked.value &&
 			savedCorrection.value &&
 			(props.detail.courseId
 				? scope.value === 'COURSE'
@@ -176,9 +202,17 @@ const requests = createLatestRequest(),
 	stateRequests = createLatestRequest()
 let disposed = false
 const context = () =>
-	`${identity.value}:${props.detail.id}:${props.detail.updatedAt}`
+	`${identity.value}:${props.detail.id}:${props.detail.version}:${props.detail.updatedAt}`
 const fresh = (request, bound) =>
 	!disposed && allowed.value && context() === bound && request.isCurrent()
+const canApplyPreview = computed(
+	() =>
+		!busy.value &&
+		allowed.value &&
+		!!preview.value?.trim() &&
+		previewSource.value?.context === context() &&
+		previewSource.value?.answer === props.answer
+)
 const validState = (value) =>
 	value?.feedbackId === props.detail.id &&
 	Number.isSafeInteger(value.version) &&
@@ -226,35 +260,54 @@ async function run(kind, action, accept) {
 	}
 }
 async function refine() {
-	if (!props.answer.trim() || props.answer.length > 12000) return
+	if (
+		busy.value ||
+		!allowed.value ||
+		!state.value ||
+		loading.value ||
+		state.value.canRefine === false ||
+		!props.answer.trim() ||
+		props.answer.length > 12000
+	)
+		return
+	const source = {
+		context: context(),
+		answer: props.answer,
+		feedbackId: props.detail.id,
+		updatedAt: props.detail.updatedAt,
+	}
+	preview.value = previewSource.value = null
 	await run(
 		'refine',
 		(signal) =>
 			refineAiKnowledgeReq(
 				{
-					feedbackId: props.detail.id,
-					expectedUpdatedAt: props.detail.updatedAt,
-					administratorAnswer: props.answer,
+					feedbackId: source.feedbackId,
+					expectedUpdatedAt: source.updatedAt,
+					administratorAnswer: source.answer,
 				},
 				{ signal }
 			),
 		(data) => {
+			if (context() !== source.context || props.answer !== source.answer) return
 			if (
 				typeof data?.answer !== 'string' ||
 				!data.answer.trim() ||
 				data.answer.length > 12000 ||
 				data.requiresReview !== true ||
-				data.sourceUpdatedAt !== props.detail.updatedAt
+				data.sourceUpdatedAt !== source.updatedAt
 			)
 				throw new Error('Invalid preview')
+			previewSource.value = source
 			preview.value = data.answer
 		}
 	)
 }
 function applyPreview() {
-	if (busy.value || !allowed.value || !preview.value?.trim()) return
-	emit('apply', preview.value)
-	preview.value = null
+	if (!canApplyPreview.value) return
+	const answer = preview.value
+	preview.value = previewSource.value = null
+	emit('apply', answer)
 	notice.value = '已采用为编辑草稿，请核对并保存。'
 }
 async function publish() {
@@ -268,6 +321,9 @@ async function publish() {
 						{
 							feedbackId: props.detail.id,
 							expectedUpdatedAt: props.detail.updatedAt,
+							...(Number.isSafeInteger(props.detail.version)
+								? { expectedFeedbackVersion: props.detail.version }
+								: {}),
 							expectedVersion: state.value.version,
 							title: props.detail.question.slice(0, 160),
 							answer: props.answer.trim(),
@@ -328,18 +384,35 @@ function clear() {
 	requests.cancel()
 	stateRequests.cancel()
 	state.value = history.value = preview.value = null
+	previewSource.value = null
 	operation.value = error.value = notice.value = ''
 	loading.value = false
 	scope.value = props.detail.courseId ? 'COURSE' : 'TENANT'
 	confirmGlobal.value = false
 }
 watch(
-	() => [identity.value, props.detail.id, props.detail.updatedAt],
+	() => [
+		identity.value,
+		props.detail.id,
+		props.detail.version,
+		props.detail.updatedAt,
+	],
 	() => {
 		clear()
 		if (allowed.value) loadState()
 	},
 	{ immediate: true, flush: 'sync' }
+)
+watch(
+	() => props.answer,
+	() => {
+		preview.value = previewSource.value = null
+		if (operation.value === 'refine') {
+			requests.cancel()
+			operation.value = error.value = notice.value = ''
+		}
+	},
+	{ flush: 'sync' }
 )
 watch(scope, () => {
 	confirmGlobal.value = false
@@ -391,7 +464,6 @@ button:disabled {
 }
 textarea {
 	width: 100%;
-	resize: vertical;
 }
 .primary {
 	color: #fff;

@@ -21,9 +21,15 @@
 		</p>
 		<article v-for="row in rows" :key="row.id">
 			<div>
-				<strong>{{ manager ? row.storageName : row.name }}</strong>
+				<strong>{{
+					manager ? row.storageName || `云盘 ${row.mountId}` : row.name
+				}}</strong>
 				<p v-if="manager">
-					申请人：{{ row.displayName || '空间成员' }} ·
+					申请人：{{
+						row.displayName ||
+						(row.requesterId ? `成员 ${row.requesterId}` : '空间成员')
+					}}
+					·
 					{{ row.reason || '未填写说明' }}
 				</p>
 				<p v-else>
@@ -88,6 +94,9 @@ import {
 } from '~/api/home/workspace-cloud'
 const store = useStorageConfigStore()
 const manager = computed(() => store.loginInfo?.role === 'TENANT_ADMIN')
+const independent = computed(
+	() => store.globalConfig?.accountModel === 'independent'
+)
 const identity = computed(
 	() =>
 		`${store.loginInfo?.isLogin}:${store.loginInfo?.role}:${store.loginInfo?.tenantId}:${store.loginInfo?.username}`
@@ -179,10 +188,16 @@ const review = (row, approve) => {
 				{
 					approve,
 					quotaBytes: Math.floor(row.quotaGB * 1073741824),
-					permissions: row.allowUpload
+					permissions: independent.value
+						? row.allowUpload
+							? ['list', 'read', 'upload', 'mkdir']
+							: ['list', 'read']
+						: row.allowUpload
 						? ['preview', 'download', 'upload', 'newFolder']
 						: ['preview', 'download'],
-					note: row.note || '',
+					...(independent.value
+						? { reason: row.note || '' }
+						: { note: row.note || '' }),
 				},
 				config
 			),

@@ -72,7 +72,7 @@
 			</div>
 		</section>
 		<section class="course-toolbar" aria-label="创建或加入课程">
-			<form @submit.prevent="join">
+			<form novalidate @submit.prevent="join">
 				<label for="course-code">课程邀请码</label
 				><input
 					id="course-code"
@@ -400,15 +400,6 @@
 					@click="loadMoreInvitations"
 					>加载更多邀请</el-button
 				>
-				<details class="legacy-invitation">
-					<summary>旧版邀请码处理</summary>
-					<p class="hint">
-						如曾分享旧版课程邀请码，可在这里停用。上方独立邀请链接和已加入成员不受影响；新邀请请使用有效期和人数设置后生成。
-					</p>
-					<el-button :disabled="busy" @click="rotateCode"
-						>停用旧版邀请码</el-button
-					>
-				</details>
 			</div>
 			<template #footer
 				><el-button :disabled="busy" @click="invitationVisible = false"
@@ -425,7 +416,7 @@
 			:show-close="!busy"
 			destroy-on-close
 		>
-			<form class="course-form" @submit.prevent="save">
+			<form novalidate class="course-form" @submit.prevent="save">
 				<label
 					>课程名称<input
 						v-model="draft.name"
@@ -435,6 +426,7 @@
 				><label
 					>课程介绍<textarea
 						v-model="draft.description"
+						style="resize: none"
 						maxlength="1000"
 						:disabled="busy"
 					/></label
@@ -542,7 +534,7 @@ const validCode = computed(() => /^[a-f0-9]{32}$/i.test(joinCode.value.trim()))
 const validDraft = computed(
 	() =>
 		draft.value.name.trim().length > 0 &&
-		Number.isFinite(draft.value.quotaMb) &&
+		Number.isInteger(draft.value.quotaMb) &&
 		draft.value.quotaMb >= 1 &&
 		draft.value.quotaMb <= 1024
 )
@@ -819,8 +811,10 @@ async function refresh(alive = () => true) {
 	const list = await data()
 	if (!alive()) return
 	courses.value = list
-	if (!selectedId.value && list.some((c) => c.id === route.query.course))
-		selectedId.value = route.query.course
+	// JSON numeric IDs and URL query strings describe the same course. Keep
+	// the backend's original ID in selection/API calls; normalize only at the URL boundary.
+	const requested = list.find((c) => String(c.id) === route.query.course)
+	if (!selectedId.value && requested) selectedId.value = requested.id
 	if (!list.some((c) => c.id === selectedId.value))
 		selectedId.value = list[0]?.id || ''
 	materials.value = []
@@ -866,6 +860,7 @@ function openEditor(course) {
 function save() {
 	if (!validDraft.value) return
 	return action(async (alive) => {
+		const creating = !editingId.value
 		const result = await data(
 			editingId.value ? `/${editingId.value}` : '',
 			editingId.value ? 'put' : 'post',
@@ -878,14 +873,14 @@ function save() {
 		)
 		if (!alive()) return
 		editorVisible.value = false
-		selectedId.value = result.course?.id || result.id
+		selectedId.value = result.id
 		await refresh(alive)
-		if (alive() && result.course) {
+		if (alive() && creating) {
 			clearInvitations()
-			invitationCourseId.value = result.course.id
+			invitationCourseId.value = result.id
 			invitationVisible.value = true
 			try {
-				await readInvitations(result.course.id, alive)
+				await readInvitations(result.id, alive)
 			} catch (err) {
 				if (alive()) invitationError.value = failureMessage(err)
 			}
@@ -893,19 +888,6 @@ function save() {
 				ElMessage.success('课程已创建，选择邀请有效期和人数后即可邀请成员')
 		}
 	})
-}
-function rotateCode() {
-	const id = invitationCourseId.value
-	if (!id) return
-	return action(async (alive) => {
-		await ElMessageBox.confirm(
-			'停用后，之前分享的旧版课程邀请码立即失效。独立邀请链接和已加入成员不受影响。',
-			'停用旧版邀请码'
-		)
-		if (!alive() || invitationCourseId.value !== id) return
-		await data(`/${id}/code`, 'post')
-		if (alive()) ElMessage.success('旧版邀请码已停用，新邀请请在上方生成')
-	}, invitationError)
 }
 function leave() {
 	return action(async (alive) => {
@@ -1020,9 +1002,10 @@ watch(
 watch(selectedId, (id) => {
 	if (invitationCourseId.value && invitationCourseId.value !== id)
 		invitationVisible.value = false
-	if (route.query.course !== (id || undefined))
+	const queryId = id ? String(id) : undefined
+	if (route.query.course !== queryId)
 		router
-			.replace({ query: { ...route.query, course: id || undefined } })
+			.replace({ query: { ...route.query, course: queryId } })
 			.catch(() => {})
 })
 watch(invitationVisible, (visible) => {
@@ -1032,12 +1015,9 @@ watch(() => route.query.invite, loadInvitationPreview, { immediate: true })
 watch(
 	() => route.query.course,
 	(id) => {
-		if (
-			id !== selectedId.value &&
-			courses.value.some((c) => c.id === id) &&
-			!busy.value
-		)
-			select(id)
+		const requested = courses.value.find((course) => String(course.id) === id)
+		if (requested && requested.id !== selectedId.value && !busy.value)
+			select(requested.id)
 	}
 )
 onMounted(() => {
@@ -1355,7 +1335,6 @@ textarea:focus {
 }
 .course-form textarea {
 	min-height: 88px;
-	resize: vertical;
 }
 .toggle {
 	font-size: 13px;

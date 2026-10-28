@@ -16,7 +16,7 @@ export function driveSelectionActions(rows, permission = {}, metadata = {}) {
 		files,
 		folders,
 		download: single && files === 1 && allowed('download'),
-		share: allowed('createShareLink'),
+		share: allowed('createShareLink') && (metadata.controlledShareFilesOnly !== true || (single && files === 1)),
 		rename:
 			single &&
 			allowed('rename') &&

@@ -56,13 +56,14 @@
 							@change="manager.setEnabled($event.target.checked)"
 						/>
 					</label>
-					<form class="memory-form" @submit.prevent="saveMemory">
+					<form novalidate class="memory-form" @submit.prevent="saveMemory">
 						<label for="ai-memory-draft">{{
 							editingId ? '编辑这条记忆' : '添加一条记忆'
 						}}</label>
 						<textarea
 							id="ai-memory-draft"
 							v-model="draft"
+							style="resize: none"
 							rows="3"
 							:maxlength="state.maxChars"
 							:disabled="locked || !state.enabled"
@@ -364,7 +365,6 @@ async function saveMemory() {
 .memory-form textarea {
 	box-sizing: border-box;
 	width: 100%;
-	resize: vertical;
 	min-height: 80px;
 	max-height: 180px;
 	padding: 10px 12px;

@@ -3,11 +3,17 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import vm from 'node:vm'
 import * as vue from 'vue'
+import { JSDOM } from 'jsdom'
 import { parse, compileScript } from 'vue/compiler-sfc'
 import * as automation from '../src/utils/automation-context.mjs'
 import * as panel from '../src/components/ai/ai-assistant-panel.mjs'
 import * as uploadIntent from '../src/utils/ai-upload-intent.mjs'
 import * as assistantSupport from '../src/utils/assistant-support.mjs'
+
+const browser = new JSDOM('', { url: 'https://cloud.example/' })
+globalThis.window = browser.window
+globalThis.DOMParser = browser.window.DOMParser
+const assistantAnswer = await import('../src/utils/assistant-answer.mjs')
 
 // Executes the real SFC setup and Vue watchers, with no browser, model, server or upload.
 // This is runtime logic coverage, not browser/UI rendering coverage.
@@ -50,6 +56,7 @@ function setupAssistant({
 	chat = async () => ({ answer: '测试回答' }),
 	feedback = async () => ({ data: { id: 'f'.repeat(32), status: 'OPEN' } }),
 	token = null,
+	viewport = { width: 1440, height: 900 },
 } = {}) {
 	const requests = [],
 		feedbackRequests = [],
@@ -87,7 +94,6 @@ function setupAssistant({
 			onMounted() {},
 			onBeforeUnmount: (callback) => cleanups.push(callback),
 		},
-		marked: { marked: { parse: (content) => String(content) } },
 		'element-plus': {
 			ElMessage: {
 				success: (message) => notices.push(message),
@@ -120,6 +126,7 @@ function setupAssistant({
 		'~/components/ai/AiMemoryPanel.vue': { default: {} },
 		'~/components/support/AssistantSupportChat.vue': { default: {} },
 		'~/utils/assistant-support.mjs': assistantSupport,
+		'~/utils/assistant-answer.mjs': assistantAnswer,
 		'~/components/ai/ai-assistant-panel.mjs': panel,
 		'~/api/home/home': {
 			getSourceListReq: async () => ({ data: [] }),
@@ -153,24 +160,17 @@ function setupAssistant({
 		console,
 		document: { cookie: '' },
 		window: {
+			innerWidth: viewport.width,
+			innerHeight: viewport.height,
 			localStorage: {
 				getItem: (key) => localValues.get(key) || null,
 				setItem: (key, value) => localValues.set(key, value),
 				removeItem: (key) => localValues.delete(key),
 			},
 			removeEventListener() {},
+			addEventListener() {},
+			setTimeout,
 			clearTimeout,
-		},
-		DOMParser: class {
-			parseFromString(html) {
-				return {
-					querySelector: () => ({
-						innerHTML: html,
-						querySelectorAll: () => [],
-					}),
-					createTextNode: (text) => ({ textContent: text }),
-				}
-			}
 		},
 	})
 	const Component = vm.runInContext(`(function(){${executable}\n})()`, context)
@@ -198,6 +198,81 @@ function setupAssistant({
 	}
 }
 
+test('chat window can be resized with the keyboard and stays within viewport bounds', () => {
+	const app = setupAssistant()
+	const button = {
+		closest: () => ({
+			getBoundingClientRect: () => ({ width: 420, height: 560 }),
+		}),
+	}
+	let prevented = 0
+	const press = (key, extra = {}) =>
+		app.api.resizePanelWithKeyboard({
+			key,
+			currentTarget: button,
+			preventDefault: () => prevented++,
+			...extra,
+		})
+	try {
+		press('ArrowLeft')
+		assert.deepEqual(plain(app.api.panelSize.value), {
+			width: 444,
+			height: 560,
+		})
+		press('ArrowUp', { shiftKey: true })
+		assert.deepEqual(plain(app.api.panelSize.value), {
+			width: 444,
+			height: 608,
+		})
+		press('ArrowRight', { isComposing: true })
+		press('ArrowDown', { ctrlKey: true })
+		assert.equal(prevented, 2)
+		app.api.panelSize.value = { width: 320, height: 360 }
+		press('ArrowRight')
+		press('ArrowDown')
+		assert.deepEqual(plain(app.api.panelSize.value), {
+			width: 320,
+			height: 360,
+		})
+		assert.deepEqual(
+			JSON.parse(app.localValues.get('student-cloud-ai-panel-size')),
+			{ width: 320, height: 360 }
+		)
+	} finally {
+		app.unmount()
+	}
+})
+
+test('resize handle click restores default size while a completed drag keeps its result', () => {
+	const app = setupAssistant()
+	const button = {
+		closest: () => ({
+			getBoundingClientRect: () => ({ width: 420, height: 560 }),
+		}),
+	}
+	try {
+		app.api.startPanelResize({
+			button: 0,
+			currentTarget: button,
+			clientX: 500,
+			clientY: 200,
+			preventDefault() {},
+		})
+		app.api.movePanelResize({ clientX: 450, clientY: 180, preventDefault() {} })
+		app.api.finishPanelResize()
+		app.api.resetPanelSize({ detail: 1 })
+		assert.deepEqual(plain(app.api.panelSize.value), {
+			width: 470,
+			height: 580,
+		})
+		app.api.resetPanelSize({ detail: 0 })
+		assert.equal(app.api.panelSize.value, null)
+		assert.equal(app.localValues.has('student-cloud-ai-panel-size'), false)
+	} finally {
+		app.unmount()
+	}
+})
+
 test('quick preview makes one explicit preview POST with PENDING card, never confirms, uploads or invokes the model', async () => {
 	const app = setupAssistant()
 	try {
@@ -217,6 +292,110 @@ test('quick preview makes one explicit preview POST with PENDING card, never con
 			app.requests.some((args) => /confirm|retry/.test(args[1])),
 			false
 		)
+	} finally {
+		app.unmount()
+	}
+})
+
+test('independent AI attachments enforce supported document formats and the complete request budget', async () => {
+	const app = setupAssistant()
+	try {
+		app.storage.globalConfig = { accountModel: 'independent' }
+		const file = (name, size) => ({ name, size, lastModified: 1 })
+		const event = {
+			target: {
+				files: [
+					file('a.pdf', 2 * 1048576),
+					file('b.DOCX', 2 * 1048576),
+					file('c.md', 1),
+				],
+				value: 'selected',
+			},
+		}
+		app.api.selectAttachments(event)
+		assert.deepEqual(
+			plain(app.api.selectedFiles.value.map((file) => file.name)),
+			['a.pdf', 'b.DOCX']
+		)
+		assert.equal(event.target.value, '')
+		assert.match(app.notices.at(-1), /总大小不能超过 4 MB/)
+		app.api.selectedFiles.value = []
+		app.api.selectAttachments({
+			target: {
+				files: [
+					file('code.js', 1),
+					file('sheet.xlsx', 1),
+					file('empty.txt', 0),
+					file('large.pdf', 2 * 1048576 + 1),
+					file('ok.MD', 12),
+				],
+				value: 'selected',
+			},
+		})
+		assert.deepEqual(
+			plain(app.api.selectedFiles.value.map((file) => file.name)),
+			['ok.MD']
+		)
+		assert.equal(app.api.attachmentAccept.value, '.txt,.md,.pdf,.docx')
+		app.api.selectedFiles.value = [file('previously-selected.js', 1)]
+		app.api.inputMessage.value = '分析附件'
+		await app.api.sendMessage()
+		assert.equal(app.api.selectedFiles.value.length, 0)
+		assert.equal(app.streams.length, 0)
+	} finally {
+		app.unmount()
+	}
+})
+
+test('drop-to-analysis uses the same independent attachment limits before invoking the model', async () => {
+	const app = setupAssistant({
+		chat: async () => ({ answer: '已分析', messageId: 'answer-proof' }),
+	})
+	try {
+		app.storage.globalConfig = { accountModel: 'independent' }
+		app.api.uploadIntent.value = {
+			files: [
+				{ name: 'a.pdf', size: 2 * 1048576, lastModified: 1 },
+				{ name: 'b.txt', size: 2 * 1048576, lastModified: 1 },
+				{ name: 'c.docx', size: 1, lastModified: 1 },
+				{ name: 'd.xlsx', size: 1, lastModified: 1 },
+			],
+		}
+		await app.api.analyzeDroppedFiles()
+		assert.equal(app.streams.length, 1)
+		assert.deepEqual(plain(app.streams[0][1].map((file) => file.name)), [
+			'a.pdf',
+			'b.txt',
+		])
+		assert.equal(app.streams[0][0].optInPrivateContext, false)
+	} finally {
+		app.unmount()
+	}
+})
+
+test('private-course opt-in belongs to one request and clears synchronously on route or account changes', async () => {
+	const app = setupAssistant({
+		chat: async () => ({ answer: '已回答', messageId: 'answer-proof' }),
+	})
+	try {
+		app.route.path = '/learning'
+		app.route.fullPath = '/learning?courseId=7'
+		app.route.query = { courseId: '7' }
+		assert.equal(app.api.allowPrivateContext.value, false)
+		app.api.allowPrivateContext.value = true
+		app.api.inputMessage.value = '检索当前课程'
+		await app.api.sendMessage()
+		assert.equal(app.streams[0][0].optInPrivateContext, true)
+		assert.equal(app.api.allowPrivateContext.value, false)
+		app.api.inputMessage.value = '继续'
+		await app.api.sendMessage()
+		assert.equal(app.streams[1][0].optInPrivateContext, false)
+		app.api.allowPrivateContext.value = true
+		app.route.fullPath = '/learning?courseId=8'
+		assert.equal(app.api.allowPrivateContext.value, false)
+		app.api.allowPrivateContext.value = true
+		app.storage.loginInfo.username = 'new-member'
+		assert.equal(app.api.allowPrivateContext.value, false)
 	} finally {
 		app.unmount()
 	}
@@ -757,6 +936,137 @@ test('pending feedback deduplicates clicks and late acknowledgements cannot affe
 		await pending
 		assert.equal(app.api.messages.value.length, 1)
 		assert.equal(app.api.supportOffer.value, null)
+	} finally {
+		app.unmount()
+	}
+})
+
+test('final replies retain project excerpts, complete citation metadata and coverage limits', async () => {
+	const citation = {
+		reference: 'M900-S2',
+		materialId: '9223372036854775805',
+		courseId: '9223372036854775806',
+		storageKey: 'workspace-2',
+		path: '/课程/讲义.pdf',
+		name: '讲义.pdf',
+		segment: 2,
+		excerpt: '原文片段，而非完整课程。',
+	}
+	const knowledge = {
+		id: 'upload-guide',
+		title: '上传说明',
+		content: '先选择可写目录。',
+		source: 'docs/upload.md',
+		scope: 'PROJECT',
+		version: 3,
+	}
+	const coverage = {
+		skipped: 2,
+		truncated: true,
+		notice: '本轮有 2 份资料无法读取，检索范围受限。',
+	}
+	const app = setupAssistant({
+		chat: async () => ({
+			answer: '\n\n## 已找到的依据\n\n请先检查目录权限。\n\n',
+			knowledge: [knowledge],
+			citations: [citation],
+			coverage,
+		}),
+	})
+	try {
+		app.api.inputMessage.value = '根据课程资料解释上传权限'
+		await app.api.sendMessage()
+		const reply = app.api.messages.value.at(-1)
+		assert.deepEqual(plain(reply.citations), [citation])
+		assert.deepEqual(plain(reply.knowledge), [knowledge])
+		assert.deepEqual(plain(reply.coverage), coverage)
+		assert.equal(reply.coverageNotice, coverage.notice)
+		assert.equal(reply.content, '## 已找到的依据\n\n请先检查目录权限。')
+		assert.match(reply.renderedContent, /<h2>已找到的依据<\/h2>/)
+		assert.match(
+			app.api.materialCitationLocation(reply.citations[0]),
+			/9223372036854775806.*9223372036854775805.*workspace-2.*讲义\.pdf/
+		)
+	} finally {
+		app.unmount()
+	}
+})
+
+test('concise remains the default and detailed mode persists and requests the complete answer', async () => {
+	const answer = '详细解释与完整步骤。'.repeat(1400)
+	const app = setupAssistant({ chat: async () => ({ answer }) })
+	try {
+		assert.equal(app.api.answerStyle.value, 'concise')
+		app.api.inputMessage.value = '说明课程资料的使用方式'
+		await app.api.sendMessage()
+		assert.equal(app.streams[0][0].answerStyle, 'concise')
+		app.api.toggleAnswerStyle()
+		assert.equal(app.api.answerStyle.value, 'detailed')
+		assert.equal(
+			app.localValues.get('student-cloud-ai-answer-style'),
+			'detailed'
+		)
+		app.api.inputMessage.value = '继续展开具体步骤'
+		await app.api.sendMessage()
+		assert.equal(app.streams[1][0].answerStyle, 'detailed')
+		assert.equal(app.api.messages.value.at(-1).content, answer)
+		assert.equal(
+			new JSDOM(
+				app.api.messages.value.at(-1).renderedContent
+			).window.document.body.textContent.trim(),
+			answer
+		)
+		app.api.toggleAnswerStyle()
+		assert.equal(app.api.answerStyle.value, 'concise')
+	} finally {
+		app.unmount()
+	}
+})
+
+test('streamed partial Markdown waits for a complete line and the final answer is authoritative', async () => {
+	const response = deferred()
+	const app = setupAssistant({
+		chat: async (_request, _files, { onEvent }) => {
+			onEvent('token', { text: '先检查权限。\n\n打开 **课' })
+			return response.promise
+		},
+	})
+	try {
+		app.api.inputMessage.value = '说明课程入口'
+		const pending = app.api.sendMessage()
+		await new Promise((resolve) => setTimeout(resolve, 70))
+		const reply = app.api.messages.value.at(-1)
+		assert.ok(reply.renderedContent.includes('先检查权限。'))
+		assert.equal(reply.renderedContent.includes('**课'), false)
+		response.resolve({ answer: '先检查权限。\n\n打开 **课程**。' })
+		await pending
+		assert.ok(reply.renderedContent.includes('<strong>课程</strong>'))
+		assert.equal(reply.coverage, null)
+		assert.equal(reply.coverageNotice, '')
+	} finally {
+		app.unmount()
+	}
+})
+
+test('transport errors remain visible outside an unfinished code block', async () => {
+	const app = setupAssistant({
+		chat: async (_request, _files, { onEvent }) => {
+			onEvent('token', { text: '```js\n  const value = 1;\n' })
+			throw new Error('连接中断，请重试。')
+		},
+	})
+	try {
+		app.api.inputMessage.value = '给出代码示例'
+		await app.api.sendMessage()
+		const reply = app.api.messages.value.at(-1)
+		assert.equal(reply.error, true)
+		assert.equal(reply.errorMessage, '连接中断，请重试。')
+		assert.equal(
+			new JSDOM(reply.renderedContent).window.document.querySelector('code')
+				.textContent,
+			'  const value = 1;\n'
+		)
+		assert.equal(reply.renderedContent.includes('连接中断'), false)
 	} finally {
 		app.unmount()
 	}

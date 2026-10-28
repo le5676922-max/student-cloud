@@ -6,7 +6,7 @@
 		<p>
 			第三方云盘可以直接添加；服务器本地云盘由全局管理员批准，目录由系统分配。
 		</p>
-		<form v-if="!isAdmin" @submit.prevent="submit">
+		<form v-if="!isAdmin" novalidate @submit.prevent="submit">
 			<label
 				>申请用途<input
 					v-model="reason"

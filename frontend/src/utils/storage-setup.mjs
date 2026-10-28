@@ -170,9 +170,10 @@ export function storageFieldHint(key, type) {
 			placeholder: '/data/files 或 D:\\Cloud Files',
 		},
 		basePath: {
-			description:
-				'只显示这个存储目录下的文件；使用以 / 开头的目录，不填写 ..。',
-			placeholder: '/',
+			description: OBJECT_TYPES.has(type)
+				? '只显示这个专用对象前缀下的文件；可留空，不能使用 .. 或系统保留目录。'
+				: '只显示这个存储目录下的文件；使用以 / 开头的目录，不填写 ..。',
+			placeholder: OBJECT_TYPES.has(type) ? 'private/courses/' : '/',
 		},
 		host: {
 			description: '仅填写远程主机名或 IP，不包含协议、端口、账号或目录。',
@@ -333,6 +334,7 @@ export function storageSetupIssues({
 	params = {},
 	fields = [],
 	fieldShowMap,
+	objectPrefix = false,
 } = {}) {
 	const issues = []
 	for (const field of Array.isArray(fields) ? fields : []) {
@@ -362,11 +364,22 @@ export function storageSetupIssues({
 		else if (
 			key === 'basePath' &&
 			(typeof value !== 'string' ||
-				!value.startsWith('/') ||
+				(!objectPrefix && !value.startsWith('/')) ||
 				hasTraversal(value) ||
-				value.includes('\\'))
+				value.includes('\\') ||
+				(objectPrefix &&
+					(value.includes('//') ||
+						value
+							.split('/')
+							.some(
+								(part) =>
+									part === '.' ||
+									part.toLowerCase().startsWith('.studentcloud-')
+							))))
 		)
-			message = '基路径需以 / 开头，不能包含 ..、反斜杠或控制字符'
+			message = objectPrefix
+				? '对象前缀不能包含 ..、重复分隔符、系统保留目录、反斜杠或控制字符'
+				: '基路径需以 / 开头，不能包含 ..、反斜杠或控制字符'
 		else if (key === 'url' && type === 'webdav' && !cleanUrl(value))
 			message =
 				'WebDAV 地址需为完整 http(s) 地址，不能包含账号密码、签名参数或片段'

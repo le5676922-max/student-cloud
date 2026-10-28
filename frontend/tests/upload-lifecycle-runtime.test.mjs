@@ -6,6 +6,7 @@ import * as vue from 'vue'
 import * as lifecycle from '../src/composables/file/upload-lifecycle.mjs'
 import * as progress from '../src/composables/file/upload-progress.mjs'
 import * as resumableUpload from '../src/utils/resumable-upload.mjs'
+import * as independentResumableUpload from '../src/utils/independent-resumable-upload.mjs'
 import * as fileChangeRefresh from '../src/utils/file-change-refresh.mjs'
 
 // Run the real composable/watchers. All signing, mkdir and HTTP transfers are synthetic.
@@ -54,6 +55,7 @@ function setupUploads({ limit = 2, uploadType = 'PROXY', resumable } = {}) {
 		loadings = []
 	const resumableRequests = [], passwordContexts = []
 	const fileChanges = []
+	const credential = vue.ref('fixture-session-one')
 	const route = vue.reactive({ key: 'source-one', path: '/original' })
 	const storage = vue.reactive({
 		loginInfo: { isLogin: true, username: '10001', tenantId: 1 },
@@ -137,8 +139,9 @@ function setupUploads({ limit = 2, uploadType = 'PROXY', resumable } = {}) {
 			return '目录%password'
 		} }) },
 		'~/utils/resumable-upload.mjs': resumableUpload,
+		'~/utils/independent-resumable-upload.mjs': independentResumableUpload,
 		'~/utils/file-change-refresh.mjs': fileChangeRefresh,
-		'@vueuse/core': { useEventBus: (key) => ({ emit: (change) => {
+		'@vueuse/core': { useStorage: () => credential, useEventBus: (key) => ({ emit: (change) => {
 			assert.equal(key, 'cloud-files-changed')
 			fileChanges.push(plain(change))
 		} }) },
@@ -225,6 +228,7 @@ function setupUploads({ limit = 2, uploadType = 'PROXY', resumable } = {}) {
 		resumableRequests,
 		passwordContexts,
 		fileChanges,
+		credential,
 		factory: module.factory,
 		callerScope,
 		dispose: () => {
@@ -273,6 +277,36 @@ test('resumable composable preserves captured target/password context, skips acc
 	assert.deepEqual(h.fileChanges, [{
 		storageKey: 'source-one', path: '/original', accountIdentity: '["10001",1]',
 	}])
+})
+
+test('independent upload branch authenticates every request and omits legacy directory passwords', async (t) => {
+	const item = largeFile(), received = [0]
+	const h = setupUploads({ resumable: async (request) => {
+		assert.equal(request.config.containToken, true)
+		assert.equal(request.config.headers['X-Upload-Directory-Password'], undefined)
+		if (request.url.endsWith('/capabilities')) return { data: { ...resumeCaps, protocol: 'independent-v1', maxFileSize: 50 * 1024 * 1024 } }
+		if (request.method === 'PUT') received.push(Number(request.url.split('/').at(-1)))
+		return { data: resumeSession(item.size, [...received], request.url.endsWith('/complete') ? 'COMPLETED' : 'OPEN') }
+	} })
+	t.after(h.dispose)
+	h.storage.globalConfig.accountModel = 'independent'
+	h.api.uploadFile(item)
+	await waitFor(() => h.api.uploadProgressInfoSorted.value[0]?.status === 'finished')
+	assert.equal(h.signatures.length, 0)
+	assert.equal(h.passwordContexts.length, 0)
+	assert.equal(h.fileChanges[0].accountIdentity, '["10001",1]')
+	assert.deepEqual(h.resumableRequests.filter(request => request.method === 'PUT').map(request => request.url.split('/').at(-1)), ['1', '2'])
+})
+
+test('independent logout rejects new uploads before making any resumable request', async (t) => {
+	const h = setupUploads()
+	t.after(h.dispose)
+	h.storage.globalConfig.accountModel = 'independent'
+	h.storage.loginInfo.isLogin = false
+	h.api.uploadFile(largeFile())
+	await flush()
+	assert.equal(h.resumableRequests.length, 0)
+	assert.equal(h.signatures.length, 0)
 })
 
 test('resumable probe failure is visible and never falls back to whole-file signing', async (t) => {
@@ -492,6 +526,19 @@ test('same account metadata refresh preserves uploads but tenant change cancels 
 	assert.equal(h.signatures[0].config.signal.aborted, false)
 	h.storage.loginInfo.tenantId = 2
 	assert.equal(h.signatures[0].config.signal.aborted, true)
+})
+test('replacement credential cancels active uploads and queued work for the same account', async (t) => {
+	const h = setupUploads({ limit: 1 })
+	t.after(h.dispose)
+	h.api.uploadFile(file())
+	h.api.uploadFile(file('queued.txt'))
+	h.credential.value = 'fixture-session-two'
+	assert.equal(h.signatures[0].config.signal.aborted, true)
+	assert.equal(h.api.uploadProgressInfoSorted.value.length, 0)
+	h.signatures[0].resolve({ data: '/old-session' })
+	await flush()
+	assert.equal(h.transfers.length, 0)
+	assert.equal(h.signatures.length, 1)
 })
 
 test('late transfer progress/success after cancel is ignored', async (t) => {

@@ -1,0 +1,18 @@
+# syntax=docker/dockerfile:1
+# Compose supplies frontend/ as the source context and nginx/ as a small named context.
+FROM node:24-alpine AS builder
+WORKDIR /app
+RUN npm install --global pnpm@11.19.0
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm run typecheck && pnpm run build
+
+FROM nginx:stable-alpine
+COPY --from=microservice-nginx default.conf /etc/nginx/templates/default.conf.template
+COPY --from=microservice-nginx proxy.inc /etc/nginx/student-cloud/proxy.inc
+COPY --from=builder /app/dist/ /usr/share/nginx/html/
+ENV SC_HTTPS_EDGE_PROXY_IP=127.0.0.1
+EXPOSE 8080
+HEALTHCHECK --interval=20s --timeout=4s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1

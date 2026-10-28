@@ -119,6 +119,8 @@ export function taskStepLabel(action) {
 		{
 			MOVE_FILE: '移动文件',
 			RENAME_FILE: '重命名文件',
+			MAKE_DIRECTORY: '新建文件夹',
+			COPY_FILE: '复制文件',
 			INDEX_MATERIAL: '建立资料索引',
 		}[action] || '未知操作（请重新生成预览）'
 	)

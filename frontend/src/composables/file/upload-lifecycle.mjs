@@ -6,6 +6,9 @@ export function uploadAccountIdentity(loginInfo) {
 	return JSON.stringify([
 		String(loginInfo.username),
 		loginInfo.tenantId ?? null,
+		...(loginInfo.id != null || loginInfo.accountId != null || loginInfo.role != null
+			? [loginInfo.id ?? null, loginInfo.accountId ?? null, loginInfo.role ?? null]
+			: []),
 	])
 }
 
@@ -15,6 +18,7 @@ export function captureUploadTarget({
 	folderConfig,
 	rootPath,
 	accountIdentity,
+	accountModel,
 }) {
 	if (!accountIdentity) throw new Error('请先登录后上传文件')
 	if (typeof storageKey !== 'string' || !storageKey)
@@ -32,6 +36,7 @@ export function captureUploadTarget({
 		uploadType,
 		rootPath: typeof rootPath === 'string' ? rootPath : '',
 		accountIdentity,
+		...(accountModel === 'independent' ? { accountModel } : {}),
 		canCreateFolder: folderConfig.permission.newFolder === true,
 		needCreateFolderBeforeUpload:
 			folderConfig.metadata.needCreateFolderBeforeUpload === true,

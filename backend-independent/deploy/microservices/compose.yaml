@@ -1,0 +1,31 @@
+name: student-cloud-microservices-local
+services:
+  mysql:
+    extends: {file: compose.services.yaml, service: mysql}
+  platform:
+    extends: {file: compose.services.yaml, service: platform}
+    depends_on: {mysql: {condition: service_healthy}}
+  content:
+    extends: {file: compose.services.yaml, service: content}
+    depends_on: {mysql: {condition: service_healthy}, platform: {condition: service_healthy}}
+  intelligence:
+    extends: {file: compose.services.yaml, service: intelligence}
+    depends_on: {mysql: {condition: service_healthy}, platform: {condition: service_healthy}, content: {condition: service_healthy}}
+  gateway:
+    extends: {file: compose.services.yaml, service: gateway}
+    depends_on: {platform: {condition: service_healthy}, content: {condition: service_healthy}, intelligence: {condition: service_healthy}}
+  frontend:
+    extends: {file: compose.services.yaml, service: frontend}
+    depends_on: {gateway: {condition: service_healthy}}
+  redis:
+    extends: {file: compose.services.yaml, service: redis}
+volumes:
+  mysql_data:
+  content_tmp:
+  redis_data:
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: ${SC_EDGE_SUBNET:-172.30.50.0/28}
+          gateway: ${SC_HTTPS_EDGE_PROXY_IP:-172.30.50.1}

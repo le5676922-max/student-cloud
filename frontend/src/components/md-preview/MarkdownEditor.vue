@@ -13,6 +13,7 @@
 		<div class="markdown-editor-columns">
 			<textarea
 				ref="input"
+				style="resize: none"
 				:value="modelValue"
 				aria-label="Markdown 编辑内容"
 				spellcheck="false"
@@ -94,7 +95,6 @@ function insert(tool) {
 	width: 100%;
 	height: 100%;
 	padding: 14px;
-	resize: none;
 	outline: none;
 	border-right: 1px solid var(--el-border-color);
 	font: 14px/1.6 monospace;

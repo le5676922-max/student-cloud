@@ -1,5 +1,9 @@
 <template>
-	<section class="business-charts" aria-labelledby="business-charts-title">
+	<section
+		v-if="store.globalConfig?.accountModel !== 'independent'"
+		class="business-charts"
+		aria-labelledby="business-charts-title"
+	>
 		<header class="business-heading">
 			<div>
 				<h2 id="business-charts-title">业务运行概况</h2>
@@ -13,23 +17,21 @@
 				</button>
 			</div>
 		</header>
-		<form class="metrics-filter" @submit.prevent="applyFilter">
+		<form novalidate class="metrics-filter" @submit.prevent="applyFilter">
 			<label
-				>工作空间<select
+				>工作空间<el-select
 					v-model="tenantDraft"
 					:disabled="loading"
 					aria-label="选择统计工作空间"
 				>
-					<option value="">全部空间</option>
-					<option
+					<el-option value="" label="全部空间" />
+					<el-option
 						v-for="item in choices"
 						:key="item.id"
 						:value="String(item.id)"
-					>
-						{{ item.name }}
-					</option>
-				</select></label
-			>
+						:label="item.name"
+					/> </el-select
+			></label>
 			<details>
 				<summary>按空间 ID 筛选</summary>
 				<label
@@ -454,7 +456,11 @@ async function load() {
 	controller = new AbortController()
 	const current = ++version,
 		signal = controller.signal
-	if (store.loginInfo.role !== 'ADMIN' || store.loginInfo.isLogin !== true) {
+	if (
+		store.globalConfig?.accountModel === 'independent' ||
+		store.loginInfo.role !== 'ADMIN' ||
+		store.loginInfo.isLogin !== true
+	) {
 		metrics.value = null
 		loading.value = false
 		return
@@ -524,6 +530,7 @@ function filterWorkspace(id) {
 }
 watch(
 	() => [
+		store.globalConfig?.accountModel,
 		store.loginInfo.role,
 		store.loginInfo.username,
 		store.loginInfo.tenantId,
@@ -598,7 +605,6 @@ onUnmounted(() => {
 	align-items: center;
 	font-size: 12px;
 }
-.metrics-filter select,
 .metrics-filter input {
 	max-width: 210px;
 	background: #fff;
@@ -606,6 +612,9 @@ onUnmounted(() => {
 	border: 1px solid #ded8e4;
 	border-radius: 8px;
 	padding: 7px 10px;
+}
+.metrics-filter :deep(.el-select) {
+	width: 210px;
 }
 .metrics-filter details {
 	font-size: 12px;

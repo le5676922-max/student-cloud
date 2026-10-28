@@ -1,0 +1,17 @@
+# Service images receive only the four built executable artifacts and build recipes.
+**
+!cloud-platform-service/
+!cloud-platform-service/target/
+!cloud-platform-service/target/*-SNAPSHOT.jar
+!cloud-content-service/
+!cloud-content-service/target/
+!cloud-content-service/target/*-SNAPSHOT.jar
+!cloud-intelligence-service/
+!cloud-intelligence-service/target/
+!cloud-intelligence-service/target/*-SNAPSHOT.jar
+!cloud-gateway/
+!cloud-gateway/target/
+!cloud-gateway/target/*-SNAPSHOT.jar
+!deploy/
+!deploy/microservices/
+!deploy/microservices/Dockerfile.service

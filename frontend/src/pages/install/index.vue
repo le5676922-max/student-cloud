@@ -76,6 +76,7 @@
 							<el-input
 								id="career-install-site"
 								v-model.trim="formData.siteName"
+								maxlength="80"
 								placeholder="例如：学生云盘"
 								autocomplete="organization"
 								@focus="isTyping = true"
@@ -91,7 +92,7 @@
 								id="career-install-account"
 								v-model.trim="formData.username"
 								placeholder="设置管理员登录账号"
-								maxlength="100"
+								maxlength="64"
 								autocomplete="username"
 								:spellcheck="false"
 								@focus="isTyping = true"
@@ -107,7 +108,7 @@
 								id="career-install-password"
 								v-model="formData.password"
 								:type="passwordVisible ? 'text' : 'password'"
-								placeholder="设置 6–128 位密码"
+								placeholder="设置 8–128 位密码"
 								maxlength="128"
 								autocomplete="new-password"
 								@keyup="updateCapsLock"
@@ -185,6 +186,11 @@ const formRules = {
 			message: '请输入站点名称',
 			trigger: ['change', 'blur'],
 		},
+		{
+			max: 80,
+			message: '站点名称不能超过 80 个字符',
+			trigger: ['change', 'blur'],
+		},
 	],
 	username: [
 		{
@@ -194,8 +200,8 @@ const formRules = {
 			trigger: ['change', 'blur'],
 		},
 		{
-			max: 100,
-			message: '管理员账号不能超过 100 个字符',
+			max: 64,
+			message: '管理员账号不能超过 64 个字符',
 			trigger: ['change', 'blur'],
 		},
 	],
@@ -207,9 +213,9 @@ const formRules = {
 			trigger: ['change', 'blur'],
 		},
 		{
-			min: 6,
+			min: 8,
 			max: 128,
-			message: '密码长度为 6–128 位',
+			message: '密码长度为 8–128 位',
 			trigger: ['change', 'blur'],
 		},
 	],

@@ -31,6 +31,16 @@ const member = {
 	enable: true,
 }
 
+test('independent accounts allow the first workspace administrator with ID 2 without weakening legacy guest protection', () => {
+	const row = { ...administrator, id: 2 }
+	const page = { records: [row], total: 1, page: 1, pageSize: 10, accountModel: 'independent' }
+	assert.equal(validWorkspaceUserPage(page, 9, 'TENANT_ADMIN'), true)
+	assert.equal(canManageWorkspaceAdministrator({ ...row, accountModel: 'independent' }, 9), true)
+	assert.equal(validWorkspaceUserPage({ ...page, accountModel: undefined }, 9, 'TENANT_ADMIN'), false)
+	assert.equal(canManageWorkspaceAdministrator(row, 9), false)
+	assert.equal(canManageWorkspaceAdministrator({ ...row, role: 'ADMIN', accountModel: 'independent' }, 9), false)
+})
+
 test('directory searches release initial deep-link IDs and reset pagination', () => {
 	const initial = { workspaceId: 9, page: 4, pageSize: 10, keyword: 'old' }
 	const searched = workspaceDirectorySearchQuery('  Beta_%  ', initial)

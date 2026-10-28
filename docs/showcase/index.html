@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Student Cloud 学生云盘与智能资料管理平台：浏览最新真实界面，了解空间协作、课程资料、私有预览与小芽 Agent。"
+    />
+    <meta name="theme-color" content="#1c1d20" />
+    <title>Student Cloud · 学生云盘与智能资料管理平台</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="style.css" />
+    <script src="gallery.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主要内容</a>
+    <div class="page">
+      <header class="header">
+        <a class="brand" href="./" aria-label="Student Cloud 展示首页"
+          ><span class="brand-mark" aria-hidden="true">☁</span>Student
+          Cloud<span class="brand-cn">学生云盘</span></a
+        >
+        <nav aria-label="主要导航">
+          <a href="#screens">界面预览</a>
+          <a href="#features">功能</a>
+          <a href="https://github.com/le5676922-max/student-cloud">GitHub ↗</a>
+        </nav>
+      </header>
+      <main id="main">
+        <section class="intro" aria-labelledby="intro-title">
+          <div>
+            <p class="eyebrow">面向学习团队的资料工作空间</p>
+            <h1 id="intro-title">资料有自己的位置，<br />协作有清楚的边界。</h1>
+            <p class="lead">
+              从个人云盘到共享课程，把上传、预览、整理和资料问答放在一起。小芽帮你准备操作方案，重要步骤由你确认。
+            </p>
+            <div class="actions">
+              <a class="button primary" href="#screens"
+                >浏览最新界面 <span aria-hidden="true">↓</span></a
+              ><a
+                class="button"
+                href="https://github.com/le5676922-max/student-cloud#quick-start"
+                >自行部署 ↗</a
+              >
+            </div>
+          </div>
+          <aside class="intro-note" aria-label="预览说明">
+            <span class="note-mark" aria-hidden="true">↗</span
+            ><strong>先看看，再部署。</strong>
+            <p>
+              这里展示真实本地运行截图，可切换页面、查看原图。不需要注册，也不会访问你的个人文件。
+            </p>
+            <p class="small">
+              更新于 2026-10-28 · GitHub Pages 静态展示<br />完整文件操作需要运行项目后端。
+            </p>
+          </aside>
+        </section>
+
+        <section id="screens" class="screens" aria-labelledby="screens-title">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">真实界面 / 虚构演示资料</p>
+              <h2 id="screens-title">看看用起来是什么样。</h2>
+            </div>
+            <a
+              id="original-link"
+              href="images/login.jpg"
+              target="_blank"
+              rel="noopener"
+              >查看当前原图 ↗</a
+            >
+          </div>
+          <div class="gallery-controls" role="group" aria-label="选择预览界面">
+            <button type="button" data-screen="login" aria-pressed="true">
+              登录界面
+            </button>
+            <button type="button" data-screen="files" aria-pressed="false">
+              文件管理
+            </button>
+            <button type="button" data-screen="markdown" aria-pressed="false">
+              资料预览
+            </button>
+            <button type="button" data-screen="workspace" aria-pressed="false">
+              空间管理
+            </button>
+            <button type="button" data-screen="assistant" aria-pressed="false">
+              小芽助手
+            </button>
+            <button type="button" data-screen="model" aria-pressed="false">
+              三维模型
+            </button>
+          </div>
+          <figure class="gallery">
+            <div class="image-surface">
+              <img
+                id="screen-image"
+                src="images/login.jpg"
+                width="1280"
+                height="720"
+                alt="学生云盘登录界面，几何角色插画与邮箱或账号密码表单"
+                fetchpriority="high"
+                decoding="async"
+              />
+            </div>
+            <figcaption id="screen-caption" aria-live="polite">
+              <strong>登录界面</strong
+              ><span>邮箱或账号 ID 登录；保留几何角色互动与灰白主题。</span>
+            </figcaption>
+          </figure>
+          <p id="image-error" class="image-error" role="status" hidden>
+            图片暂时未加载，请选择其他界面，或使用“查看当前原图”打开。
+          </p>
+          <noscript
+            ><p>
+              可直接查看原图：<a href="images/files.jpg">文件管理</a> ·
+              <a href="images/markdown.jpg">资料预览</a> ·
+              <a href="images/workspace.jpg">空间管理</a> ·
+              <a href="images/assistant.jpg">小芽</a> ·
+              <a href="images/model.jpg">模型</a>。
+            </p></noscript
+          >
+        </section>
+
+        <section
+          id="features"
+          class="features"
+          aria-labelledby="features-title"
+        >
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">围绕日常资料使用</p>
+              <h2 id="features-title">从保存文件，到一起学习。</h2>
+            </div>
+          </div>
+          <div class="feature-grid">
+            <article>
+              <span class="feature-symbol" aria-hidden="true">▤</span>
+              <h3>自己的云盘</h3>
+              <p>
+                本地与 OSS/S3
+                存储接入、个人目录授权和容量限制。文件上传、下载、检索与整理各有清楚的操作反馈。
+              </p>
+            </article>
+            <article>
+              <span class="feature-symbol" aria-hidden="true">⊞</span>
+              <h3>共享课程</h3>
+              <p>
+                课程与工作空间分开授权。邀请码可设到期时间和人数上限；课程创建者审批上传权限。
+              </p>
+            </article>
+            <article>
+              <span class="feature-symbol" aria-hidden="true">◉</span>
+              <h3>打开就能看</h3>
+              <p>
+                图片、PDF、Markdown、代码、音视频、只读 Office 与
+                OBJ/STL。私有预览在当前浏览器内展示。
+              </p>
+            </article>
+            <article>
+              <span class="feature-symbol" aria-hidden="true">✳</span>
+              <h3>小芽 Agent</h3>
+              <p>
+                资料问答、长期记忆和文件整理方案。支持的写操作经你确认后执行，未解决反馈可由管理员整理为知识。
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section class="architecture" aria-labelledby="architecture-title">
+          <div>
+            <p class="eyebrow">当前源码架构</p>
+            <h2 id="architecture-title">三个业务服务，职责各自清楚。</h2>
+            <p>
+              Vue 前端经 Nginx 与 Spring Cloud Gateway
+              访问服务。平台、内容、智能服务分别管理自己的数据库，通过明确的内部接口协作。
+            </p>
+            <a
+              href="https://github.com/le5676922-max/student-cloud/tree/main/backend-independent"
+              >查看独立后端与部署说明 ↗</a
+            >
+          </div>
+          <div class="service-map" aria-label="三个业务服务与网关的职责">
+            <div class="gateway">
+              Spring Cloud Gateway <span>统一入口</span>
+            </div>
+            <div class="services">
+              <div>
+                <strong>平台服务</strong><span>账号 · 工作空间 · 客服</span>
+              </div>
+              <div>
+                <strong>内容服务</strong><span>云盘 · 课程 · 授权与容量</span>
+              </div>
+              <div>
+                <strong>智能服务</strong><span>小芽 · 知识 · 自动化任务</span>
+              </div>
+            </div>
+            <p>
+              Java 21 · Spring Boot 4.1.2 · Spring Cloud 2025.1.4 · MySQL ·
+              Docker
+            </p>
+          </div>
+        </section>
+        <section class="start">
+          <div>
+            <h2>把它变成你的资料工作空间。</h2>
+            <p>阅读完整 README，了解启动步骤、权限规则和当前能力边界。</p>
+          </div>
+          <a
+            class="button primary"
+            href="https://github.com/le5676922-max/student-cloud#quick-start"
+            >阅读部署与使用说明 ↗</a
+          >
+        </section>
+      </main>
+      <footer>
+        <span>Student Cloud · 学生云盘与智能资料管理平台</span
+        ><a
+          href="https://github.com/le5676922-max/student-cloud/blob/main/LICENSE"
+          >开源许可</a
+        ><a href="https://github.com/le5676922-max/student-cloud/tree/main/docs"
+          >项目文档 ↗</a
+        >
+      </footer>
+    </div>
+  </body>
+</html>

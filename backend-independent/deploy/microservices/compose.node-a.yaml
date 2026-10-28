@@ -1,0 +1,33 @@
+name: student-cloud-microservices-a
+# Node A: public reverse proxy + Gateway + platform + one MySQL with three isolated schemas.
+services:
+  mysql:
+    extends: {file: compose.services.yaml, service: mysql}
+    # Bind only the ECS private address. Security group: accept port3306 only from node B.
+    ports: ["${SC_NODE_A_IP:?Set private ECS A address}:3306:3306"]
+  platform:
+    extends: {file: compose.services.yaml, service: platform}
+    environment:
+      SC_CONTENT_URI: http://${SC_NODE_B_IP:?Set private ECS B address}:18102
+    ports: ["${SC_NODE_A_IP:?Set private ECS A address}:18101:18101"]
+    depends_on: {mysql: {condition: service_healthy}}
+  gateway:
+    extends: {file: compose.services.yaml, service: gateway}
+    environment:
+      SC_CONTENT_URI: http://${SC_NODE_B_IP:?Set private ECS B address}:18102
+      SC_INTELLIGENCE_URI: http://${SC_NODE_B_IP:?Set private ECS B address}:18103
+    # Optional loopback troubleshooting endpoint; no public business-service ports.
+    ports: ["127.0.0.1:18093:18093"]
+    depends_on: {platform: {condition: service_healthy}}
+  frontend:
+    extends: {file: compose.services.yaml, service: frontend}
+    # The shared definition binds 127.0.0.1:18094. Put the final HTTPS proxy in front after acceptance.
+    depends_on: {gateway: {condition: service_healthy}}
+volumes:
+  mysql_data:
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: ${SC_EDGE_SUBNET:-172.30.50.0/28}
+          gateway: ${SC_HTTPS_EDGE_PROXY_IP:-172.30.50.1}

@@ -597,7 +597,7 @@ function useInitLoadData() {
 					!account ||
 					account.id !== Number(currentUserId) ||
 					account.id <= 0 ||
-					account.id === 2 ||
+					(account.id === 2 && storageConfigStore.globalConfig?.accountModel !== 'independent') ||
 					!['ADMIN', 'USER', 'TENANT_ADMIN'].includes(account.role) ||
 					(account.id === 1 && account.role !== 'ADMIN')
 				)

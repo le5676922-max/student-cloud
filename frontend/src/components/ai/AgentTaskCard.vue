@@ -37,7 +37,14 @@
 					<strong>{{ taskStepLabel(step.action) }}</strong>
 					<div>{{ step.storageKey }} · {{ step.sourcePath }}</div>
 					<div
-						v-if="step.action === 'MOVE_FILE' || step.action === 'RENAME_FILE'"
+						v-if="
+							[
+								'MOVE_FILE',
+								'RENAME_FILE',
+								'COPY_FILE',
+								'MAKE_DIRECTORY',
+							].includes(step.action)
+						"
 					>
 						→ {{ step.targetPath }}
 					</div>

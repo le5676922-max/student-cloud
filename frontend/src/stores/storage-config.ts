@@ -9,6 +9,7 @@ const useStorageConfigStore = defineStore('storageConfigStore', {
 	state: () => {
 		return {
 			globalConfig: {
+				accountModel: '',
 				siteName: '',
 				directLinkPrefix: '',
 				infoEnable: false,

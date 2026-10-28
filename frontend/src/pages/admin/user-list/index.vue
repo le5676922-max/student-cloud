@@ -18,7 +18,7 @@
 					<h2 id="space-navigation-title">工作空间</h2>
 					<router-link to="/admin/tenant-list">空间管理 →</router-link>
 				</div>
-				<form class="space-search" @submit.prevent="searchSpaces">
+				<form novalidate class="space-search" @submit.prevent="searchSpaces">
 					<el-input
 						v-model="spaceKeyword"
 						placeholder="搜索空间名称 / ID"
@@ -141,7 +141,11 @@
 								>新增空间管理员</el-button
 							>
 						</div>
-						<form class="people-search" @submit.prevent="searchAdministrators">
+						<form
+							novalidate
+							class="people-search"
+							@submit.prevent="searchAdministrators"
+						>
 							<el-input
 								v-model="administratorKeyword"
 								placeholder="搜索账号 ID、用户名、昵称或邮箱"
@@ -302,7 +306,11 @@
 							<p class="ownership-note">
 								成员新增、加入审批和存储权限由本空间管理员处理；全局管理员在这里总览空间人员，不设置成员权限。
 							</p>
-							<form class="people-search" @submit.prevent="searchMembers">
+							<form
+								novalidate
+								class="people-search"
+								@submit.prevent="searchMembers"
+							>
 								<el-input
 									v-model="memberKeyword"
 									placeholder="搜索账号 ID、用户名、昵称或邮箱"
@@ -552,6 +560,11 @@ async function loadAdministrators(params = administratorQuery.value) {
 		if (!validWorkspaceUserPage(response?.data, tenantId, 'TENANT_ADMIN'))
 			throw new Error('Invalid administrator page')
 		administratorPage.value = response.data
+		if (response.data.accountModel === 'independent')
+			administratorPage.value.records = response.data.records.map((row) => ({
+				...row,
+				accountModel: 'independent',
+			}))
 		administratorQuery.value = {
 			...query,
 			page: response.data.page,

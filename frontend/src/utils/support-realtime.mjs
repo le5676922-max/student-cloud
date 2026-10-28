@@ -106,6 +106,7 @@ export function createSupportRealtime({
 			const candidate = new WebSocketImpl(
 				supportSocketUrl({ ...ticket, baseUrl: baseUrl(), origin: origin() })
 			)
+			let readySeen = false
 			socket = candidate
 			// Abandoned handshakes must not remain CONNECTING forever.
 			pongTimer = setTimer(() => endSocket(version, candidate), 12000)
@@ -127,6 +128,11 @@ export function createSupportRealtime({
 						if (pongTimer !== null) clearTimer(pongTimer)
 						pongTimer = null
 						heartbeat(version, candidate)
+					} else if (message.type === 'support.ready' && !readySeen) {
+						// The server has now registered this subscriber. Reload after that
+						// barrier to cover changes committed between HTTP 101 and registration.
+						readySeen = true
+						onChange(null)
 					} else if (
 						message.type === 'support.changed' &&
 						typeof message.conversationId === 'string'

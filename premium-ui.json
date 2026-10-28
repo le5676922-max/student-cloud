@@ -1,0 +1,19 @@
+{
+  "profile": "product-admin",
+  "sourceRoots": ["frontend/src"],
+  "locale": "zh-CN",
+  "canonicalMap": "UX-CONTRACT.md",
+  "requiredCapabilities": ["Select/Listbox", "Form", "Scrollbar", "Toast", "CRUD"],
+  "ownership": {"Select/Listbox": "native", "Date": "native"},
+  "requiredCommands": ["unit", "typecheck", "build", "design"],
+  "commands": {
+    "unit": "cd frontend && npm run test:unit",
+    "typecheck": "cd frontend && npm run typecheck",
+    "build": "cd frontend && npm run build",
+    "design": "node frontend/scripts/check-design-contract.mjs"
+  },
+  "evidence": {
+    "crudFullFlow": "frontend/tests/storage-edit-runtime.test.mjs",
+    "failurePaths": "frontend/tests/storage-list-page-runtime.test.mjs"
+  }
+}

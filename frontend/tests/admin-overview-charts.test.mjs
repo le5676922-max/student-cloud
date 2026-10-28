@@ -59,6 +59,35 @@ test('rings have a complete bounded circumference and zero never fabricates a se
 	assert.deepEqual(chartHelpers.ringSegments([{ value: 0 }, { value: 0 }]), [])
 	assert.deepEqual(chartHelpers.ringSegments([{ value: null }]), [])
 })
+test('independent role totals add separately counted workspace administrators without subtracting them from ordinary members', () => {
+	const value = chartHelpers.overviewDistributions({
+		...fixture(),
+		accountModel: 'independent',
+		members: 6,
+		workspaceAdmins: 3,
+	})[0]
+	assert.equal(value.total, 9)
+	assert.deepEqual(
+		value.items.map((item) => item.value),
+		[3, 6]
+	)
+	assert.equal(
+		chartHelpers.overviewDistributions({
+			accountModel: 'independent',
+			members: 6,
+			workspaceAdmins: null,
+		})[0].total,
+		null
+	)
+	assert.equal(
+		chartHelpers.overviewDistributions({
+			accountModel: 'independent',
+			members: 0,
+			workspaceAdmins: 0,
+		})[0].total,
+		0
+	)
+})
 test('trend coordinates stay finite and missing daily counts are not plotted as zero', () => {
 	const chart = chartHelpers.overviewTrendSeries(fixture().dailyLogins)
 	for (const series of chart.series)

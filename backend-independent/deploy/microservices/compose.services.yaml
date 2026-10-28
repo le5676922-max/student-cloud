@@ -1,0 +1,165 @@
+# Shared service definitions, imported selectively by local / node-a / node-b manifests.
+
+x-service: &service
+  restart: unless-stopped
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: [/tmp:size=64m,mode=1777]
+  logging: {driver: json-file, options: {max-size: 10m, max-file: "3"}}
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    mem_limit: 1g
+    command: [--innodb-buffer-pool-size=512M, --max-connections=50, --mysqlx=0]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Generate .env first}
+      SC_PLATFORM_DB_PASSWORD: ${SC_PLATFORM_DB_PASSWORD:?Generate .env first}
+      SC_CONTENT_DB_PASSWORD: ${SC_CONTENT_DB_PASSWORD:?Generate .env first}
+      SC_INTELLIGENCE_DB_PASSWORD: ${SC_INTELLIGENCE_DB_PASSWORD:?Generate .env first}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/01-service-databases.sh:/docker-entrypoint-initdb.d/01-service-databases.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, 'MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysqladmin --user=root ping --silent']
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
+
+  platform:
+    <<: *service
+    image: ${SC_IMAGE_PREFIX:-student-cloud}/cloud-platform:${SC_IMAGE_TAG:-0.1.0-SNAPSHOT}
+    build: {context: ../.., dockerfile: deploy/microservices/Dockerfile.service, args: {APP_MODULE: cloud-platform-service}}
+    mem_limit: 640m
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m -Xss512k -XX:MaxDirectMemorySize=64m -XX:+ExitOnOutOfMemoryError
+      SPRING_PROFILES_ACTIVE: mysql
+      SC_BIND_ADDRESS: 0.0.0.0
+      SC_PORT: "18101"
+      SC_INTERNAL_KEY: ${SC_INTERNAL_KEY:?Generate .env first}
+      SC_ALLOWED_ORIGINS: ${SC_ALLOWED_ORIGINS:?Set browser origins}
+      SC_DB_URL: jdbc:mysql://mysql:3306/student_cloud_platform?characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+      SC_DB_USER: sc_platform
+      SC_DB_PASSWORD: ${SC_PLATFORM_DB_PASSWORD:?Generate .env first}
+      SC_CONTENT_URI: http://content:18102
+      SC_MAIL_ENABLED: ${SC_MAIL_ENABLED:-false}
+      SC_REGISTRATION_ENABLED: ${SC_REGISTRATION_ENABLED:-true}
+      SC_PASSWORD_RESET_ENABLED: ${SC_PASSWORD_RESET_ENABLED:-true}
+      SC_SMTP_HOST: ${SC_SMTP_HOST:-smtp.qq.com}
+      SC_SMTP_PORT: ${SC_SMTP_PORT:-465}
+      SC_SMTP_USERNAME: ${SC_SMTP_USERNAME:-}
+      SC_SMTP_PASSWORD: ${SC_SMTP_PASSWORD:-}
+      SC_SMTP_AUTH: "true"
+      SC_SMTP_SSL: "true"
+      SC_SMTP_STARTTLS: "false"
+
+  content:
+    <<: *service
+    image: ${SC_IMAGE_PREFIX:-student-cloud}/cloud-content:${SC_IMAGE_TAG:-0.1.0-SNAPSHOT}
+    build: {context: ../.., dockerfile: deploy/microservices/Dockerfile.service, args: {APP_MODULE: cloud-content-service}}
+    mem_limit: 1g
+    tmpfs: []
+    volumes:
+      - ./data/managed:/data/managed
+      - ./data/courses:/data/courses
+      - ./data/uploads:/data/uploads
+      - content_tmp:/tmp
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx384m -Xss512k -XX:MaxDirectMemorySize=64m -XX:+ExitOnOutOfMemoryError
+      SPRING_PROFILES_ACTIVE: mysql
+      SC_BIND_ADDRESS: 0.0.0.0
+      SC_PORT: "18102"
+      SC_INTERNAL_KEY: ${SC_INTERNAL_KEY:?Generate .env first}
+      SC_ALLOWED_ORIGINS: ${SC_ALLOWED_ORIGINS:?Set browser origins}
+      SC_PLATFORM_URI: http://platform:18101
+      SC_DB_URL: jdbc:mysql://mysql:3306/student_cloud_content?characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+      SC_DB_USER: sc_content
+      SC_DB_PASSWORD: ${SC_CONTENT_DB_PASSWORD:?Generate .env first}
+      SC_MANAGED_STORAGE_ROOT: /data/managed
+      SC_COURSE_STORAGE_ROOT: /data/courses
+      SC_UPLOAD_STAGING_ROOT: /data/uploads
+      SC_CONTENT_NODE_ID: ${SC_CONTENT_NODE_ID:-content-node-b}
+      SC_STORAGE_MASTER_KEY: ${SC_STORAGE_MASTER_KEY:-}
+      SC_STORAGE_ALLOWED_ENDPOINTS: ${SC_STORAGE_ALLOWED_ENDPOINTS:-}
+
+  intelligence:
+    <<: *service
+    image: ${SC_IMAGE_PREFIX:-student-cloud}/cloud-intelligence:${SC_IMAGE_TAG:-0.1.0-SNAPSHOT}
+    build: {context: ../.., dockerfile: deploy/microservices/Dockerfile.service, args: {APP_MODULE: cloud-intelligence-service}}
+    mem_limit: 768m
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m -Xss512k -XX:MaxDirectMemorySize=64m -XX:+ExitOnOutOfMemoryError
+      SPRING_PROFILES_ACTIVE: mysql
+      SC_BIND_ADDRESS: 0.0.0.0
+      SC_PORT: "18103"
+      SC_INTERNAL_KEY: ${SC_INTERNAL_KEY:?Generate .env first}
+      SC_ALLOWED_ORIGINS: ${SC_ALLOWED_ORIGINS:?Set browser origins}
+      SC_PLATFORM_URI: http://platform:18101
+      SC_CONTENT_URI: http://content:18102
+      SC_DB_URL: jdbc:mysql://mysql:3306/student_cloud_intelligence?characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false
+      SC_DB_USER: sc_intelligence
+      SC_DB_PASSWORD: ${SC_INTELLIGENCE_DB_PASSWORD:?Generate .env first}
+      SC_AI_BASE_URL: ${SC_AI_BASE_URL:-https://api.deepseek.com}
+      SC_AI_MODEL: ${SC_AI_MODEL:-deepseek-flash}
+      SC_AI_API_KEY: ${SC_AI_API_KEY:-}
+
+  gateway:
+    <<: *service
+    image: ${SC_IMAGE_PREFIX:-student-cloud}/cloud-gateway:${SC_IMAGE_TAG:-0.1.0-SNAPSHOT}
+    build: {context: ../.., dockerfile: deploy/microservices/Dockerfile.service, args: {APP_MODULE: cloud-gateway}}
+    mem_limit: 384m
+    tmpfs: [/tmp:size=16m,mode=1777]
+    environment:
+      JAVA_TOOL_OPTIONS: -Xms32m -Xmx128m -Xss512k -XX:MaxDirectMemorySize=64m -XX:+ExitOnOutOfMemoryError
+      SC_BIND_ADDRESS: 0.0.0.0
+      SC_PORT: "18093"
+      SC_HEALTH_PATH: healthz
+      SC_INTERNAL_KEY: ${SC_INTERNAL_KEY:?Generate .env first}
+      SC_GATEWAY_TRUSTED_PROXY_IPS: ${SC_FRONTEND_EDGE_IP:-172.30.50.2}
+      SC_ALLOWED_ORIGINS: ${SC_ALLOWED_ORIGINS:?Set browser origins}
+      SC_PLATFORM_URI: http://platform:18101
+      SC_PLATFORM_WS_URI: ws://platform:18101
+      SC_CONTENT_URI: http://content:18102
+      SC_INTELLIGENCE_URI: http://intelligence:18103
+    networks:
+      default: {}
+      edge: {}
+
+  frontend:
+    image: ${SC_IMAGE_PREFIX:-student-cloud}/cloud-frontend:${SC_IMAGE_TAG:-0.1.0-SNAPSHOT}
+    build:
+      context: ../../../frontend
+      dockerfile: ../backend-independent/deploy/microservices/Dockerfile.frontend
+      additional_contexts: {microservice-nginx: ./nginx}
+    restart: unless-stopped
+    mem_limit: 128m
+    environment:
+      SC_HTTPS_EDGE_PROXY_IP: ${SC_HTTPS_EDGE_PROXY_IP:-172.30.50.1}
+    networks:
+      edge: {ipv4_address: "${SC_FRONTEND_EDGE_IP:-172.30.50.2}"}
+    ports: ["127.0.0.1:18094:8080"]
+
+  redis:
+    image: redis:7-alpine
+    profiles: [cache-infrastructure]
+    restart: unless-stopped
+    mem_limit: 192m
+    environment: {REDIS_PASSWORD: "${SC_REDIS_PASSWORD:?Generate .env first}"}
+    command: [sh, -c, 'exec redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru --appendonly yes --requirepass "$$REDIS_PASSWORD"']
+    volumes: [redis_data:/data]
+    # Infrastructure template only; no application currently claims this cache is in use.
+
+volumes:
+  mysql_data:
+  content_tmp:
+  redis_data:
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: ${SC_EDGE_SUBNET:-172.30.50.0/28}
+          gateway: ${SC_HTTPS_EDGE_PROXY_IP:-172.30.50.1}

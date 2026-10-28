@@ -36,8 +36,8 @@
 					trigger="click"
 					popper-class="student-cloud-header-dropdown"
 				>
-					<button
-						type="button"
+					<el-button
+						native-type="button"
 						class="header-account-button"
 						aria-label="账户菜单"
 						aria-haspopup="menu"
@@ -50,7 +50,7 @@
 							class="header-account-chevron"
 							aria-hidden="true"
 						/>
-					</button>
+					</el-button>
 					<template #dropdown>
 						<el-dropdown-menu class="font-medium">
 							<el-dropdown-item>
@@ -163,9 +163,9 @@
 					trigger="click"
 					popper-class="student-cloud-header-dropdown"
 				>
-					<button
+					<el-button
 						v-show="route.params.storageKey"
-						type="button"
+						native-type="button"
 						class="header-icon-button"
 						aria-label="上传与新建菜单"
 						aria-haspopup="menu"
@@ -180,7 +180,7 @@
 						>
 							<CloudArrowUpIcon aria-hidden="true" />
 						</el-badge>
-					</button>
+					</el-button>
 					<template #dropdown>
 						<el-dropdown-menu class="font-medium">
 							<el-dropdown-item
@@ -262,14 +262,14 @@
 
 		<div v-if="isMobile" class="header-mobile-menu">
 			<el-dropdown trigger="click" popper-class="student-cloud-header-dropdown">
-				<button
-					type="button"
+				<el-button
+					native-type="button"
 					class="header-icon-button"
 					aria-label="打开文件菜单"
 					aria-haspopup="menu"
 				>
 					<Bars3Icon aria-hidden="true" />
-				</button>
+				</el-button>
 				<template #dropdown>
 					<el-dropdown-menu>
 						<el-dropdown-item
@@ -776,6 +776,11 @@ const openMyShare = () => {
 .header-account-button:hover {
 	border-color: #c9c0e4;
 	background: var(--cloud-soft);
+}
+.header-account-button > :deep(span) {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
 }
 .header-account-avatar {
 	display: grid;

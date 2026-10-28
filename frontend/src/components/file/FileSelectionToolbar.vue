@@ -120,21 +120,25 @@ const runAction = (action) => {
 
 <style scoped>
 .file-selection-toolbar {
-	position: sticky;
-	top: 8px;
+	position: absolute;
+	inset: 0;
 	z-index: 5;
+	box-sizing: border-box;
+	min-width: 0;
+	overflow: hidden;
 	display: flex;
 	align-items: center;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 	gap: 12px;
-	margin: 12px 0;
-	padding: 12px 14px;
+	margin: 0;
+	padding: 5px 12px;
 	border: 1px solid #dcd3f4;
 	border-radius: 14px;
 	background: var(--cloud-lilac);
 	box-shadow: 0 3px 12px #24242808;
 }
 .file-selection-summary {
+	flex-shrink: 0;
 	color: var(--cloud-ink);
 	font-size: 13px;
 	white-space: nowrap;
@@ -148,10 +152,16 @@ const runAction = (action) => {
 }
 .file-selection-buttons {
 	display: flex;
-	flex-wrap: wrap;
+	flex: 1;
+	min-width: 0;
+	flex-wrap: nowrap;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: thin;
 	gap: 6px;
 }
 .file-selection-toolbar .el-button {
+	flex-shrink: 0;
 	margin-left: 0;
 	padding: 8px 10px;
 }
@@ -165,16 +175,19 @@ const runAction = (action) => {
 	--el-button-hover-text-color: #94362e;
 }
 .file-selection-clear {
+	flex-shrink: 0;
 	margin-left: auto !important;
 	color: var(--cloud-muted);
 }
 @media (max-width: 767px) {
 	.file-selection-toolbar {
+		align-content: center;
+		flex-wrap: wrap;
 		gap: 9px;
-		padding: 10px;
-		top: 4px;
+		padding: 6px 8px;
 	}
 	.file-selection-buttons {
+		flex-basis: 100%;
 		order: 3;
 		width: 100%;
 	}

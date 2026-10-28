@@ -1,4 +1,4 @@
-import { ref, watch } from 'vue'
+import { h, ref, watch } from 'vue'
 import { ElLoading, ElMessage, ElMessageBox } from 'element-plus'
 import {
 	batchDeleteReq,
@@ -17,6 +17,15 @@ import useFileSelect from '~/composables/file/useFileSelect'
 import useFilePwd from '~/composables/file/useFilePwd'
 import useBatchOperatorResult from '~/composables/file/useBatchOperatorResult'
 import selectFolder from '~/components/file/selectFolder'
+import selfAxios from '~/http/request'
+import {
+	MAX_PRIVATE_DOWNLOAD_BYTES,
+	pickPrivateDownloadFile,
+	privateDownloadSize,
+	privateDownloadUrl,
+	validatePrivateDownloadResponse,
+	writePrivateDownloadStream,
+} from '~/utils/private-file-download.mjs'
 import { uploadAccountIdentity } from './upload-lifecycle.mjs'
 import {
 	captureFileOperationContext,
@@ -33,6 +42,7 @@ const { open: openBatchOperatorResultDialog } = useBatchOperatorResult()
 // Shared across toolbar, context menu, keyboard shortcuts and folder picker.
 export const operationBusy = ref(false)
 let activeOperation = null
+let pendingPrivateDownloads = 0
 
 const readContext = () => ({
 	storageKey: storageKey.value,
@@ -158,6 +168,149 @@ export default function useFileOperator() {
 		if (isCurrent(operation)) await loadFile({ path: operation.context.path })
 	}
 	const downloadFileUseWindowOpenMode = (url) => window.open(url)
+	const downloadPrivateFile = async (row) => {
+		if (pendingPrivateDownloads >= 2) {
+			ElMessage.warning('已有文件正在下载，请稍后重试')
+			return
+		}
+		let stop = () => {}
+		let closeConfirmation = () => {}
+		let closeProgress = () => {}
+		const controller = new AbortController()
+		let changed = false
+		pendingPrivateDownloads++
+		try {
+			const original = captureFileOperationContext(readContext(), [row])
+			if (!original.accountIdentity)
+				throw new Error('请登录后下载不超过50MiB的文件')
+			const expectedSize = privateDownloadSize(row.size)
+			const name = original.rows[0].name
+			// eslint-disable-next-line no-control-regex -- Strip unsafe filename control characters.
+			const filename = name.replace(/[\\/\u0000-\u001f]/g, '_') || 'download'
+			const url = privateDownloadUrl(row.url, original.storageKey)
+			stop = watch(
+				() => {
+					const current = readContext()
+					return [
+						current.storageKey,
+						current.path,
+						current.rootPath,
+						current.accountIdentity,
+						storageConfigStore.folderConfig.permission.download,
+					]
+				},
+				() => {
+					changed = true
+					controller.abort()
+					const close = closeConfirmation
+					closeConfirmation = () => {}
+					close()
+				},
+				{ flush: 'sync' }
+			)
+			const current = () =>
+				!changed &&
+				!controller.signal.aborted &&
+				isFileOperationContextCurrent(original, readContext()) &&
+				storageConfigStore.folderConfig.permission.download === true
+			if (storageConfigStore.globalConfig.enableNormalDownloadConfirm) {
+				const confirmed = await ElMessageBox.confirm(
+					({ close }) => {
+						// Close this confirmation only; unrelated dialogs must stay open.
+						closeConfirmation = close
+						return `是否确认下载文件「${name}」？`
+					},
+					'提示',
+					{
+						confirmButtonText: '确定',
+						cancelButtonText: '取消',
+						type: 'info',
+					}
+				).catch(() => false)
+				closeConfirmation = () => {}
+				if (!confirmed) return
+			}
+			if (!current()) return
+			// This must be the first awaited operation after the user's confirmation.
+			// Browsers without an active save gesture retain the bounded Blob path.
+			const handle = await pickPrivateDownloadFile(window, filename)
+			if (!current()) return
+			const downloadedBytes = ref(0)
+			if (handle) {
+				const progress = ElMessage.info({
+					message: () =>
+						h(
+							'span',
+							`正在保存「${name}」 ${Math.floor(
+								(downloadedBytes.value / (expectedSize || 1)) * 100
+							)}%`
+						),
+					duration: 0,
+					showClose: true,
+				})
+				closeProgress = () => progress.close()
+			}
+			const response = await selfAxios({
+				method: 'get',
+				url,
+				config: {
+					...(handle ? { adapter: 'fetch' } : {}),
+					responseType: handle ? 'stream' : 'blob',
+					maxContentLength: MAX_PRIVATE_DOWNLOAD_BYTES,
+					responseIntercept: false,
+					showDefaultMsg: false,
+					timeout: 120000,
+					signal: controller.signal,
+				},
+			})
+			if (handle) {
+				await writePrivateDownloadStream({
+					response,
+					handle,
+					expectedSize,
+					signal: controller.signal,
+					isCurrent: current,
+					abortNetwork: () => controller.abort(),
+					onProgress: (received) => {
+						downloadedBytes.value = received
+					},
+				})
+				if (current()) ElMessage.success(`已保存「${name}」`)
+				return
+			}
+			if (!current()) return
+			validatePrivateDownloadResponse(response, expectedSize)
+			if (
+				!(response.data instanceof Blob) ||
+				response.data.size !== expectedSize
+			)
+				throw new Error('文件下载响应无效')
+			const objectUrl = URL.createObjectURL(response.data)
+			const anchor = document.createElement('a')
+			try {
+				anchor.href = objectUrl
+				anchor.download = filename
+				anchor.style.display = 'none'
+				document.body.append(anchor)
+				anchor.click()
+			} finally {
+				anchor.remove()
+				setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+			}
+		} catch (error) {
+			controller.abort()
+			if (
+				!changed &&
+				error?.name !== 'AbortError' &&
+				error?.code !== 'ERR_CANCELED'
+			)
+				ElMessage.error('下载未完成，请刷新目录并检查权限或网络后重试')
+		} finally {
+			closeProgress()
+			stop()
+			pendingPrivateDownloads--
+		}
+	}
 	const batchDownloadFile = (row) => {
 		if (storageConfigStore.folderConfig.permission.download === false) return
 		if (!row?.name && !selectRows.value?.length) {
@@ -165,6 +318,10 @@ export default function useFileOperator() {
 			return
 		}
 		if (!row?.name && selectRows.value.length === 1) row = selectRows.value[0]
+		if (row?.authenticatedContent === true) {
+			void downloadPrivateFile(row)
+			return
+		}
 		const performDownload = () => {
 			if (row?.name) downloadFileUseWindowOpenMode(row.url)
 		}
@@ -424,6 +581,8 @@ export default function useFileOperator() {
 		const folders = rows.filter((row) => row.type === 'FOLDER').length
 		const files = rows.filter((row) => row.type === 'FILE').length
 		let message = rows.length === 1 ? '是否确认删除 ' : '是否确认批量删除 '
+		if (storageConfigStore.folderConfig?.metadata?.recycleBin === true)
+			message = '是否将以下内容移入回收站（保留7天，仍占用容量）：'
 		message += [folders && `${folders} 个文件夹`, files && `${files} 个文件`]
 			.filter(Boolean)
 			.join('，')

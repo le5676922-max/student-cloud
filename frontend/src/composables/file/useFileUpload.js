@@ -8,10 +8,14 @@ import {
 	tryResumableUpload,
 	readResumableStatus,
 } from '~/utils/resumable-upload.mjs'
+import {
+	tryIndependentResumableUpload,
+	readIndependentResumableStatus,
+} from '~/utils/independent-resumable-upload.mjs'
 import { concatPath, fileSizeFormat, removeDuplicateSeparator } from '~/utils'
 import { calculateUploadProgress } from './upload-progress.mjs'
 import { effectScope, getCurrentInstance, onBeforeUnmount, watch } from 'vue'
-import { useEventBus } from '@vueuse/core'
+import { useEventBus, useStorage } from '@vueuse/core'
 import { completedUploadFileChanges } from '~/utils/file-change-refresh.mjs'
 import {
 	captureUploadTarget,
@@ -58,10 +62,17 @@ const publishFileChanges = (target, path) => {
 		fileChanges.emit(change)
 }
 const uploadWatchScope = effectScope(true)
+const uploadCredential = useStorage('tongligong-student-cloud-token', '', undefined, {
+	writeDefaults: false,
+})
 let detachDropListeners = null
 
 const currentAccountIdentity = () =>
 	uploadAccountIdentity(storageConfigStore.loginInfo)
+const isCurrentUploadTarget = (target) =>
+	target.accountIdentity === currentAccountIdentity() &&
+	(target.accountModel === 'independent') ===
+		(storageConfigStore.globalConfig?.accountModel === 'independent')
 
 const createUploadOperation = (fileIndex, target, onCancel) => {
 	const operation = {
@@ -80,7 +91,7 @@ const isUploadOperationActive = (fileIndex) => {
 	return !!(
 		operation &&
 		!operation.controller.signal.aborted &&
-		operation.target.accountIdentity === currentAccountIdentity()
+		isCurrentUploadTarget(operation.target)
 	)
 }
 
@@ -135,16 +146,24 @@ export default function useFileUpload() {
 				headers: {
 					...headers,
 					// Percent encoding also supports Chinese passwords in HTTP headers.
-					'X-Upload-Directory-Password': encodeURIComponent(
-						getPathPwd(path, false, target) || ''
-					),
+					...(target.accountModel === 'independent'
+						? {}
+						: {
+								'X-Upload-Directory-Password': encodeURIComponent(
+									getPathPwd(path, false, target) || ''
+								),
+						  }),
 				},
 			},
 		})
 	}
 	const resumableUpload = (file, param, fileIndex, target) => {
 		const operation = uploadOperationMap.get(fileIndex)
-		return tryResumableUpload({
+		const transfer =
+			target.accountModel === 'independent'
+				? tryIndependentResumableUpload
+				: tryResumableUpload
+		return transfer({
 			file,
 			uploadType: target.uploadType,
 			storageKey: target.storageKey,
@@ -200,6 +219,7 @@ export default function useFileUpload() {
 			folderConfig: options.folderConfig ?? storageConfigStore.folderConfig,
 			rootPath: options.rootPath ?? storageConfigStore.user.rootPath,
 			accountIdentity: currentAccountIdentity(),
+			accountModel: storageConfigStore.globalConfig?.accountModel,
 		})
 
 	// 监听文件拖拽上传事件
@@ -708,7 +728,7 @@ export default function useFileUpload() {
 			ElMessage.warning(error.message)
 			return
 		}
-		if (target.accountIdentity !== currentAccountIdentity()) return
+		if (!isCurrentUploadTarget(target)) return
 		const fileIndex = uploadIndex++
 		let uploadToPath = target.directory
 
@@ -749,7 +769,7 @@ export default function useFileUpload() {
 
 	const startUpload = async (job) => {
 		const { file, index: fileIndex, target, uploadPath, foldersPrepared } = job
-		if (target.accountIdentity !== currentAccountIdentity()) return
+		if (!isCurrentUploadTarget(target)) return
 		const param = {
 			storageKey: target.storageKey,
 			path: uploadPath,
@@ -1467,7 +1487,11 @@ export default function useFileUpload() {
 				}
 			)
 			watch(
-				currentAccountIdentity,
+				[
+					currentAccountIdentity,
+					() => uploadCredential.value,
+					() => storageConfigStore.globalConfig?.accountModel === 'independent',
+				],
 				() => {
 					// Clear the queue first; canceled work must not pump into another account.
 					waitingFileList.splice(0)
@@ -1519,7 +1543,7 @@ export default function useFileUpload() {
 	const retryUpload = (item) => {
 		const failed = uploadingFileMap.get(item.index)
 		if (failed?.status !== 'error') return
-		if (failed.target.accountIdentity !== currentAccountIdentity()) {
+		if (!isCurrentUploadTarget(failed.target)) {
 			removeUploadFileByIndex(item.index)
 			return
 		}
@@ -1528,7 +1552,11 @@ export default function useFileUpload() {
 			const operation = createUploadOperation(item.index, failed.target)
 			failed.status = 'uploading'
 			failed.msg = '正在检查保存结果…'
-			readResumableStatus({
+			const readStatus =
+				failed.target.accountModel === 'independent'
+					? readIndependentResumableStatus
+					: readResumableStatus
+			readStatus({
 				id: failed.resumableId,
 				size: failed.size,
 				request: resumableRequest(item.index, failed.target, failed.uploadPath),

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.1.2</version>
+    <relativePath/>
+  </parent>
+  <groupId>io.studentcloud</groupId>
+  <artifactId>student-cloud-parent</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>Student Cloud Independent Backend</name>
+  <description>Independent implementation, without a source or runtime dependency on the legacy backend.</description>
+  <properties>
+    <java.version>21</java.version>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <junit-jupiter.version>5.12.2</junit-jupiter.version>
+    <spring-cloud.version>2025.1.4</spring-cloud.version>
+  </properties>
+  <modules>
+    <module>cloud-common</module>
+    <module>cloud-account-api</module>
+    <module>cloud-drive</module>
+    <module>cloud-object-storage</module>
+    <module>cloud-account</module>
+    <module>cloud-tasks</module>
+    <module>cloud-drive-application</module>
+    <module>cloud-course</module>
+    <module>cloud-assistant</module>
+    <module>cloud-support</module>
+    <module>cloud-service-runtime</module>
+    <module>cloud-service-clients</module>
+    <module>cloud-platform-service</module>
+    <module>cloud-content-service</module>
+    <module>cloud-intelligence-service</module>
+    <module>cloud-gateway</module>
+  </modules>
+  <dependencyManagement>
+    <dependencies>
+      <dependency><groupId>org.springframework.cloud</groupId><artifactId>spring-cloud-dependencies</artifactId><version>${spring-cloud.version}</version><type>pom</type><scope>import</scope></dependency>
+      <dependency><groupId>io.studentcloud</groupId><artifactId>cloud-account-api</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.studentcloud</groupId><artifactId>cloud-service-runtime</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.studentcloud</groupId><artifactId>cloud-service-clients</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.studentcloud</groupId><artifactId>cloud-common</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.studentcloud</groupId><artifactId>cloud-drive</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.studentcloud</groupId><artifactId>cloud-object-storage</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.studentcloud</groupId><artifactId>cloud-account</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.studentcloud</groupId><artifactId>cloud-tasks</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.studentcloud</groupId><artifactId>cloud-drive-application</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.studentcloud</groupId><artifactId>cloud-course</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.studentcloud</groupId><artifactId>cloud-assistant</artifactId><version>${project.version}</version></dependency>
+      <dependency><groupId>io.studentcloud</groupId><artifactId>cloud-support</artifactId><version>${project.version}</version></dependency>
+    </dependencies>
+  </dependencyManagement>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId><artifactId>maven-enforcer-plugin</artifactId><version>3.6.3</version>
+        <executions><execution><id>independent-implementation-boundary</id><goals><goal>enforce</goal></goals>
+          <configuration><rules><bannedDependencies><searchTransitive>true</searchTransitive>
+            <excludes><exclude>im.tlgxy:*</exclude><exclude>im.zfile:*</exclude><exclude>io.studentcloud:cloud-server</exclude></excludes>
+            <message>Independent services cannot depend on the legacy backend or retired aggregate server.</message>
+          </bannedDependencies></rules></configuration>
+        </execution></executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

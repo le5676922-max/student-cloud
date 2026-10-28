@@ -250,6 +250,7 @@
 					</p>
 					<form
 						v-if="!admin && (!selected || selected.status === 'CLOSED')"
+						novalidate
 						class="support-composer"
 						@submit.prevent="submitMessage(true)"
 					>
@@ -257,6 +258,7 @@
 						<textarea
 							id="support-new-question"
 							v-model="draft"
+							style="resize: none"
 							maxlength="2000"
 							rows="4"
 							:disabled="sending || actionBusy"
@@ -278,6 +280,7 @@
 					</form>
 					<form
 						v-else-if="selected && selected.status !== 'CLOSED'"
+						novalidate
 						class="support-composer"
 						@submit.prevent="submitMessage(false)"
 					>
@@ -287,6 +290,7 @@
 						<textarea
 							id="support-reply"
 							v-model="draft"
+							style="resize: none"
 							maxlength="2000"
 							rows="3"
 							:disabled="
@@ -1003,7 +1007,6 @@ onBeforeUnmount(() => {
 	border: 1px solid var(--cloud-line, #dcdce0);
 	border-radius: 12px;
 	background: var(--cloud-surface, #fff);
-	resize: vertical;
 	font: inherit;
 	font-size: 13px;
 	line-height: 1.7;

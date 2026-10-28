@@ -18,16 +18,30 @@
 					@dragleave.prevent.stop="handleAgentDragLeave"
 					@drop.prevent.stop="handleAgentFileDrop"
 				>
-					<el-tooltip content="拖动调整聊天窗口大小" placement="right">
+					<el-tooltip
+						content="拖动或按方向键调整大小，Shift 加快；点击恢复默认大小"
+						placement="right"
+					>
 						<button
 							type="button"
 							class="ai-agent-resize-handle"
 							aria-label="调整聊天窗口大小"
+							aria-describedby="ai-agent-resize-help"
 							@mousedown.stop="startPanelResize"
+							@keydown="resizePanelWithKeyboard"
+							@click="resetPanelSize"
 						>
 							<i-lucide-grip />
 						</button>
 					</el-tooltip>
+					<span id="ai-agent-resize-help" class="sr-only">
+						按方向键调整聊天窗口大小，Shift 加快；点击或按 Enter 恢复默认大小。
+					</span>
+					<span class="sr-only" role="status">{{
+						panelSize
+							? `聊天窗口宽 ${panelSize.width}，高 ${panelSize.height} 像素`
+							: '聊天窗口使用默认大小'
+					}}</span>
 					<Transition name="ai-drop-dock">
 						<div
 							v-if="isAgentFileOver || isCatchingFile"
@@ -201,7 +215,13 @@
 						>
 							<div
 								v-for="message in messages"
-								v-show="message.content || message.tools?.length"
+								v-show="
+									(message.role === 'assistant'
+										? message.renderedContent || message.errorMessage
+										: message.content) ||
+									message.tools?.length ||
+									message.coverageNotice
+								"
 								:key="message.id"
 								class="ai-agent-message-row"
 								:class="`is-${message.role}`"
@@ -246,6 +266,20 @@
 										</div>
 										{{ message.content }}
 									</template>
+									<p
+										v-if="message.errorMessage"
+										class="ai-agent-response-error"
+										role="alert"
+									>
+										{{ message.errorMessage }}
+									</p>
+									<p
+										v-if="message.coverageNotice"
+										class="ai-agent-coverage-notice"
+										role="note"
+									>
+										{{ message.coverageNotice }}
+									</p>
 									<details
 										v-if="message.knowledge?.length"
 										class="ai-material-citations"
@@ -282,7 +316,11 @@
 												文本片段 {{ citation.segment }}</strong
 											>
 											<p>{{ citation.excerpt }}</p>
+											<small class="ai-material-location">{{
+												materialCitationLocation(citation)
+											}}</small>
 											<router-link
+												v-if="citation.courseId != null"
 												:to="{
 													path: '/learning',
 													query: { courseId: citation.courseId },
@@ -547,6 +585,7 @@
 							</div>
 							<form
 								v-if="supportOffer"
+								novalidate
 								class="ai-agent-support-offer"
 								aria-label="转人工确认"
 								@submit.prevent="confirmHumanSupport"
@@ -559,6 +598,7 @@
 								<textarea
 									id="assistant-support-issue"
 									v-model="supportIssue"
+									style="resize: none"
 									maxlength="2000"
 									rows="3"
 									placeholder="请简要描述需要帮助的问题"
@@ -586,6 +626,13 @@
 						</div>
 
 						<footer class="ai-agent-composer">
+							<label
+								v-if="route.path === '/learning'"
+								class="ai-agent-context-choice"
+							>
+								<input v-model="allowPrivateContext" type="checkbox" />
+								使用当前课程资料（相关片段发送给模型）
+							</label>
 							<button
 								type="button"
 								class="ai-agent-answer-style"
@@ -600,7 +647,7 @@
 								ref="fileInputRef"
 								type="file"
 								class="ai-agent-file-input"
-								:accept="ATTACHMENT_ACCEPT"
+								:accept="attachmentAccept"
 								multiple
 								@change="selectAttachments"
 							/>
@@ -611,6 +658,15 @@
 								multiple
 								@change="selectUploadFiles"
 							/>
+							<small
+								v-if="
+									storageConfigStore.globalConfig?.accountModel ===
+									'independent'
+								"
+								class="ai-agent-upload-notice"
+								>附件支持 TXT、MD、PDF、DOCX，最多 3 个；单个 2 MB、合计 4
+								MB。</small
+							>
 							<div v-if="selectedFiles.length" class="ai-agent-selected-files">
 								<span
 									v-for="(file, index) in selectedFiles"
@@ -743,7 +799,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useStorage } from '@vueuse/core'
-import { marked } from 'marked'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { streamWithAiAgentReq } from '~/api/home/ai-agent'
@@ -769,6 +824,12 @@ import {
 	clampPanelSize as clampStoredPanelSize,
 	restorePanelSize as restoreStoredPanelSize,
 } from '~/components/ai/ai-assistant-panel.mjs'
+import {
+	assistantCoverageNotice,
+	materialCitationLocation,
+	normalizeAssistantContent,
+	renderAssistantContent,
+} from '~/utils/assistant-answer.mjs'
 import {
 	getSourceListReq,
 	loadStorageConfigReq,
@@ -836,33 +897,30 @@ const FLOATING_BUTTON_WIDTH = 96
 const FLOATING_BUTTON_HEIGHT = 104
 const VIEWPORT_PADDING = 12
 const DRAG_THRESHOLD = 4
-const ALLOWED_ASSISTANT_TAGS = new Set([
-	'p',
-	'br',
-	'strong',
-	'em',
-	'del',
-	'ul',
-	'ol',
-	'li',
-	'code',
-	'pre',
-	'blockquote',
-	'h3',
-	'h4',
-	'a',
-	'hr',
-	'table',
-	'thead',
-	'tbody',
-	'tr',
-	'th',
-	'td',
-])
 
 const route = useRoute()
 const router = useRouter()
 const storageConfigStore = useStorageConfigStore()
+const attachmentExtensions = computed(() =>
+	storageConfigStore.globalConfig?.accountModel === 'independent'
+		? new Set(['txt', 'md', 'pdf', 'docx'])
+		: SUPPORTED_ATTACHMENT_EXTENSIONS
+)
+const attachmentMaxBytes = computed(() =>
+	storageConfigStore.globalConfig?.accountModel === 'independent'
+		? 2 * 1048576
+		: MAX_ATTACHMENT_BYTES
+)
+const attachmentTotalBytes = computed(() =>
+	storageConfigStore.globalConfig?.accountModel === 'independent'
+		? 4 * 1048576
+		: MAX_ATTACHMENT_FILES * MAX_ATTACHMENT_BYTES
+)
+const attachmentAccept = computed(() =>
+	storageConfigStore.globalConfig?.accountModel === 'independent'
+		? '.txt,.md,.pdf,.docx'
+		: ATTACHMENT_ACCEPT
+)
 const fileDataStore = useFileDataStore()
 const { silentUploadFile } = useFileUpload()
 
@@ -932,6 +990,7 @@ const streamStatus = ref('正在连接 AI 助手')
 let chatAbortController = null
 const inputMessage = ref('')
 const answerStyle = ref('concise')
+const allowPrivateContext = ref(false)
 const inputRef = ref()
 const fileInputRef = ref()
 const uploadPickerRef = ref()
@@ -949,6 +1008,7 @@ const dragDirection = ref('right')
 const isPanelResizing = ref(false)
 let dragState = null
 let panelResizeState = null
+let ignorePanelResizeClick = false
 let fileDragDepth = 0
 let catchAnimationTimer = null
 let ignoreNextClick = false
@@ -1024,6 +1084,7 @@ watch(
 
 watch(showAssistant, (visible) => {
 	if (!visible) {
+		allowPrivateContext.value = false
 		resetSupportState()
 		memoryOpen.value = false
 		isOpen.value = false
@@ -1042,11 +1103,20 @@ watch(
 		() => assistantCredential.value,
 	],
 	() => {
+		allowPrivateContext.value = false
 		resetSupportState()
 		memoryOpen.value = false
 		cancelQuickPreview()
 		stopGeneration()
 		clearMessages()
+	},
+	{ flush: 'sync' }
+)
+
+watch(
+	() => route.fullPath,
+	() => {
+		allowPrivateContext.value = false
 	},
 	{ flush: 'sync' }
 )
@@ -1074,58 +1144,6 @@ onBeforeUnmount(() => {
 	}
 })
 
-function renderAssistantContent(content) {
-	const parsed = marked.parse(String(content || ''), {
-		breaks: true,
-		gfm: true,
-		mangle: false,
-		headerIds: false,
-	})
-	return sanitizeAssistantHtml(parsed)
-}
-
-function sanitizeAssistantHtml(html) {
-	const documentNode = new DOMParser().parseFromString(
-		`<div id="ai-response-root">${html}</div>`,
-		'text/html'
-	)
-	const root = documentNode.querySelector('#ai-response-root')
-
-	root?.querySelectorAll('*').forEach((element) => {
-		const tagName = element.tagName.toLowerCase()
-		if (!ALLOWED_ASSISTANT_TAGS.has(tagName)) {
-			element.replaceWith(
-				documentNode.createTextNode(element.textContent || '')
-			)
-			return
-		}
-
-		const href = tagName === 'a' ? element.getAttribute('href') : null
-		Array.from(element.attributes).forEach((attribute) =>
-			element.removeAttribute(attribute.name)
-		)
-
-		if (tagName === 'a' && isSafeAssistantLink(href)) {
-			element.setAttribute('href', href)
-			element.setAttribute('target', '_blank')
-			element.setAttribute('rel', 'noopener noreferrer')
-		}
-	})
-
-	return root?.innerHTML || ''
-}
-
-function isSafeAssistantLink(href) {
-	if (!href) {
-		return false
-	}
-	try {
-		const url = new URL(href, window.location.origin)
-		return url.protocol === 'http:' || url.protocol === 'https:'
-	} catch {
-		return false
-	}
-}
 function createMessage(role, content, options = {}) {
 	return {
 		id: `${Date.now()}-${Math.random()}`,
@@ -1300,7 +1318,9 @@ function startPanelResize(event) {
 		startY: event.clientY,
 		width: rect.width,
 		height: rect.height,
+		moved: false,
 	}
+	ignorePanelResizeClick = false
 	isPanelResizing.value = true
 	window.addEventListener('mousemove', movePanelResize)
 	window.addEventListener('mouseup', finishPanelResize)
@@ -1312,6 +1332,10 @@ function movePanelResize(event) {
 		return
 	}
 
+	panelResizeState.moved ||= Boolean(
+		event.clientX !== panelResizeState.startX ||
+			event.clientY !== panelResizeState.startY
+	)
 	panelSize.value = clampPanelSize(
 		panelResizeState.width - (event.clientX - panelResizeState.startX),
 		panelResizeState.height - (event.clientY - panelResizeState.startY)
@@ -1326,9 +1350,49 @@ function finishPanelResize() {
 
 	window.removeEventListener('mousemove', movePanelResize)
 	window.removeEventListener('mouseup', finishPanelResize)
+	ignorePanelResizeClick = panelResizeState.moved
 	panelResizeState = null
 	isPanelResizing.value = false
 	savePanelSize()
+}
+
+function resizePanelWithKeyboard(event) {
+	if (
+		window.innerWidth <= 640 ||
+		event.isComposing ||
+		event.ctrlKey ||
+		event.metaKey ||
+		event.altKey ||
+		!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)
+	)
+		return
+	const size =
+		panelSize.value ||
+		event.currentTarget.closest('.ai-agent-panel')?.getBoundingClientRect()
+	if (!size) return
+	const step = event.shiftKey ? 48 : 24
+	panelSize.value = clampPanelSize(
+		size.width +
+			(event.key === 'ArrowLeft'
+				? step
+				: event.key === 'ArrowRight'
+				? -step
+				: 0),
+		size.height +
+			(event.key === 'ArrowUp' ? step : event.key === 'ArrowDown' ? -step : 0)
+	)
+	savePanelSize()
+	event.preventDefault()
+}
+
+function resetPanelSize(event) {
+	if (ignorePanelResizeClick && event.detail !== 0) {
+		ignorePanelResizeClick = false
+		return
+	}
+	ignorePanelResizeClick = false
+	panelSize.value = null
+	window.localStorage.removeItem(PANEL_SIZE_KEY)
 }
 
 function clampPanelSize(width, height) {
@@ -1450,19 +1514,17 @@ async function reportUnhelpful(message) {
 	const index = messages.value.findIndex((item) => item.id === message.id)
 	if (index < 0 || message.role !== 'assistant' || !message.feedbackEligible)
 		return
-	const question = supportIssueFromMessages(messages.value.slice(0, index))
+	const question = message.feedbackQuestion
 	// Feedback and human support are independent. One bad answer is recorded for
 	// curation without interrupting the conversation with a handoff prompt.
-	if (!question || !message.content) return
+	if (!question || !message.content || !message.feedbackMessageId) return
 	if (!message.feedbackRequest) {
 		const bounded = (text, limit) =>
 			String(text)
 				.slice(0, limit)
 				.replace(/[\uD800-\uDBFF]$/, '')
 		message.feedbackRequest = {
-			clientMessageId: `feedback-${Date.now()}-${Math.random()
-				.toString(36)
-				.slice(2)}`,
+			clientMessageId: message.feedbackMessageId,
 			question: bounded(question, 2000),
 			answer: bounded(message.content, 12000),
 			pagePath: message.feedbackPagePath || route.path,
@@ -1741,24 +1803,12 @@ async function analyzeDroppedFiles() {
 		return
 	}
 
-	const supportedFiles = intent.files
-		.filter((file) => {
-			const extension = file.name.split('.').pop()?.toLowerCase()
-			return (
-				SUPPORTED_ATTACHMENT_EXTENSIONS.has(extension) &&
-				file.size <= MAX_ATTACHMENT_BYTES
-			)
-		})
-		.slice(0, MAX_ATTACHMENT_FILES)
+	const supportedFiles = collectAttachments(intent.files)
 
 	if (supportedFiles.length === 0) {
 		ElMessage.warning('这些文件不适合作为 AI 附件，可以选择存入云盘')
 		return
 	}
-	if (supportedFiles.length < intent.files.length) {
-		ElMessage.warning('AI 分析最多读取 3 个受支持且不超过 5 MB 的文件')
-	}
-
 	selectedFiles.value = supportedFiles
 	uploadIntent.value = null
 	inputMessage.value = '请分析这些附件，并用简洁的方式告诉我主要内容。'
@@ -1972,31 +2022,53 @@ function openAttachmentPicker() {
 
 function selectAttachments(event) {
 	const incomingFiles = Array.from(event.target.files || [])
+	selectedFiles.value = collectAttachments(incomingFiles, selectedFiles.value)
+	event.target.value = ''
+}
+
+function collectAttachments(incomingFiles, current = []) {
+	const accepted = [...current]
 	for (const file of incomingFiles) {
-		if (selectedFiles.value.length >= MAX_ATTACHMENT_FILES) {
+		if (
+			accepted.some(
+				(item) =>
+					item.name === file.name &&
+					item.size === file.size &&
+					item.lastModified === file.lastModified
+			)
+		)
+			continue
+		if (accepted.length >= MAX_ATTACHMENT_FILES) {
 			ElMessage.warning(`每次最多添加 ${MAX_ATTACHMENT_FILES} 个附件`)
 			break
 		}
-		if (file.size > MAX_ATTACHMENT_BYTES) {
-			ElMessage.warning(`${file.name} 超过 5 MB`)
+		if (
+			!Number.isFinite(file.size) ||
+			file.size <= 0 ||
+			file.size > attachmentMaxBytes.value
+		) {
+			ElMessage.warning(
+				`${file.name} 需为 1 字节至 ${attachmentMaxBytes.value / 1048576} MB`
+			)
 			continue
 		}
 		const extension = file.name.split('.').pop()?.toLowerCase()
-		if (!SUPPORTED_ATTACHMENT_EXTENSIONS.has(extension)) {
+		if (!attachmentExtensions.value.has(extension)) {
 			ElMessage.warning(`暂不支持 ${file.name} 的文件格式`)
 			continue
 		}
-		const duplicated = selectedFiles.value.some(
-			(item) =>
-				item.name === file.name &&
-				item.size === file.size &&
-				item.lastModified === file.lastModified
-		)
-		if (!duplicated) {
-			selectedFiles.value.push(file)
+		if (
+			accepted.reduce((total, item) => total + item.size, 0) + file.size >
+			attachmentTotalBytes.value
+		) {
+			ElMessage.warning(
+				`附件总大小不能超过 ${attachmentTotalBytes.value / 1048576} MB`
+			)
+			continue
 		}
+		accepted.push(file)
 	}
-	event.target.value = ''
+	return accepted
 }
 
 function removeAttachment(index) {
@@ -2054,6 +2126,15 @@ async function sendMessage() {
 		return
 	}
 
+	// Recheck at send time as well: server capabilities may have changed since selection.
+	if (filesToSend.length) {
+		const validFiles = collectAttachments(filesToSend)
+		if (validFiles.length !== filesToSend.length) {
+			selectedFiles.value = validFiles
+			return
+		}
+	}
+
 	const history = messages.value
 		.filter((message) => !message.welcome && !message.error)
 		.slice(-8)
@@ -2077,12 +2158,9 @@ async function sendMessage() {
 	messages.value.push(
 		createMessage('assistant', '', {
 			feedbackEligible: true,
+			feedbackQuestion: content,
 			feedbackPagePath: route.path,
-			feedbackCourseId:
-				route.path === '/courses' &&
-				/^[a-f0-9]{32}$/.test(String(route.query?.course || ''))
-					? String(route.query.course)
-					: null,
+			feedbackCourseId: null,
 		})
 	)
 	const reply = messages.value[messages.value.length - 1]
@@ -2091,20 +2169,30 @@ async function sendMessage() {
 		chatAbortController === controller &&
 		messages.value.includes(reply)
 	let renderTimer = null
-	const renderReply = () => {
+	const renderReply = (streaming = true) => {
 		if (renderTimer) window.clearTimeout(renderTimer)
 		renderTimer = null
 		if (!currentChat()) return
-		reply.renderedContent = renderAssistantContent(reply.content)
+		reply.renderedContent = renderAssistantContent(reply.content, { streaming })
 		scrollToBottom()
 	}
 
 	const request = {
+		storageKey: automationContext.value.storageKey,
+		path: automationContext.value.path,
+		optInPrivateContext: allowPrivateContext.value,
 		message: content,
 		history,
 		pagePath: route.fullPath,
 		answerStyle: answerStyle.value,
+		learningCourseId:
+			route.path === '/learning' &&
+			/^[1-9][0-9]{0,18}$/.test(String(route.query?.courseId || ''))
+				? Number(route.query.courseId)
+				: null,
 	}
+	// Private-course permission applies to this request only.
+	allowPrivateContext.value = false
 
 	try {
 		const result = await streamWithAiAgentReq(request, filesToSend, {
@@ -2127,10 +2215,17 @@ async function sendMessage() {
 		})
 		if (!currentChat() || controller.signal.aborted) return
 		Object.assign(reply, {
-			content: result.answer,
+			content: normalizeAssistantContent(result.answer),
+			feedbackMessageId:
+				result.messageId ||
+				(storageConfigStore.globalConfig?.accountModel !== 'independent'
+					? `feedback-${Date.now()}-${Math.random().toString(36).slice(2)}`
+					: null),
 			tools: result.tools || [],
 			citations: result.citations || [],
 			knowledge: result.knowledge || [],
+			coverage: result.coverage || null,
+			coverageNotice: assistantCoverageNotice(result.coverage),
 			plans: result.plans || [],
 		})
 		const reason = supportSuggestionReason(result.supportSuggestion)
@@ -2157,12 +2252,10 @@ async function sendMessage() {
 			error?.name === 'AbortError'
 				? '已停止生成。以上未完成内容仅供参考，不会作为下一轮对话依据。'
 				: error?.message || '暂时无法连接 AI 助手，请稍后重试。'
-		reply.content = `${
-			reply.content ? `${reply.content}\n\n---\n\n` : ''
-		}${errorMessage}`
+		reply.errorMessage = errorMessage
 		reply.error = true
 	} finally {
-		renderReply()
+		renderReply(false)
 		if (chatAbortController === controller) {
 			chatAbortController = null
 			isLoading.value = false
@@ -2206,6 +2299,26 @@ function scrollToBottom() {
 	overflow-wrap: anywhere;
 	max-height: 180px;
 	overflow-y: auto;
+}
+.ai-material-location {
+	display: block;
+	margin-bottom: 6px;
+	color: var(--cloud-muted);
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+.ai-agent-coverage-notice {
+	margin: 12px 0 0;
+	padding-top: 10px;
+	color: var(--cloud-muted);
+	font-size: 12px;
+	line-height: 1.6;
+	white-space: normal;
+	border-top: 1px solid var(--cloud-line);
+}
+.ai-agent-response-error {
+	margin: 10px 0 0;
+	white-space: pre-wrap;
 }
 .ai-agent-panel {
 	--ai-agent-header-height: 64px;
@@ -2252,6 +2365,11 @@ function scrollToBottom() {
 	color: var(--cloud-accent);
 	background: var(--cloud-lilac);
 	border-color: var(--cloud-accent);
+}
+
+.ai-agent-resize-handle:focus-visible {
+	outline: 2px solid var(--cloud-accent);
+	outline-offset: 3px;
 }
 
 .ai-agent-resize-handle svg {
@@ -2339,7 +2457,6 @@ function scrollToBottom() {
 	background: var(--cloud-canvas);
 	color: var(--cloud-ink);
 	font: inherit;
-	resize: vertical;
 }
 .ai-agent-support-offer > div {
 	display: flex;
@@ -2576,6 +2693,8 @@ function scrollToBottom() {
 }
 .ai-agent-response {
 	min-width: 0;
+	line-height: 1.75;
+	white-space: normal;
 }
 
 .ai-agent-response :deep(> :first-child) {
@@ -2592,12 +2711,16 @@ function scrollToBottom() {
 .ai-agent-response :deep(pre),
 .ai-agent-response :deep(blockquote),
 .ai-agent-response :deep(table) {
-	margin: 0 0 8px;
+	margin: 0 0 0.75em;
 }
 
+.ai-agent-response :deep(h1),
+.ai-agent-response :deep(h2),
 .ai-agent-response :deep(h3),
-.ai-agent-response :deep(h4) {
-	margin: 10px 0 5px;
+.ai-agent-response :deep(h4),
+.ai-agent-response :deep(h5),
+.ai-agent-response :deep(h6) {
+	margin: 1em 0 0.4em;
 	color: var(--cloud-ink);
 	font-size: 14px;
 	font-weight: 650;
@@ -2610,15 +2733,29 @@ function scrollToBottom() {
 }
 
 .ai-agent-response :deep(li + li) {
-	margin-top: 3px;
+	margin-top: 0.35em;
+}
+
+.ai-agent-response :deep(li > p) {
+	margin-bottom: 0.35em;
+}
+
+.ai-agent-response :deep(li > :last-child),
+.ai-agent-response :deep(blockquote > :last-child) {
+	margin-bottom: 0;
+}
+
+.ai-agent-response :deep(li > ul),
+.ai-agent-response :deep(li > ol) {
+	margin-top: 0.35em;
 }
 
 .ai-agent-response :deep(code) {
 	padding: 1px 4px;
-	color: #b42318;
+	color: var(--cloud-ink);
 	font-family: Consolas, 'Courier New', monospace;
 	font-size: 12px;
-	background: #f3f4f6;
+	background: var(--cloud-lilac);
 	border-radius: 4px;
 }
 
@@ -2627,19 +2764,21 @@ function scrollToBottom() {
 	padding: 9px 10px;
 	overflow-x: auto;
 	background: var(--cloud-frame);
+	border: 1px solid var(--cloud-line);
 	border-radius: 6px;
+	line-height: 1.6;
 }
 
 .ai-agent-response :deep(pre code) {
 	padding: 0;
-	color: #f9fafb;
+	color: var(--cloud-ink);
 	white-space: pre;
 	background: transparent;
 }
 
 .ai-agent-response :deep(blockquote) {
 	padding-left: 9px;
-	color: #4b5563;
+	color: var(--cloud-muted);
 	border-left: 3px solid var(--cloud-accent);
 }
 
@@ -2661,7 +2800,13 @@ function scrollToBottom() {
 	padding: 5px 7px;
 	text-align: left;
 	white-space: nowrap;
-	border: 1px solid #d1d5db;
+	border: 1px solid var(--cloud-line);
+}
+
+.ai-agent-response :deep(hr) {
+	margin: 1em 0;
+	border: 0;
+	border-top: 1px solid var(--cloud-line);
 }
 .is-user .ai-agent-message {
 	color: #ffffff;

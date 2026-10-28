@@ -471,6 +471,8 @@
     "captureFileOperationContext": true,
     "fileOperationSelectionType": true,
     "isFileOperationContextCurrent": true,
-    "operationBusy": true
+    "operationBusy": true,
+    "usePrivatePreviewDialog": true,
+    "useSiteConfigBootstrap": true
   }
 }

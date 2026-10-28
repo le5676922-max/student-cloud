@@ -189,11 +189,11 @@ export default function useHeaderStorageList() {
 		// 当存储策略变化时, 切换路由中的值
 		watch(
 			() => currentStorageKey.value,
-			(newVal, oldVal) => {
+			(newVal) => {
 				// Clearing a missing cloud must never navigate to /undefined.
 				if (!newVal) return
-				// 如果切换到了新存储源，且没有指定路径，则进行切换
-				if ((newVal && !fullpath.value) || oldVal !== undefined) {
+				// Route synchronization must preserve its directory; only a dropdown change navigates.
+				if (newVal !== storageKey.value) {
 					storageConfigStore.folderConfig.readmeText = ''
 					routerRef.value.push('/' + newVal)
 					refreshCurrentStorageSource()

@@ -280,7 +280,11 @@ test('actual layout watcher resets to the route section, preserves manual collap
 				},
 			},
 			'~/utils/roles.mjs': { canAccessAdministration },
-			'~/utils/auth-navigation.mjs': { isWorkspaceStorageRoute: (path) => path === '/admin/storage-list' || /^\/admin\/storage-edit(?:\/\d+)?\/?$/.test(path) },
+			'~/utils/auth-navigation.mjs': {
+				isWorkspaceStorageRoute: (path) =>
+					path === '/admin/storage-list' ||
+					/^\/admin\/storage-edit(?:\/\d+)?\/?$/.test(path),
+			},
 			'~/utils/admin-navigation.mjs': navigation,
 		},
 		{

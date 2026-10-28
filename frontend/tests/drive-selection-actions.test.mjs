@@ -47,3 +47,15 @@ test('missing grants and synthetic parent/cloud rows fail closed', () => {
 		for (const action of ['download', 'share', 'rename', 'move', 'copy', 'delete']) assert.equal(actions[action], false)
 	}
 })
+
+test('remote read-only and writable directory responses never offer unavailable mutations or sharing', () => {
+	const remotePermission = { download: true, preview: true, upload: true, newFolder: true,
+		copy: false, move: false, rename: false, delete: false, createShareLink: false }
+	const remoteMetadata = { recycleBin: false, supportRenameFolder: false,
+		supportMoveFolder: false, supportCopyFolder: false, supportDeleteNotEmptyFolder: false }
+	for (const rows of [[file], [folder], [file, folder]]) {
+		const result = driveSelectionActions(rows, remotePermission, remoteMetadata)
+		for (const action of ['copy', 'move', 'rename', 'delete', 'share']) assert.equal(result[action], false)
+		assert.equal(result.download, rows.length === 1 && rows[0] === file)
+	}
+})

@@ -73,6 +73,8 @@ function setupDirectory({ type = 'local' } = {}) {
 		passwords: [],
 		prompts: [],
 		pushes: [],
+		previews: [],
+		downloads: [],
 	}
 	const notices = []
 	const route = vue.reactive({ storageKey: 'source-one', path: '/courses' })
@@ -170,8 +172,16 @@ function setupDirectory({ type = 'local' } = {}) {
 		'~/stores/file-data': { default: () => files },
 		'~/stores/storage-config': { default: () => storage },
 		'~/stores/global-config': { default: () => globalConfig },
-		'~/composables/file/useFilePreview': { default: () => ({}) },
-		'~/composables/file/useFileOperator': { default: () => ({}) },
+		'~/composables/file/useFilePreview': {
+			default: () => ({
+				openProtectedPreview: (row) => calls.previews.push(row),
+			}),
+		},
+		'~/composables/file/useFileOperator': {
+			default: () => ({
+				batchDownloadFile: (row) => calls.downloads.push(row),
+			}),
+		},
 		'~/composables/file/useFileSelect': {
 			default: () => ({
 				selectRows: selection,
@@ -208,6 +218,41 @@ function reply(directory, index, name = 'current.txt') {
 	directory.calls.files[index].resolve(fileReply(name))
 	directory.calls.config[index].resolve(configReply())
 }
+
+test('independent private file clicks use only supported protected previews and never legacy external viewers', () => {
+	const directory = setupDirectory({ type: 'INDEPENDENT_LOCAL' })
+	const { api, storage, calls } = directory
+	storage.folderConfig.permission.download = true
+	const supported = {
+		type: 'FILE',
+		name: 'image.png',
+		fileType: 'image',
+		authenticatedContent: true,
+		previewAvailable: true,
+		previewKind: 'image',
+	}
+	api.openRow(supported)
+	assert.equal(calls.previews.length, 1)
+	assert.equal(calls.previews[0].name, 'image.png')
+	assert.equal(calls.downloads.length, 0)
+	api.openRow({
+		type: 'FILE',
+		name: 'document.docx',
+		fileType: 'office',
+		authenticatedContent: true,
+		previewAvailable: false,
+	})
+	assert.equal(calls.previews.length, 1)
+	assert.equal(calls.downloads.length, 1)
+	storage.folderConfig.permission.preview = false
+	api.openRow(supported)
+	assert.equal(calls.previews.length, 1)
+	assert.equal(calls.downloads.length, 2)
+	storage.folderConfig.permission.download = false
+	api.openRow(supported)
+	assert.equal(calls.previews.length, 1)
+	assert.equal(calls.downloads.length, 2)
+})
 
 test('config failure preserves current rows, exposes persistent shared error and retries the captured request', async () => {
 	const directory = setupDirectory()

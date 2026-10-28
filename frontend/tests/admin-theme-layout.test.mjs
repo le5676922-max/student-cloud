@@ -94,7 +94,7 @@ test('console motion is bounded to fine pointers and offers reduced-motion alter
 	assert.doesNotMatch(navCss.toString(), /animation:[^;]*\binfinite\b/)
 })
 
-test('console theme templates compile without changing overview unknown-data and request hooks', () => {
+test('console theme templates compile and preserve overview unknown-data presentation', () => {
 	for (const [name, descriptor] of [
 		['AdminNavigation.vue', navigation],
 		['overview.vue', overview],
@@ -106,13 +106,7 @@ test('console theme templates compile without changing overview unknown-data and
 		})
 		assert.deepEqual(compiled.errors, [])
 	}
-	assert.match(
-		overview.scriptSetup.content,
-		/overviewGate\.isCurrent\(request\)/
-	)
-	assert.match(
-		overview.scriptSetup.content,
-		/workspaceGate\.isCurrent\(request\)/
-	)
+	// Request cancellation and stale-response isolation are exercised against the
+	// real setup/render in admin-overview-page-runtime.test.mjs, independent of names.
 	assert.match(overview.template.content, /未获取的指标|趋势数据未返回/)
 })

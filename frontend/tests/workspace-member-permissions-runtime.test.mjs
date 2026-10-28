@@ -94,17 +94,39 @@ const record = (id = 21) => ({
 	],
 })
 
+test('independent accounts use server identity rather than legacy reserved user IDs', async () => {
+	const app = await mount({ accountModel: 'independent', memberId: 2 })
+	try {
+		assert.equal(app.reads.length, 1)
+		assert.equal(app.reads[0][0], 2)
+		assert.ok(app.api.draft)
+		assert.equal(
+			app.host.querySelector('input[maxlength="1024"]').disabled,
+			true
+		)
+		app.api.draft.storages[0].permissions = []
+		await app.api.save()
+		assert.equal(app.writes.length, 0)
+		assert.match(app.host.textContent, /至少选择一项操作/)
+	} finally {
+		app.dispose()
+	}
+})
+
 async function mount({
 	role = 'TENANT_ADMIN',
+	accountModel = '',
+	memberId = 21,
 	membershipStatus = 'ACTIVE',
 	read = async (id) => ({ data: record(id) }),
 	write = async () => ({ data: null }),
 } = {}) {
 	const store = vue.reactive({
+		globalConfig: { accountModel },
 		loginInfo: { isLogin: true, role, tenantId: 9, username: 'manager' },
 	})
 	const member = vue.reactive({
-		id: 21,
+		id: memberId,
 		username: 'member',
 		nickname: '同学',
 		membershipStatus,
@@ -190,6 +212,51 @@ test('workspace administrator sees only delegable choices and saves only the sel
 			],
 		})
 		assert.deepEqual(app.events, [21])
+	} finally {
+		app.dispose()
+	}
+})
+
+test('read-only and upload collaboration presets affect only one selected row, intersect allowed operations and preserve quota', async () => {
+	const data = record()
+	data.permissionOptions.push(
+		{ value: 'upload', name: '上传' },
+		{ value: 'mkdir', name: '建目录' }
+	)
+	data.storages[0].allowedPermissions = ['preview', 'download', 'upload']
+	data.storages[0].quotaBytes = 2147483648
+	data.storages.push({
+		...data.storages[0],
+		storageSourceId: 32,
+		storageSourceName: '第二存储',
+		permissions: ['download'],
+		quotaBytes: 1073741824,
+	})
+	const app = await mount({ read: async () => ({ data }) })
+	try {
+		const first = app.api.draft.storages[0],
+			second = app.api.draft.storages[1]
+		const unchanged = JSON.stringify(second)
+		const preset = app.host.querySelector('select[data-permission-preset="31"]')
+		assert.ok(preset)
+		preset.value = 'upload'
+		preset.dispatchEvent(new Event('change', { bubbles: true }))
+		await flush()
+		assert.deepEqual([...first.permissions], ['preview', 'download', 'upload'])
+		assert.equal(JSON.stringify(second), unchanged)
+		assert.equal(first.quotaGB, 2)
+		preset.value = 'read'
+		preset.dispatchEvent(new Event('change', { bubbles: true }))
+		await flush()
+		assert.deepEqual([...first.permissions], ['preview', 'download'])
+		preset.value = 'custom'
+		preset.dispatchEvent(new Event('change', { bubbles: true }))
+		await flush()
+		assert.deepEqual([...first.permissions], ['preview', 'download'])
+		await app.api.save()
+		assert.equal(app.writes[0][0], 21)
+		assert.equal(app.writes[0][1].storages[0].quotaBytes, 2147483648)
+		assert.deepEqual(app.writes[0][1].defaultPermissions, ['preview'])
 	} finally {
 		app.dispose()
 	}

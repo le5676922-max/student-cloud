@@ -1,6 +1,7 @@
 <template>
 	<el-form
 		ref="storageEditForm"
+		novalidate
 		:model="storageItem"
 		:label-width="globalConfigStore.adminForm.labelWidth"
 		:label-position="globalConfigStore.adminForm.labelPosition"
@@ -9,13 +10,21 @@
 		status-icon
 		class="student-cloud-storage-edit z-admin-form"
 		:rules="rules"
-		:disabled="loading || initialLoading || isApplyingDetection || !!safetyBusy"
+		:disabled="
+			loading ||
+			initialLoading ||
+			isApplyingDetection ||
+			!!safetyBusy ||
+			!!pendingWritesBusy
+		"
+		@submit.prevent="submitForm"
+		@keydown.enter.capture="guardComposingEnter"
 	>
 		<cancel
 			:title="isEditMode ? '编辑存储源' : '添加存储源'"
-			to="/admin/storage-list"
+			:to="storageListDestination"
 		>
-			粘贴地址识别，或手动选择存储方式。识别和检查填写不会保存，也不会调用 AI。
+			连接文件所在的位置，检查权限后保存。
 		</cancel>
 		<section
 			v-if="!isEditMode"
@@ -34,8 +43,8 @@
 						v-model="sourceDetectionInput"
 						autocomplete="off"
 						:maxlength="2048"
-						placeholder="例如 /data/files、sftp://主机/目录 或 OSS 地址"
-						@keydown.enter.prevent="recognizeStorageSource"
+						placeholder="例如 /data/files 或 OSS / S3 服务地址"
+						@keydown.enter.prevent="recognizeStorageSourceFromKey"
 					/>
 					<el-button
 						:disabled="
@@ -86,7 +95,7 @@
 					</article>
 				</div>
 			</div>
-			<p>也可以手动选择。其它网盘和协议仍可在下方选择。</p>
+			<p>也可以直接选择下方已支持的存储方式。</p>
 			<div class="storage-type-choices">
 				<button
 					v-for="item in commonTypes"
@@ -113,11 +122,17 @@
 			</ul>
 		</aside>
 
-		<el-form-item label="存储源名称" prop="name">
+		<h2 class="storage-form-section-title">基本信息</h2>
+		<el-form-item label="存储源名称" prop="name" data-storage-field="name">
 			<el-input v-model="storageItem.name" />
 		</el-form-item>
 
-		<el-form-item v-if="isAdmin && !isEditMode" label="所属工作空间">
+		<el-form-item
+			v-if="isAdmin && !isEditMode"
+			label="所属工作空间"
+			prop="tenantId"
+			data-storage-field="tenantId"
+		>
 			<el-select v-model="storageItem.tenantId" class="w-full">
 				<el-option
 					v-for="tenant in tenantList"
@@ -141,6 +156,7 @@
 			<el-input
 				v-model="storageItem.remark"
 				type="textarea"
+				resize="none"
 				:rows="3"
 				placeholder="请输入存储源备注"
 			/>
@@ -235,8 +251,9 @@
 			<el-form-item
 				v-if="fieldShowMap[item.key]"
 				:label="item.name"
-				:required="item.required"
+				:required="storageFieldRequired(item)"
 				:prop="'storageSourceAllParam.' + item.key"
+				:data-storage-field="'storageSourceAllParam.' + item.key"
 			>
 				<template v-if="item.pro" #label>
 					{{ item.name }}
@@ -421,7 +438,7 @@
 					</p>
 					<Cors v-model="storageItem.storageSourceAllParam['corsConfigList']" />
 					<el-button
-						v-if="isEditMode && isAdmin"
+						v-if="isEditMode && isAdmin && legacyS3Tools"
 						:disabled="!!safetyBusy || loading || initialLoading"
 						@click="applySavedCors"
 						>应用已保存的跨域规则</el-button
@@ -497,6 +514,15 @@
 				</div>
 
 				<div class="el-form-item-tips">
+					<p
+						v-if="
+							retainsRemoteCredentials &&
+							['accessKey', 'secretKey', 'sessionToken'].includes(item.key)
+						"
+					>
+						已配置的凭据不会返回浏览器。留空保留原值；更换访问密钥时请同时填写
+						ID 和 Secret。
+					</p>
 					<p v-if="storageFieldHint(item.key, storageItem.type).description">
 						{{ storageFieldHint(item.key, storageItem.type).description }}
 					</p>
@@ -627,10 +653,7 @@
 				</div>
 			</el-form-item>
 		</div>
-		<section
-			v-if="constant.storageType.s3Type.includes(storageItem.type)"
-			class="storage-s3-discovery"
-		>
+		<section v-if="legacyS3Tools" class="storage-s3-discovery">
 			<h2>读取远端信息（可选）</h2>
 			<p>
 				由服务器使用你填写的凭据只读查询，不保存存储源。读取成功不代表具备所有上传、下载权限。
@@ -679,11 +702,56 @@
 		>
 			{{ safetyNotice }}
 		</p>
+		<p v-if="independentRemote && isEditMode" role="status">
+			已保存配置：{{
+				storageItem.writeVerified ? '读写已验证' : '只读；尚未验证写入权限'
+			}}。
+		</p>
+		<details v-if="canManagePendingWrites" class="storage-address-helper">
+			<summary>待核查写入</summary>
+			<p>
+				仅检查已保存连接中的写入记录与远端对象，不会重放上传。未确认的记录会继续保留，请勿重复提交文件。
+			</p>
+			<el-button
+				:loading="pendingWritesBusy === 'load'"
+				:disabled="!!pendingWritesBusy || loading || !!safetyBusy"
+				@click="loadPendingWrites"
+			>
+				{{ pendingWritesLoaded ? '刷新待核查写入' : '读取待核查写入' }}
+			</el-button>
+			<p v-if="pendingWritesError" class="storage-setup-error" role="alert">
+				{{ pendingWritesError }}
+			</p>
+			<p v-if="pendingWritesNotice" role="status">{{ pendingWritesNotice }}</p>
+			<p v-if="pendingWritesLoaded && !pendingWrites.length" role="status">
+				当前没有待核查写入。
+			</p>
+			<ul v-if="pendingWrites.length">
+				<li v-for="operation in pendingWrites" :key="operation.id">
+					<p>操作编号：{{ operation.id }}</p>
+					<p>
+						用户目录内路径：{{ operation.path }} · 状态：{{
+							pendingWriteStatus(operation.status)
+						}}
+						· 创建时间：{{ pendingWriteTime(operation.createdAt) }}
+					</p>
+					<el-button
+						:loading="pendingWritesBusy === operation.id"
+						:disabled="!!pendingWritesBusy || loading || !!safetyBusy"
+						@click="inspectPendingWrite(operation)"
+						>检查写入结果</el-button
+					>
+				</li>
+			</ul>
+		</details>
 
 		<el-form-item
 			:label-width="globalConfigStore.adminForm.labelWidth"
 			class="admin-from-footer"
 		>
+			<span v-if="formHasChanges" class="storage-draft-status" role="status"
+				>有尚未保存的修改</span
+			>
 			<el-button
 				:disabled="
 					initialLoading ||
@@ -737,6 +805,11 @@
 <script setup>
 import SafeHtml from '~/components/common/SafeHtml.vue'
 import { createLatestRequest } from '~/utils/latest-request.mjs'
+import { createUnsavedFormGuard } from '~/utils/unsaved-form-guard.mjs'
+import {
+	storageListRouteState,
+	storageListRouteQuery,
+} from '~/utils/storage-list-controller.mjs'
 import { detectStorageSource } from '~/utils/storage-source-recognizer.mjs'
 import {
 	commonStorageTypes,
@@ -763,6 +836,8 @@ import {
 	testStorageConnectionReq,
 	applySavedStorageCorsReq,
 	existStorageKeyReq,
+	loadPendingStorageWritesReq,
+	inspectPendingStorageWriteReq,
 } from '~/api/admin/admin-storage'
 import { ElMessageBox } from 'element-plus'
 import {
@@ -779,10 +854,24 @@ import useStorageConfigStore from '~/stores/storage-config'
 let router = useRouter()
 let route = useRoute()
 const storageConfigStore = useStorageConfigStore()
+const credential = useStorage('tongligong-student-cloud-token', '', undefined, {
+	writeDefaults: false,
+})
+const accountContext = computed(() =>
+	JSON.stringify([
+		storageConfigStore.loginInfo.username,
+		storageConfigStore.loginInfo.tenantId,
+		storageConfigStore.loginInfo.isAdmin,
+		storageConfigStore.loginInfo.role,
+		storageConfigStore.loginInfo.isLogin,
+		credential.value,
+	])
+)
 const isAdmin = computed(() => storageConfigStore.loginInfo.isAdmin === true)
 const tenantList = ref([])
 const initialLoading = ref(false)
 const initialError = ref('')
+const baselineAwaiting = ref(false)
 const paramsLoading = ref(false)
 const paramsError = ref('')
 const showAdvanced = ref(false)
@@ -793,6 +882,12 @@ const safetyNotice = ref('')
 const safetyPassed = ref(false)
 const verifyWrite = ref(false)
 const safetyRequests = createLatestRequest()
+const pendingWriteRequests = createLatestRequest()
+const pendingWrites = ref([])
+const pendingWritesBusy = ref('')
+const pendingWritesLoaded = ref(false)
+const pendingWritesError = ref('')
+const pendingWritesNotice = ref('')
 const connectionAddress = ref('')
 const addressNotice = ref('')
 const addressSuggestions = ref({})
@@ -809,6 +904,20 @@ let saveController
 let saveGeneration = 0
 let reloadParams = () => {}
 let initializeStorage = () => {}
+const aliasRequests = createLatestRequest()
+let settleAliasValidation
+
+function cancelAliasValidation() {
+	aliasRequests.cancel()
+	settleAliasValidation?.()
+}
+
+function cancelSave() {
+	saveGeneration++
+	saveController?.abort()
+	saveController = undefined
+	loading.value = false
+}
 
 // 当前正在编辑的存储源 key
 let currentEditStorageKey = null
@@ -817,6 +926,7 @@ let storageEditForm = ref()
 const submitForm = async () => {
 	if (
 		loading.value ||
+		pendingWritesBusy.value ||
 		safetyBusy.value ||
 		isApplyingDetection.value ||
 		storageDisposed ||
@@ -828,13 +938,21 @@ const submitForm = async () => {
 	)
 		return
 	checkSetup()
-	if (setupIssues.value.length) return
+	if (setupIssues.value.length) {
+		focusFirstIssue()
+		return
+	}
 	const targetRouteId = String(route.params.storageId || '')
 	if (targetRouteId && String(storageItem.value.id) !== targetRouteId) return
 	const generation = ++saveGeneration
+	const account = accountContext.value
+	const snapshot = JSON.stringify(storageItem.value)
+	const payload = JSON.parse(snapshot)
+	if (independentRemote.value) payload.verifyWrite = verifyWrite.value === true
 	const isCurrentTarget = () =>
 		!storageDisposed &&
 		generation === saveGeneration &&
+		accountContext.value === account &&
 		String(route.params.storageId || '') === targetRouteId
 	loading.value = true
 	saveError.value = ''
@@ -842,12 +960,12 @@ const submitForm = async () => {
 		try {
 			await storageEditForm.value.validate()
 		} catch {
-			showAdvanced.value = true
+			if (isCurrentTarget()) showAdvanced.value = true
+			if (isCurrentTarget()) focusFirstIssue()
 			return
 		}
-		if (!isCurrentTarget()) return
-		const payload = JSON.parse(JSON.stringify(storageItem.value))
-		if (!isCurrentTarget()) return
+		if (!isCurrentTarget() || JSON.stringify(storageItem.value) !== snapshot)
+			return
 		const controller = new AbortController()
 		saveController = controller
 		const res = await saveStorageSettingReq(payload, {
@@ -857,8 +975,10 @@ const submitForm = async () => {
 		if (!isCurrentTarget() || controller.signal.aborted) return
 		storageItem.value.id = res.data
 		isEditMode.value = true
+		formGuard.accept()
+		formGuardRevision.value++
 		ElMessage.success('存储源已保存。可在空间人员中调整访问权限。')
-		router.push('/admin/storage-list')
+		router.push(storageListDestination.value)
 	} catch (error) {
 		if (isCurrentTarget())
 			saveError.value = storageErrorDescription(
@@ -962,6 +1082,8 @@ let useInitData = () => {
 			params.corsConfigList = cors
 			res.data.type = res.data.type.key
 			storageItem.value = res.data
+			if (res.data.credentialsConfigured === true)
+				verifyWrite.value = res.data.writeVerified === true
 			currentEditStorageKey = res.data.key
 		}
 	}
@@ -970,13 +1092,14 @@ let useInitData = () => {
 
 	// 支持的所有存储策略
 	let supportStorageType = ref([])
-	initializeStorage = async () => {
+	initializeStorage = async (reset = false) => {
+		baselineAwaiting.value = true
 		const request = initialRequests.begin()
 		initialLoading.value = true
 		initialError.value = ''
 		isEditMode.value = Boolean(route.params.storageId)
 		const nextId = String(route.params.storageId || '')
-		if (initializedRouteId !== nextId) {
+		if (reset || initializedRouteId !== nextId) {
 			initializedRouteId = nextId
 			paramRequests.cancel()
 			storageItem.value = JSON.parse(JSON.stringify(emptyItem))
@@ -1029,9 +1152,8 @@ let useInitData = () => {
 			invalidateSourceDetection()
 			sourceDetectionInput.value = ''
 			sourceDetectionNotice.value = ''
-			saveGeneration++
-			saveController?.abort()
-			loading.value = false
+			cancelSave()
+			cancelAliasValidation()
 			initializeStorage()
 		}
 	)
@@ -1044,6 +1166,7 @@ let useInitData = () => {
 		key: [
 			{
 				validator: (rule, value, callback) => {
+					cancelAliasValidation()
 					if (value === undefined || value === null || value === '') {
 						callback()
 						return
@@ -1064,19 +1187,41 @@ let useInitData = () => {
 						callback()
 						return
 					}
-					existStorageKeyReq({ storageKey: value }, { showDefaultMsg: false })
+					const request = aliasRequests.begin()
+					const account = accountContext.value
+					const target = String(route.params.storageId || '')
+					let settled = false
+					const finish = (error) => {
+						if (settled) return
+						settled = true
+						if (settleAliasValidation === finish)
+							settleAliasValidation = undefined
+						callback(error)
+					}
+					settleAliasValidation = finish
+					const isCurrent = () =>
+						request.isCurrent() &&
+						!storageDisposed &&
+						accountContext.value === account &&
+						String(route.params.storageId || '') === target
+					existStorageKeyReq(
+						{ storageKey: value },
+						{ signal: request.signal, showDefaultMsg: false }
+					)
 						.then((res) => {
-							if (res.data) {
-								callback(new Error('该存储源别名已存在，请修改。'))
-							} else {
-								callback()
-							}
+							finish(
+								isCurrent() && res.data
+									? new Error('该存储源别名已存在，请修改。')
+									: undefined
+							)
 						})
 						.catch(() =>
-							callback(
-								new Error(
-									'别名暂时无法核验，请重试；也可在新建时留空由系统分配。'
-								)
+							finish(
+								isCurrent()
+									? new Error(
+											'别名暂时无法核验，请重试；也可在新建时留空由系统分配。'
+									  )
+									: undefined
 							)
 						)
 				},
@@ -1174,6 +1319,297 @@ let useInitData = () => {
 let { storageItem, supportStorageType, loading, rules, isEditMode } =
 	useInitData()
 
+const storageListDestination = computed(() => {
+	const query = storageListRouteQuery(storageListRouteState(route.query || {}))
+	return Object.keys(query).length
+		? { path: '/admin/storage-list', query }
+		: '/admin/storage-list'
+})
+const formGuardRevision = ref(0)
+const formGuard = createUnsavedFormGuard({
+	readScope: () => `${accountContext.value}:${route.params.storageId || ''}`,
+	readSnapshot: () => JSON.stringify([storageItem.value, verifyWrite.value]),
+	confirmLeave: async () => {
+		await ElMessageBox.confirm(
+			loading.value
+				? '保存请求仍在处理中。离开页面不会撤销已发送的请求，请返回列表核对结果。'
+				: '当前修改尚未保存。离开后，本次填写的连接信息将丢失。',
+			'离开存储设置？',
+			{
+				confirmButtonText: '放弃修改并离开',
+				cancelButtonText: '继续编辑',
+				type: 'warning',
+				autofocus: false,
+				closeOnClickModal: false,
+			}
+		)
+		return true
+	},
+})
+const formHasChanges = computed(() => {
+	formGuardRevision.value
+	return formGuard.hasChanges()
+})
+watch(
+	[baselineAwaiting, initialLoading, paramsLoading],
+	() => {
+		if (
+			baselineAwaiting.value &&
+			!initialLoading.value &&
+			!paramsLoading.value &&
+			!initialError.value &&
+			!paramsError.value
+		) {
+			formGuard.accept()
+			formGuardRevision.value++
+			baselineAwaiting.value = false
+		}
+	},
+	{ flush: 'post' }
+)
+onBeforeRouteLeave(() => formGuard.mayLeave())
+onBeforeRouteUpdate(() => formGuard.mayLeave())
+const warnOnUnload = (event) => {
+	if (!formGuard.hasChanges()) return
+	event.preventDefault()
+	event.returnValue = ''
+}
+watch(formHasChanges, (dirty) => {
+	window.removeEventListener?.('beforeunload', warnOnUnload)
+	if (dirty) window.addEventListener?.('beforeunload', warnOnUnload)
+})
+onBeforeUnmount(() =>
+	window.removeEventListener?.('beforeunload', warnOnUnload)
+)
+function guardComposingEnter(event) {
+	if (event?.isComposing || event?.keyCode === 229) {
+		event.preventDefault()
+		event.stopPropagation()
+	}
+}
+function recognizeStorageSourceFromKey(event) {
+	if (event?.isComposing || event?.keyCode === 229) return
+	return recognizeStorageSource()
+}
+function focusFirstIssue() {
+	nextTick(() => {
+		const key = setupIssues.value[0]?.key
+		const path =
+			key && !['name', 'tenantId'].includes(key)
+				? `storageSourceAllParam.${key}`
+				: key
+		if (path) storageEditForm.value?.scrollToField?.(path)
+		const element = storageEditForm.value?.$el
+		const field = path
+			? element?.querySelector?.(
+					`[data-storage-field="${String(path).replace(
+						/[^a-zA-Z0-9_.-]/g,
+						''
+					)}"] input`
+			  )
+			: null
+		;(
+			field ||
+			element?.querySelector?.(
+				'.is-error input, .is-error textarea, [aria-invalid="true"]'
+			)
+		)?.focus?.()
+	})
+}
+
+const independentRemote = computed(
+	() =>
+		['aliyun', 's3', 'minio'].includes(storageItem.value.type) &&
+		(storageConfigStore.globalConfig?.accountModel === 'independent' ||
+			storageItem.value.credentialsConfigured === true ||
+			storageSourceParamList.value.some(
+				(field) => field.key === 'pathStyleAccess'
+			))
+)
+const retainsRemoteCredentials = computed(
+	() =>
+		independentRemote.value &&
+		isEditMode.value &&
+		storageItem.value.credentialsConfigured === true
+)
+const legacyS3Tools = computed(
+	() =>
+		constant.storageType.s3Type.includes(storageItem.value.type) &&
+		!independentRemote.value
+)
+const canManagePendingWrites = computed(
+	() =>
+		independentRemote.value &&
+		isEditMode.value &&
+		String(storageItem.value.id) === String(route.params.storageId || '') &&
+		(isAdmin.value || storageConfigStore.loginInfo.role === 'TENANT_ADMIN')
+)
+function resetPendingWrites() {
+	pendingWriteRequests.cancel()
+	pendingWrites.value = []
+	pendingWritesBusy.value = ''
+	pendingWritesLoaded.value = false
+	pendingWritesError.value = ''
+	pendingWritesNotice.value = ''
+}
+function pendingWriteStatus(status) {
+	return (
+		{ PREPARING: '准备中', PUBLISHING: '发布中', UNCERTAIN: '结果待核查' }[
+			status
+		] || status
+	)
+}
+function pendingWriteTime(value) {
+	return new Date(value).toLocaleString('zh-CN', { hour12: false })
+}
+function pendingWriteContext() {
+	return JSON.stringify([
+		route.params.storageId,
+		storageItem.value.id,
+		storageItem.value.version,
+		accountContext.value,
+	])
+}
+function canStartPendingWriteRequest() {
+	return (
+		canManagePendingWrites.value &&
+		!storageDisposed &&
+		!pendingWritesBusy.value &&
+		!loading.value &&
+		!safetyBusy.value &&
+		!initialLoading.value &&
+		!initialError.value
+	)
+}
+function parsePendingWrites(data) {
+	if (!Array.isArray(data) || data.length > 200)
+		throw new Error('PENDING_WRITES_INVALID')
+	const ids = new Set()
+	return data.map((row) => {
+		if (
+			!row ||
+			typeof row.id !== 'string' ||
+			!/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(row.id) ||
+			ids.has(row.id) ||
+			!Number.isSafeInteger(row.actorId) ||
+			row.actorId < 1 ||
+			typeof row.path !== 'string' ||
+			!row.path.startsWith('/') ||
+			row.path.length > 4096 ||
+			/\p{Cc}/u.test(row.path) ||
+			!['PREPARING', 'PUBLISHING', 'UNCERTAIN'].includes(row.status) ||
+			![row.createdAt, row.updatedAt].every(
+				(value) =>
+					Number.isSafeInteger(value) && value >= 0 && value <= 8640000000000000
+			)
+		)
+			throw new Error('PENDING_WRITES_INVALID')
+		ids.add(row.id)
+		return {
+			id: row.id,
+			actorId: row.actorId,
+			path: row.path,
+			status: row.status,
+			createdAt: row.createdAt,
+			updatedAt: row.updatedAt,
+		}
+	})
+}
+async function loadPendingWrites() {
+	if (!canStartPendingWriteRequest()) return
+	const request = pendingWriteRequests.begin(),
+		context = pendingWriteContext()
+	pendingWritesBusy.value = 'load'
+	pendingWritesLoaded.value = false
+	pendingWrites.value = []
+	pendingWritesError.value = ''
+	pendingWritesNotice.value = ''
+	const isCurrent = () =>
+		request.isCurrent() && !storageDisposed && context === pendingWriteContext()
+	try {
+		const response = await loadPendingStorageWritesReq(storageItem.value.id, {
+			signal: request.signal,
+			showDefaultMsg: false,
+		})
+		if (!isCurrent()) return
+		pendingWrites.value = parsePendingWrites(response.data)
+		pendingWritesLoaded.value = true
+	} catch (error) {
+		if (isCurrent())
+			pendingWritesError.value = storageErrorDescription(
+				error,
+				'读取待核查写入失败，请点击重新读取。'
+			)
+	} finally {
+		if (isCurrent()) pendingWritesBusy.value = ''
+	}
+}
+async function inspectPendingWrite(operation) {
+	if (
+		!canStartPendingWriteRequest() ||
+		!pendingWrites.value.includes(operation)
+	)
+		return
+	const request = pendingWriteRequests.begin(),
+		context = pendingWriteContext(),
+		id = storageItem.value.id
+	pendingWritesBusy.value = operation.id
+	pendingWritesError.value = ''
+	pendingWritesNotice.value = ''
+	const isCurrent = () =>
+		request.isCurrent() && !storageDisposed && context === pendingWriteContext()
+	try {
+		const response = await inspectPendingStorageWriteReq(id, operation.id, {
+			signal: request.signal,
+			showDefaultMsg: false,
+		})
+		if (!isCurrent()) return
+		const result = response.data
+		if (
+			result?.id !== operation.id ||
+			!['CONFIRMED', 'PENDING'].includes(result.result)
+		)
+			throw new Error('PENDING_WRITE_INSPECTION_INVALID')
+		pendingWritesNotice.value = storageErrorDescription(
+			{ data: { msg: result.message } },
+			result.result === 'CONFIRMED'
+				? '已确认写入完成。'
+				: '尚未确认写入结果，记录继续保留；请勿重复提交文件。'
+		)
+		pendingWritesLoaded.value = false
+		pendingWrites.value = []
+		const refreshed = await loadPendingStorageWritesReq(id, {
+			signal: request.signal,
+			showDefaultMsg: false,
+		})
+		if (!isCurrent()) return
+		pendingWrites.value = parsePendingWrites(refreshed.data)
+		pendingWritesLoaded.value = true
+	} catch (error) {
+		if (isCurrent())
+			pendingWritesError.value = storageErrorDescription(
+				error,
+				'检查或刷新结果未确认，请重新读取任务状态；不要重复提交文件。'
+			)
+	} finally {
+		if (isCurrent()) pendingWritesBusy.value = ''
+	}
+}
+watch(pendingWriteContext, resetPendingWrites, { flush: 'sync' })
+function storageFieldRequired(field) {
+	if (
+		independentRemote.value &&
+		['accessKey', 'secretKey'].includes(field.key)
+	) {
+		const params = storageItem.value.storageSourceAllParam
+		return (
+			!retainsRemoteCredentials.value ||
+			Boolean(params.accessKey?.trim() || params.secretKey?.trim())
+		)
+	}
+	return field.required === true
+}
+
 const supportsSafePreflight = computed(() =>
 	['local', 's3', 'aliyun', 'minio', 'huawei', 'tencent', 'qiniu'].includes(
 		storageItem.value.type
@@ -1192,6 +1628,7 @@ function canStartSafety() {
 		!storageDisposed &&
 		!safetyBusy.value &&
 		!loading.value &&
+		!pendingWritesBusy.value &&
 		!isApplyingDetection.value &&
 		!initialLoading.value &&
 		!initialError.value &&
@@ -1208,6 +1645,11 @@ async function testConnection() {
 	if (setupIssues.value.length) return
 	const request = safetyRequests.begin()
 	const target = String(route.params.storageId || '')
+	const writeRequested = verifyWrite.value === true
+	const payload = {
+		...JSON.parse(JSON.stringify(storageItem.value)),
+		verifyWrite: writeRequested,
+	}
 	safetyBusy.value = 'test'
 	safetyNotice.value = ''
 	safetyPassed.value = false
@@ -1218,23 +1660,24 @@ async function testConnection() {
 	try {
 		await storageEditForm.value.validate()
 		if (!isCurrent()) return
-		const response = await testStorageConnectionReq(
-			{
-				...JSON.parse(JSON.stringify(storageItem.value)),
-				verifyWrite: verifyWrite.value,
-			},
-			{ signal: request.signal, showDefaultMsg: false }
-		)
+		const response = await testStorageConnectionReq(payload, {
+			signal: request.signal,
+			showDefaultMsg: false,
+		})
 		if (!isCurrent()) return
 		safetyPassed.value = response.data?.passed === true
 		safetyNotice.value =
 			response.data?.message ||
-			'只读检查完成；未保存配置，也未验证上传、删除权限。'
+			(writeRequested
+				? '读写检查完成；未保存配置，请确认测试文件清理结果。'
+				: '只读检查完成；未保存配置，也未验证上传、删除权限。')
 	} catch (error) {
 		if (isCurrent())
 			safetyNotice.value = storageErrorDescription(
 				error,
-				'只读检查失败，请检查连接参数；未保存配置。'
+				writeRequested
+					? '读写检查失败，请检查连接参数、读写权限及测试文件清理结果；未保存配置。'
+					: '只读检查失败，请检查连接参数；未保存配置。'
 			)
 	} finally {
 		if (isCurrent()) safetyBusy.value = ''
@@ -1246,6 +1689,7 @@ async function applySavedCors() {
 		!canStartSafety() ||
 		!isEditMode.value ||
 		!storageItem.value.id ||
+		!legacyS3Tools.value ||
 		!constant.storageType.s3Type.includes(storageItem.value.type)
 	)
 		return
@@ -1299,9 +1743,7 @@ watch(
 		route.params.storageId,
 		storageItem.value.type,
 		storageItem.value.storageSourceAllParam,
-		storageConfigStore.loginInfo.username,
-		storageConfigStore.loginInfo.tenantId,
-		storageConfigStore.loginInfo.isAdmin,
+		accountContext.value,
 	],
 	cancelSafety,
 	{ deep: true, flush: 'sync' }
@@ -1329,8 +1771,12 @@ const setupIssues = computed(() => {
 	const issues = storageSetupIssues({
 		type: storageItem.value.type,
 		params: storageItem.value.storageSourceAllParam,
-		fields: storageSourceParamList.value,
+		fields: storageSourceParamList.value.map((field) => ({
+			...field,
+			required: storageFieldRequired(field),
+		})),
 		fieldShowMap: fieldShowMap.value,
+		objectPrefix: independentRemote.value,
 	})
 	if (!storageItem.value.name?.trim())
 		issues.unshift({ key: 'name', message: '请填写存储源名称。' })
@@ -1397,16 +1843,23 @@ watch(
 	{ flush: 'sync' }
 )
 watch(
-	[
-		() => storageConfigStore.loginInfo.username,
-		() => storageConfigStore.loginInfo.tenantId,
-		() => storageConfigStore.loginInfo.isAdmin,
-	],
+	accountContext,
 	() => {
+		cancelSave()
+		saveError.value = ''
+		cancelAliasValidation()
+		paramRequests.cancel()
+		paramsLoading.value = false
+		paramsError.value = ''
 		invalidateSourceDetection()
 		sourceDetectionNotice.value = ''
-	}
+		tenantList.value = []
+		storageEditForm.value?.clearValidate?.()
+		initializeStorage(true)
+	},
+	{ flush: 'sync' }
 )
+watch(() => storageItem.value.key, cancelAliasValidation, { flush: 'sync' })
 function recognizeStorageSource() {
 	if (
 		loading.value ||
@@ -1511,10 +1964,24 @@ function applyAddressSuggestions() {
 	addressNotice.value = '已填入识别结果，请检查连接信息；尚未保存。'
 }
 function storageErrorDescription(error, fallback) {
-	const code = error?.data?.code || error?.response?.data?.code
-	return code === 401 || code === 403
-		? '登录状态或管理权限已失效，请重新登录后再操作。'
-		: fallback
+	const data = error?.data || error?.response?.data
+	const code = String(data?.code || '')
+	const status = error?.status || error?.response?.status
+	if (
+		status === 401 ||
+		status === 403 ||
+		['401', '403', '42000', '40300'].includes(code)
+	)
+		return '登录状态或管理权限已失效，请重新登录后再操作。'
+	// Only use the server's public response field, never raw transport errors.
+	const message =
+		typeof data?.msg === 'string'
+			? data.msg
+					.replace(/\p{Cc}/gu, ' ')
+					.trim()
+					.slice(0, 300)
+			: ''
+	return message || fallback
 }
 let suggestedName = ''
 watch(
@@ -1548,7 +2015,9 @@ onBeforeUnmount(() => {
 	invalidateSourceDetection()
 	initialRequests.cancel()
 	paramRequests.cancel()
-	saveController?.abort()
+	cancelSave()
+	cancelAliasValidation()
+	resetPendingWrites()
 })
 
 let useS3Util = () => {
@@ -1574,7 +2043,7 @@ let useS3Util = () => {
 
 	const canReadBuckets = computed(
 		() =>
-			constant.storageType.s3Type.includes(storageItem.value.type) &&
+			legacyS3Tools.value &&
 			Boolean(
 				s3Credentials.value.accessKey &&
 					s3Credentials.value.secretKey &&
@@ -1601,6 +2070,7 @@ let useS3Util = () => {
 	async function discover(kind) {
 		if (
 			discoveryBusy.value ||
+			!legacyS3Tools.value ||
 			loading.value ||
 			storageDisposed ||
 			(kind === 'cors' ? !canReadCors.value : !canReadBuckets.value)
@@ -1959,12 +2429,18 @@ watch(
 				)
 			)
 			for (const item of newVal)
-				if (item.required && !item.hidden)
+				if (
+					(item.required ||
+						(independentRemote.value &&
+							['accessKey', 'secretKey'].includes(item.key))) &&
+					!item.hidden
+				)
 					nextRules[`storageSourceAllParam.${item.key}`] = [
 						{
 							validator: (_rule, value, callback) => {
 								if (
 									fieldShowMap.value[item.key] &&
+									storageFieldRequired(item) &&
 									(value === undefined ||
 										value === null ||
 										value === '' ||
@@ -2034,6 +2510,22 @@ const onOpen115LoginSuccess = (data) => {
 </script>
 
 <style scoped>
+.student-cloud-storage-edit {
+	max-width: 1080px;
+	margin-inline: auto;
+}
+.storage-form-section-title {
+	margin: 24px 0 18px;
+	font-size: 16px;
+	font-weight: 600;
+	color: var(--cloud-ink);
+}
+.storage-draft-status {
+	flex-basis: 100%;
+	color: var(--cloud-muted);
+	font-size: 12px;
+}
+
 .student-cloud-storage-edit :deep(.el-form-item-input > .el-select) {
 	width: 100%;
 }
@@ -2041,12 +2533,12 @@ const onOpen115LoginSuccess = (data) => {
 .storage-setup-guide,
 .storage-address-helper,
 .storage-s3-discovery {
-	margin: 0 0 22px;
-	padding: 20px;
-	border: 1px solid #dfe6dc;
+	margin: 0 0 16px;
+	padding: 16px;
+	border: 1px solid var(--cloud-line);
 	border-radius: 12px;
-	background: #f8f9f5;
-	color: #334c42;
+	background: var(--cloud-soft);
+	color: var(--cloud-ink);
 }
 .storage-setup-intro h2,
 .storage-setup-section-heading h2,
@@ -2060,11 +2552,11 @@ const onOpen115LoginSuccess = (data) => {
 .storage-setup-guide li {
 	font-size: 13px;
 	line-height: 1.7;
-	color: #67776d;
+	color: var(--cloud-muted);
 }
 .storage-setup-eyebrow {
 	font-size: 12px;
-	color: #477664;
+	color: var(--cloud-accent-ink);
 }
 .storage-source-detection {
 	margin-top: 18px;
@@ -2084,8 +2576,8 @@ const onOpen115LoginSuccess = (data) => {
 .storage-detection-candidates article {
 	min-width: 0;
 	padding: 16px;
-	background: #fff;
-	border: 1px solid #dce4d7;
+	background: var(--cloud-surface);
+	border: 1px solid var(--cloud-line);
 	border-radius: 9px;
 }
 .storage-detection-heading {
@@ -2099,7 +2591,7 @@ const onOpen115LoginSuccess = (data) => {
 }
 .storage-detection-heading span {
 	font-size: 11px;
-	color: #477664;
+	color: var(--cloud-accent-ink);
 }
 .storage-detection-candidates dl {
 	margin: 12px 0;
@@ -2113,7 +2605,7 @@ const onOpen115LoginSuccess = (data) => {
 }
 .storage-detection-candidates dt {
 	flex-shrink: 0;
-	color: #718071;
+	color: var(--cloud-muted);
 }
 .storage-detection-candidates dd {
 	margin: 0;
@@ -2127,32 +2619,32 @@ const onOpen115LoginSuccess = (data) => {
 }
 .storage-type-choices button {
 	padding: 16px;
-	border: 1px solid #dce4d7;
+	border: 1px solid var(--cloud-line);
 	border-radius: 9px;
-	background: #fff;
+	background: var(--cloud-surface);
 	text-align: left;
 	cursor: pointer;
 }
 .storage-type-choices button[aria-pressed='true'] {
-	border-color: #2a7866;
-	background: #e8f1e9;
+	border-color: var(--cloud-accent);
+	background: var(--cloud-lilac);
 }
 .storage-type-choices strong,
 .storage-type-choices small {
 	display: block;
 }
 .storage-type-choices strong {
-	color: #2e473b;
+	color: var(--cloud-ink);
 	font-size: 14px;
 }
 .storage-type-choices small {
 	margin-top: 7px;
-	color: #718071;
+	color: var(--cloud-muted);
 	font-size: 12px;
 	line-height: 1.5;
 }
 .storage-type-choices button:focus-visible {
-	outline: 2px solid #2a7866;
+	outline: 2px solid var(--cloud-accent);
 	outline-offset: 2px;
 }
 .storage-setup-section-heading {
@@ -2189,7 +2681,7 @@ const onOpen115LoginSuccess = (data) => {
 	overflow: auto;
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
-	background: #fff;
+	background: var(--cloud-surface);
 }
 .storage-setup-error {
 	padding: 12px 16px;

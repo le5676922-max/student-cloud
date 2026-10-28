@@ -9,6 +9,7 @@ import * as headerLoad from '../src/utils/header-storage-load.mjs'
 import * as presentation from '../src/utils/drive-presentation.mjs'
 import * as automation from '../src/utils/automation-context.mjs'
 import * as fileChanges from '../src/utils/file-change-refresh.mjs'
+import { driveSelectionActions } from '../src/utils/drive-selection-actions.mjs'
 import { uploadAccountIdentity } from '../src/composables/file/upload-lifecycle.mjs'
 
 const [pageSource, headerSource] = await Promise.all([
@@ -25,6 +26,42 @@ const { descriptor } = parse(pageSource)
 const compiled = compileScript(descriptor, { id: 'drive-page-runtime' }).content
 const plain = (value) => JSON.parse(JSON.stringify(value))
 const sourceItem = (key) => ({ key, name: key, type: { key: 'local' } })
+
+test('the recycle shortcut is hidden for directories whose backend does not offer recycling', () => {
+	const find = (node) => {
+		if (
+			node.tag === 'router-link' &&
+			node.props?.some(
+				(prop) => prop.name === 'to' && prop.value?.content === '/recycle-bin'
+			)
+		)
+			return node
+		for (const child of node.children || []) {
+			const result = find(child)
+			if (result) return result
+		}
+	}
+	const shortcut = find(descriptor.template.ast)
+	assert.ok(shortcut)
+	const condition = shortcut.props.find((prop) => prop.name === 'if').exp
+		.content
+	for (const [accountModel, recycleBin, visible] of [
+		['independent', false, false],
+		['independent', true, true],
+		['independent', undefined, true],
+		['legacy', true, false],
+	]) {
+		assert.equal(
+			vm.runInNewContext(condition, {
+				storageConfigStore: {
+					globalConfig: { accountModel },
+					folderConfig: { metadata: { recycleBin } },
+				},
+			}),
+			visible
+		)
+	}
+})
 const flush = async () => {
 	for (let step = 0; step < 5; step++) {
 		await vue.nextTick()
@@ -87,6 +124,7 @@ function setupPage({
 	})
 	const loading = vue.ref(false),
 		operationBusy = vue.ref(false)
+	const selectRows = vue.ref([])
 	const directoryLoadError = vue.ref(''),
 		directoryLoadState = vue.ref('idle')
 	const setDirectoryLoadError = (message) => {
@@ -184,6 +222,8 @@ function setupPage({
 		'~/utils/latest-request.mjs': latestRequest,
 		'~/utils/drive-presentation.mjs': presentation,
 		'~/utils/automation-context.mjs': automation,
+		'~/utils/drive-selection-actions.mjs': { driveSelectionActions },
+		'~/composables/file/useFileSelect': { default: () => ({ selectRows }) },
 		'~/utils/file-change-refresh.mjs': {
 			...fileChanges,
 			createFileChangeRefresh: (options) =>
@@ -240,7 +280,10 @@ function setupPage({
 			default: () => ({ generateLinkDialogVisible: vue.ref(false) }),
 		},
 		'~/composables/file/useFileShare': {
-			default: () => ({ setCreateShareDialogRef() {} }),
+			default: () => ({
+				setCreateShareDialogRef() {},
+				setControlledShareDialogRef() {},
+			}),
 		},
 	}
 	for (const name of [
@@ -248,6 +291,7 @@ function setupPage({
 		'~/components/file/readme/DialogReadme.vue',
 		'~/components/file/BatchOperatorResult.vue',
 		'~/components/file/CreateShareDialog.vue',
+		'~/components/file/ControlledShareDialog.vue',
 		'~/components/file/FileSelectionToolbar.vue',
 		'~/components/file/view/TableFileView.vue',
 		'~/components/file/view/CardFileView.vue',
@@ -275,6 +319,7 @@ function setupPage({
 	})
 	return {
 		api,
+		selectRows,
 		header,
 		route,
 		loading,
@@ -300,6 +345,96 @@ function setupPage({
 		},
 	}
 }
+
+function templateChain(
+	predicate,
+	node = descriptor.template.ast,
+	parents = []
+) {
+	if (predicate(node)) return [...parents, node]
+	for (const child of node.children || []) {
+		const found = templateChain(predicate, child, [...parents, node])
+		if (found) return found
+	}
+}
+
+test('selection actions share the existing browse toolbar rather than inserting a new row above either file view', () => {
+	const selection = templateChain((node) => node.tag === 'FileSelectionToolbar')
+	const browsing = templateChain((node) =>
+		node.props?.some(
+			(prop) =>
+				prop.name === 'class' && prop.value?.content === 'cloud-file-toolbar'
+		)
+	)
+	assert.ok(selection)
+	assert.ok(browsing)
+	let common
+	for (
+		let index = 0;
+		index < Math.min(selection.length, browsing.length);
+		index++
+	) {
+		if (selection[index] !== browsing[index]) break
+		common = selection[index]
+	}
+	assert.ok(common)
+	assert.equal(
+		Boolean(
+			templateChain(
+				(node) => ['table-file-view', 'card-file-view'].includes(node.tag),
+				common
+			)
+		),
+		false,
+		'selection actions must not add a normal-flow row before the file views'
+	)
+})
+
+test('selection mode disables hidden browse controls and clears for synthetic or empty rows', (t) => {
+	const h = setupPage()
+	t.after(h.dispose)
+	const browsing = templateChain((node) =>
+		node.props?.some(
+			(prop) =>
+				prop.name === 'class' && prop.value?.content === 'cloud-file-toolbar'
+		)
+	).at(-1)
+	const binding = (name) =>
+		browsing.props.find(
+			(prop) => prop.name === 'bind' && prop.arg?.content === name
+		)?.exp?.content
+	assert.ok(
+		binding('inert'),
+		'hidden browse controls must leave keyboard navigation'
+	)
+	assert.ok(
+		binding('aria-hidden'),
+		'hidden browse controls must leave the accessibility tree'
+	)
+	for (const [rows, active] of [
+		[[], false],
+		[[{ type: 'FOLDER', name: 'course' }], true],
+		[[{ type: 'FILE', name: 'note.txt' }], true],
+		[[{ type: 'ROOT', name: 'drive' }], false],
+		[[{ type: 'BACK', name: '..' }], false],
+		[[null], false],
+	]) {
+		h.selectRows.value = rows
+		assert.equal(h.api.selectionActive.value, active)
+		assert.equal(
+			Boolean(
+				vm.runInNewContext(binding('inert'), { selectionActive: active })
+			),
+			active
+		)
+		assert.equal(
+			Boolean(
+				vm.runInNewContext(binding('aria-hidden'), { selectionActive: active })
+			),
+			active
+		)
+	}
+})
 
 test('root list failure stays visible and root retry clears it only after a successful reload', async (t) => {
 	const h = setupPage()
@@ -377,6 +512,51 @@ test('refresh, retry and mkdir cannot start during loading or an active file ope
 	assert.equal(h.calls.lists.length, 0)
 	assert.equal(h.calls.retries, 0)
 	assert.equal(h.calls.mkdir, 0)
+})
+
+test('route-driven storage selection preserves nested directories across Back and Forward without a second navigation', async (t) => {
+	const h = setupPage({ key: 'source-one' })
+	t.after(h.dispose)
+	const bootstrap = h.header.loadStorageSourceList()
+	h.calls.lists[0].resolve({
+		data: [sourceItem('source-one'), sourceItem('source-two')],
+	})
+	await bootstrap
+	await flush()
+	assert.equal(h.header.currentStorageKey.value, 'source-one')
+	assert.deepEqual(h.calls.pushes, [])
+
+	for (const [key, folder] of [
+		['source-two', 'reports'],
+		['source-one', 'notes'],
+		['source-two', 'reports'],
+	]) {
+		h.route.path = `/${key}/${folder}`
+		h.route.params = { storageKey: key, fullpath: [folder] }
+		await flush()
+		assert.equal(h.header.currentStorageKey.value, key)
+		assert.equal(h.files.currentStorageSource.key, key)
+		assert.deepEqual(h.calls.pushes, [])
+		h.calls.roots.at(-1).resolve({ data: '/student' })
+		await flush()
+		assert.equal(h.calls.files.at(-1).key, key)
+		assert.equal(h.loading.value, false)
+	}
+})
+
+test('an explicit storage dropdown selection still navigates to the newly selected cloud root', async (t) => {
+	const h = setupPage({ key: 'source-one' })
+	t.after(h.dispose)
+	const bootstrap = h.header.loadStorageSourceList()
+	h.calls.lists[0].resolve({
+		data: [sourceItem('source-one'), sourceItem('source-two')],
+	})
+	await bootstrap
+	await flush()
+	h.header.currentStorageKey.value = 'source-two'
+	await flush()
+	assert.deepEqual(h.calls.pushes, ['/source-two'])
+	assert.equal(h.files.currentStorageSource.key, 'source-two')
 })
 
 test('same-route header/bootstrap calls share one promise and preserve real success/rejection contracts', async (t) => {

@@ -1,0 +1,37 @@
+# Host Nginx example. Replace the example domain and certificate paths after acceptance.
+map $http_upgrade $student_cloud_upgrade { default upgrade; '' close; }
+server {
+    listen 80;
+    server_name cloud.example.com;
+    return 301 https://$host$request_uri;
+}
+server {
+    listen 443 ssl;
+    server_name cloud.example.com;
+    ssl_certificate /etc/nginx/certificates/cloud.example.com/fullchain.pem;
+    ssl_certificate_key /etc/nginx/certificates/cloud.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
+    access_log off;
+    client_max_body_size 51m;
+    client_body_timeout 60s;
+    location / {
+        proxy_pass http://127.0.0.1:18094;
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header Origin $http_origin;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $student_cloud_upgrade;
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 90s;
+        proxy_send_timeout 90s;
+        proxy_next_upstream off;
+        gzip off;
+    }
+}

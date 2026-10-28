@@ -170,13 +170,14 @@
 							检测地址与前端不一致，使用反向代理时请检查网关配置。
 							<el-popover placement="right" :width="400" trigger="click">
 								<template #reference
-									><button
+									><el-button
 										v-show="serverHeaders"
-										type="button"
+										native-type="button"
+										link
 										class="server-headers-button"
 									>
 										查看服务器头信息
-									</button></template
+									</el-button></template
 								>
 								<div class="text-sm h-96 overflow-auto">
 									<button
@@ -513,6 +514,14 @@ const frontDetectServerAddress = computed(() => {
 	color: var(--cloud-primary);
 	text-decoration: underline;
 	text-underline-offset: 3px;
+	cursor: pointer;
+}
+.server-headers-button:hover {
+	background: var(--cloud-soft);
+}
+.server-headers-button:focus-visible {
+	outline: 2px solid var(--cloud-accent);
+	outline-offset: 2px;
 }
 .admin-from-footer {
 	position: sticky;

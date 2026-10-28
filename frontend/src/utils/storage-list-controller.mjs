@@ -105,6 +105,11 @@ export function createStorageListLoader({
 
 	return {
 		load,
+		cancel() {
+			sequence++
+			activeController?.abort()
+			activeController = undefined
+		},
 		dispose() {
 			disposed = true
 			sequence++
@@ -144,6 +149,36 @@ export function normalizeStorageStatusFilter(status) {
 	return storageStatusFilters.some((filter) => filter.value === status)
 		? status
 		: 'all'
+}
+
+/** Only non-sensitive list filters belong in history; connection fields never do. */
+export function storageListRouteState(query = {}) {
+	return {
+		query:
+			typeof query?.q === 'string'
+				? query.q
+						.split('')
+						.filter((character) => {
+							const code = character.charCodeAt(0)
+							return code >= 32 && code !== 127
+						})
+						.join('')
+						.trim()
+						.slice(0, 120)
+				: '',
+		status: normalizeStorageStatusFilter(query?.status),
+	}
+}
+
+export function storageListRouteQuery(state = {}) {
+	const { query, status } = storageListRouteState({
+		q: state.query,
+		status: state.status,
+	})
+	return {
+		...(query ? { q: query } : {}),
+		...(status !== 'all' ? { status } : {}),
+	}
 }
 
 function matchesStorageStatus(item, status) {

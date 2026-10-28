@@ -7,6 +7,8 @@ import { parse, compileScript } from 'vue/compiler-sfc'
 import * as setupUtils from '../src/utils/storage-setup.mjs'
 import * as recognizerUtils from '../src/utils/storage-source-recognizer.mjs'
 import { createLatestRequest } from '../src/utils/latest-request.mjs'
+import { createUnsavedFormGuard } from '../src/utils/unsaved-form-guard.mjs'
+import * as listRouteUtils from '../src/utils/storage-list-controller.mjs'
 
 // Real SFC setup and Vue watchers; synthetic API responses, no browser/server/model.
 const source = await readFile(
@@ -54,6 +56,7 @@ function schema(type) {
 
 function setupPage({
 	loginInfo = { isAdmin: false },
+	accountModel,
 	storageId,
 	supported = ['local', 'webdav', 's3', 'aliyun', 'minio', 'ftp', 'sftp'],
 	item = async (id) => ({ data: storageRecord(id) }),
@@ -67,6 +70,8 @@ function setupPage({
 	applyCors = async () => ({ data: null }),
 	confirmation = async () => true,
 	alias = async () => ({ data: false }),
+	pendingWrites = async () => ({ data: [] }),
+	inspectWrite = async () => ({ data: { status: 'UNCERTAIN' } }),
 	validation = async () => true,
 } = {}) {
 	const calls = {
@@ -79,6 +84,8 @@ function setupPage({
 			cors: [],
 			preflight: [],
 			applyCors: [],
+			pendingWrites: [],
+			inspectWrite: [],
 		},
 		notices = [],
 		cleanups = [],
@@ -88,10 +95,16 @@ function setupPage({
 		params: storageId === undefined ? {} : { storageId },
 	})
 	const router = { push: (path) => pushes.push(path) }
-	const storageStore = vue.reactive({ loginInfo })
+	const storageStore = vue.reactive({
+		loginInfo,
+		globalConfig: { accountModel },
+	})
+	const credential = vue.ref('synthetic-session-token')
 	const modules = {
 		'~/components/common/SafeHtml.vue': { default: {} },
 		'~/utils/latest-request.mjs': { createLatestRequest },
+		'~/utils/unsaved-form-guard.mjs': { createUnsavedFormGuard },
+		'~/utils/storage-list-controller.mjs': listRouteUtils,
 		'~/utils/storage-setup.mjs': setupUtils,
 		'~/utils/storage-source-recognizer.mjs': recognizerUtils,
 		'@heroicons/vue/24/solid': { CheckBadgeIcon: {}, LinkIcon: {} },
@@ -130,6 +143,14 @@ function setupPage({
 			existStorageKeyReq: (...args) => {
 				calls.aliases.push(args)
 				return alias(...args)
+			},
+			loadPendingStorageWritesReq: (...args) => {
+				calls.pendingWrites.push(args)
+				return pendingWrites(...args)
+			},
+			inspectPendingStorageWriteReq: (...args) => {
+				calls.inspectWrite.push(args)
+				return inspectWrite(...args)
 			},
 		},
 		'element-plus': {
@@ -194,8 +215,11 @@ function setupPage({
 		console,
 		onMounted: (callback) => mounts.push(callback),
 		onBeforeUnmount: (callback) => cleanups.push(callback),
+		onBeforeRouteLeave: () => {},
+		onBeforeRouteUpdate: () => {},
 		useRoute: () => route,
 		useRouter: () => router,
+		useStorage: () => credential,
 		constant: {
 			systemNames: ['admin', 'login', 'learning'],
 			region: {},
@@ -229,6 +253,7 @@ function setupPage({
 		pushes,
 		route,
 		storageStore,
+		credential,
 		flush,
 		async mount() {
 			await Promise.all(mounts.map((callback) => callback()))
@@ -263,6 +288,98 @@ function storageRecord(id, type = 'local', params = {}) {
 		},
 	}
 }
+
+test('existing configuration starts clean; cancelling leave preserves edits and never saves', async () => {
+	const page = setupPage({
+		storageId: '12',
+		confirmation: async () => {
+			throw new Error('cancel')
+		},
+	})
+	try {
+		await page.mount()
+		assert.equal(page.api.formHasChanges.value, false)
+		page.api.storageItem.value.name = '尚未保存的名字'
+		await page.flush()
+		assert.equal(page.api.formHasChanges.value, true)
+		assert.equal(await page.api.formGuard.mayLeave(), false)
+		assert.equal(page.calls.dialogs.length, 1)
+		assert.equal(page.calls.save.length, 0)
+		assert.equal(page.api.storageItem.value.name, '尚未保存的名字')
+	} finally {
+		page.unmount()
+	}
+})
+test('editor return restores only the committed storage-list query and status', async () => {
+	const page = setupPage()
+	try {
+		page.route.query = {
+			q: ' 课程 ',
+			status: 'enabled',
+			token: 'must-not-return',
+		}
+		await page.flush()
+		assert.deepEqual(plain(page.api.storageListDestination.value), {
+			path: '/admin/storage-list',
+			query: { q: '课程', status: 'enabled' },
+		})
+	} finally {
+		page.unmount()
+	}
+})
+test('IME Enter never recognizes or submits while a Chinese character is being confirmed', async () => {
+	const page = setupPage()
+	try {
+		await page.mount()
+		page.api.sourceDetectionInput.value = '/data/course'
+		let prevented = 0,
+			stopped = 0
+		page.api.guardComposingEnter({
+			isComposing: true,
+			preventDefault() {
+				prevented++
+			},
+			stopPropagation() {
+				stopped++
+			},
+		})
+		await page.api.recognizeStorageSourceFromKey({ isComposing: true })
+		assert.equal(prevented, 1)
+		assert.equal(stopped, 1)
+		assert.equal(page.api.sourceDetectionCandidates.value.length, 0)
+		assert.equal(page.calls.save.length, 0)
+	} finally {
+		page.unmount()
+	}
+})
+test('setup failure focuses the named field and sends no save request', async () => {
+	const page = setupPage()
+	try {
+		await page.choose('local')
+		complete(page)
+		page.api.storageItem.value.name = ''
+		let focused = 0,
+			scrolled
+		page.api.storageEditForm.value = {
+			validate: async () => true,
+			scrollToField: (key) => (scrolled = key),
+			$el: {
+				querySelector: () => ({
+					focus() {
+						focused++
+					},
+				}),
+			},
+		}
+		await page.api.submitForm()
+		await page.flush()
+		assert.equal(scrolled, 'name')
+		assert.equal(focused, 1)
+		assert.equal(page.calls.save.length, 0)
+	} finally {
+		page.unmount()
+	}
+})
 
 function complete(page, type = 'local') {
 	const item = page.api.storageItem.value
@@ -1482,5 +1599,750 @@ test('tenant administrators see only external storage choices and write verifica
 		assert.equal(page.calls.save.length, 0)
 	} finally {
 		page.unmount()
+	}
+})
+
+test('a manually entered alias reaches the availability API and a collision blocks validation without a save', async () => {
+	const page = setupPage({ alias: async () => ({ data: true }) })
+	try {
+		await page.choose('local')
+		complete(page)
+		page.api.storageItem.value.key = 'course-files_2026'
+		const result = await new Promise((resolve) =>
+			page.api.rules.value.key[0].validator({}, 'course-files_2026', resolve)
+		)
+		assert.match(result.message, /别名已存在/)
+		assert.equal(page.calls.aliases.length, 1)
+		const [query, config] = page.calls.aliases[0]
+		assert.equal(query.key ?? query.storageKey, 'course-files_2026')
+		assert.equal(config.showDefaultMsg, false)
+		assert.equal(page.calls.save.length + page.calls.preflight.length, 0)
+	} finally {
+		page.unmount()
+	}
+})
+
+test('empty aliases remain optional while reserved or malformed aliases fail locally without availability reads', async () => {
+	const page = setupPage()
+	try {
+		for (const value of ['', undefined, null]) {
+			const result = await new Promise((resolve) =>
+				page.api.rules.value.key[0].validator({}, value, resolve)
+			)
+			assert.equal(result, undefined)
+		}
+		for (const value of ['admin', 'course/files', '课程资料', 'two words']) {
+			const result = await new Promise((resolve) =>
+				page.api.rules.value.key[0].validator({}, value, resolve)
+			)
+			assert.ok(result?.message)
+		}
+		assert.equal(page.calls.aliases.length + page.calls.save.length, 0)
+	} finally {
+		page.unmount()
+	}
+})
+
+for (const verifyWrite of [false, true]) {
+	test(`connection check captures verifyWrite=${verifyWrite} when requested, before asynchronous validation`, async () => {
+		const validation = deferred()
+		const page = setupPage({ validation: () => validation.promise })
+		try {
+			await page.choose('local')
+			complete(page)
+			page.api.verifyWrite.value = verifyWrite
+			const checking = page.api.testConnection()
+			assert.equal(page.api.safetyBusy.value, 'test')
+			page.api.verifyWrite.value = !verifyWrite
+			validation.resolve(true)
+			await checking
+			assert.equal(page.calls.preflight.length, 1)
+			assert.equal(page.calls.preflight[0][0].verifyWrite, verifyWrite)
+			assert.equal(page.calls.save.length + page.calls.applyCors.length, 0)
+		} finally {
+			page.unmount()
+		}
+	})
+
+	for (const succeeded of [false, true]) {
+		test(`${verifyWrite ? 'write' : 'read'} check ${
+			succeeded ? 'success' : 'failure'
+		} fallback describes the requested mode after the checkbox changes`, async () => {
+			const response = deferred()
+			const page = setupPage({ preflight: () => response.promise })
+			try {
+				await page.choose('local')
+				complete(page)
+				page.api.verifyWrite.value = verifyWrite
+				const checking = page.api.testConnection()
+				await page.flush()
+				page.api.verifyWrite.value = !verifyWrite
+				if (succeeded)
+					response.resolve({ data: { passed: true, cleanup: true } })
+				else response.reject(new Error('synthetic transport failure'))
+				await checking
+				assert.equal(page.calls.preflight.length, 1)
+				assert.equal(page.calls.preflight[0][0].verifyWrite, verifyWrite)
+				assert.equal(page.api.safetyPassed.value, succeeded)
+				assert.match(page.api.safetyNotice.value, verifyWrite ? /读写/ : /只读/)
+				if (verifyWrite)
+					assert.doesNotMatch(page.api.safetyNotice.value, /只读/)
+				assert.equal(page.api.safetyBusy.value, '')
+				assert.equal(page.calls.save.length + page.calls.applyCors.length, 0)
+			} finally {
+				page.unmount()
+			}
+		})
+	}
+}
+
+for (const shape of ['response', 'intercepted']) {
+	test(`save and connection errors surface independent backend details from a ${shape} rejection`, async () => {
+		const error = (code, msg) =>
+			shape === 'response'
+				? { response: { status: 409, data: { code, msg } } }
+				: { status: 409, data: { code, msg } }
+		const page = setupPage({
+			save: async () => {
+				throw error('STORAGE_KEY_EXISTS', '存储源别名已存在，请修改别名')
+			},
+			preflight: async () => {
+				throw error('STORAGE_WRITE_FAILED', '目录不可写，请检查目录权限')
+			},
+		})
+		try {
+			await page.choose('local')
+			complete(page)
+			await page.api.submitForm()
+			assert.match(page.api.saveError.value, /存储源别名已存在/)
+			assert.equal(page.api.loading.value, false)
+			page.api.verifyWrite.value = true
+			await page.api.testConnection()
+			assert.match(page.api.safetyNotice.value, /目录不可写/)
+			assert.equal(page.api.safetyPassed.value, false)
+			assert.equal(page.calls.save.length, 1)
+			assert.equal(page.calls.preflight.length, 1)
+			assert.equal(page.calls.save[0][1].showDefaultMsg, false)
+			assert.equal(page.calls.preflight[0][1].showDefaultMsg, false)
+			assert.equal(page.pushes.length + page.notices.length, 0)
+		} finally {
+			page.unmount()
+		}
+	})
+}
+
+for (const context of ['account', 'token']) {
+	for (const phase of ['validation', 'post']) {
+		for (const outcome of ['success', 'failure']) {
+			test(`${context} change invalidates an old save during ${phase} and ignores late ${outcome}`, async () => {
+				const pending = deferred()
+				const page = setupPage({
+					loginInfo: { username: 'first-user', tenantId: 9, isAdmin: false },
+					validation: () =>
+						phase === 'validation' ? pending.promise : Promise.resolve(true),
+					save: () => pending.promise,
+				})
+				try {
+					await page.choose('local')
+					complete(page)
+					const saving = page.api.submitForm()
+					await page.flush()
+					assert.equal(page.calls.save.length, phase === 'post' ? 1 : 0)
+					if (context === 'token')
+						page.credential.value = 'different-session-token'
+					else
+						page.storageStore.loginInfo = {
+							username: 'second-user',
+							tenantId: 10,
+							isAdmin: false,
+						}
+					await page.flush()
+					if (phase === 'post')
+						assert.equal(page.calls.save[0][1].signal.aborted, true)
+					if (outcome === 'success')
+						pending.resolve(phase === 'post' ? { data: 99 } : true)
+					else pending.reject(new Error('old account request failed'))
+					await saving
+					await page.flush()
+					assert.equal(page.calls.save.length, phase === 'post' ? 1 : 0)
+					assert.equal(page.api.loading.value, false)
+					assert.equal(page.api.saveError.value, '')
+					assert.equal(page.api.storageItem.value.id, undefined)
+					assert.equal(page.pushes.length + page.notices.length, 0)
+				} finally {
+					page.unmount()
+				}
+			})
+		}
+	}
+}
+
+test('duplicate submissions stay coalesced through a failed POST and failure does not schedule a retry', async () => {
+	const response = deferred()
+	const page = setupPage({ save: () => response.promise })
+	try {
+		await page.choose('local')
+		complete(page)
+		const first = page.api.submitForm(),
+			second = page.api.submitForm()
+		await page.flush()
+		await page.api.submitForm()
+		assert.equal(page.calls.save.length, 1)
+		assert.equal(page.api.loading.value, true)
+		response.reject(
+			Object.assign(new Error('synthetic timeout'), { code: 'ECONNABORTED' })
+		)
+		await Promise.all([first, second])
+		await page.flush()
+		assert.equal(page.calls.save.length, 1)
+		assert.equal(page.api.loading.value, false)
+		assert.match(page.api.saveError.value, /列表刷新核实/)
+		assert.match(page.api.saveError.value, /不要重复提交/)
+		assert.equal(page.pushes.length + page.notices.length, 0)
+	} finally {
+		page.unmount()
+	}
+})
+
+test('changing form data during asynchronous validation does not submit the previous configuration', async () => {
+	const validation = deferred()
+	const page = setupPage({ validation: () => validation.promise })
+	try {
+		await page.choose('local')
+		complete(page)
+		const saving = page.api.submitForm()
+		page.api.storageItem.value.name = '修改后的资料库'
+		validation.resolve(true)
+		await saving
+		assert.equal(page.calls.save.length, 0)
+		assert.equal(page.api.loading.value, false)
+		assert.equal(page.pushes.length + page.notices.length, 0)
+	} finally {
+		page.unmount()
+	}
+})
+
+test('superseding an alias check settles the old validator once and its late collision cannot reject the new alias', async () => {
+	const old = deferred(),
+		current = deferred()
+	const oldResults = [],
+		currentResults = []
+	const page = setupPage({
+		alias: ({ storageKey }) =>
+			storageKey === 'old-alias' ? old.promise : current.promise,
+	})
+	try {
+		page.api.storageItem.value.key = 'old-alias'
+		page.api.rules.value.key[0].validator({}, 'old-alias', (error) =>
+			oldResults.push(error)
+		)
+		page.api.storageItem.value.key = 'current-alias'
+		page.api.rules.value.key[0].validator({}, 'current-alias', (error) =>
+			currentResults.push(error)
+		)
+		assert.equal(page.calls.aliases.length, 2)
+		assert.equal(page.calls.aliases[0][1].signal.aborted, true)
+		assert.deepEqual(oldResults, [undefined])
+		old.resolve({ data: true })
+		await page.flush()
+		assert.deepEqual(oldResults, [undefined])
+		assert.deepEqual(currentResults, [])
+		current.resolve({ data: false })
+		await page.flush()
+		assert.deepEqual(currentResults, [undefined])
+		assert.equal(page.calls.save.length, 0)
+	} finally {
+		page.unmount()
+	}
+})
+
+for (const change of ['account', 'token', 'route', 'unmount']) {
+	test(`${change} change cancels an alias request and its stale failure cannot surface a validation error`, async () => {
+		const response = deferred()
+		const results = []
+		const page = setupPage({ alias: () => response.promise })
+		let disposed = false
+		try {
+			page.api.storageItem.value.key = 'course-files'
+			page.api.rules.value.key[0].validator({}, 'course-files', (error) =>
+				results.push(error)
+			)
+			if (change === 'account')
+				page.storageStore.loginInfo.username = 'different-user'
+			else if (change === 'token')
+				page.credential.value = 'different-session-token'
+			else if (change === 'route') await page.navigate('902')
+			else {
+				page.unmount()
+				disposed = true
+			}
+			await page.flush()
+			assert.equal(page.calls.aliases[0][1].signal.aborted, true)
+			assert.deepEqual(results, [undefined])
+			response.reject(new Error('old request failed'))
+			await page.flush()
+			assert.deepEqual(results, [undefined])
+			assert.equal(page.calls.save.length, 0)
+		} finally {
+			if (!disposed) page.unmount()
+		}
+	})
+}
+
+test('credential replacement cancels an old preflight and a late result cannot describe the new session', async () => {
+	const response = deferred()
+	const page = setupPage({ preflight: () => response.promise })
+	try {
+		await page.choose('local')
+		complete(page)
+		const checking = page.api.testConnection()
+		await page.flush()
+		page.credential.value = 'different-session-token'
+		assert.equal(page.calls.preflight[0][1].signal.aborted, true)
+		response.resolve({ data: { passed: true, message: 'old session result' } })
+		await checking
+		assert.equal(page.api.safetyPassed.value, false)
+		assert.equal(page.api.safetyNotice.value, '')
+		assert.equal(page.calls.save.length, 0)
+	} finally {
+		page.unmount()
+	}
+})
+
+test('public backend messages are bounded and normalized, while transport errors retain uncertainty guidance', async () => {
+	let failure
+	const page = setupPage({
+		save: async () => {
+			throw failure
+		},
+	})
+	try {
+		await page.choose('local')
+		complete(page)
+		failure = {
+			response: {
+				status: 409,
+				data: { msg: '公开提示\u0000' + '长'.repeat(500) },
+			},
+		}
+		await page.api.submitForm()
+		assert.match(page.api.saveError.value, /^公开提示 /)
+		assert.ok(page.api.saveError.value.length <= 300)
+		assert.equal(page.api.saveError.value.includes('\u0000'), false)
+		failure = new Error('synthetic-private-transport-detail')
+		await page.api.submitForm()
+		assert.match(page.api.saveError.value, /列表刷新核实/)
+		assert.doesNotMatch(page.api.saveError.value, /synthetic-private/)
+		for (const authorization of [
+			{
+				response: {
+					status: 401,
+					data: { code: '42000', msg: 'private detail' },
+				},
+			},
+			{ status: 403, data: { code: '40300', msg: 'private detail' } },
+			{ data: { code: '401' } },
+		]) {
+			failure = authorization
+			await page.api.submitForm()
+			assert.match(page.api.saveError.value, /登录状态或管理权限已失效/)
+		}
+		assert.equal(page.pushes.length + page.notices.length, 0)
+	} finally {
+		page.unmount()
+	}
+})
+
+function independentRemoteSchema() {
+	return [
+		field('endPoint'),
+		field('bucketName'),
+		field('region'),
+		field('accessKey', '', false),
+		field('secretKey', '', false),
+		field('sessionToken', '', false),
+		field('basePath', '', false),
+		field('pathStyleAccess', true, false, { type: 'switch' }),
+	]
+}
+
+function remoteRecord(id) {
+	return {
+		...storageRecord(id, 's3', {
+			endPoint: 'https://storage.example.test',
+			bucketName: 'course-files',
+			region: 'test-region',
+			basePath: 'private/courses/',
+			accessKey: '',
+			secretKey: '',
+			sessionToken: '',
+			pathStyleAccess: false,
+		}),
+		credentialsConfigured: true,
+		version: 7,
+		revision: 7,
+		writeVerified: true,
+	}
+}
+
+test('new independent remote sources require both access credentials even when the backend schema makes blank edits optional', async () => {
+	const page = setupPage({
+		accountModel: 'independent',
+		params: async () => ({ data: independentRemoteSchema() }),
+	})
+	try {
+		await page.choose('s3')
+		complete(page, 's3')
+		page.api.storageItem.value.storageSourceAllParam.accessKey = ''
+		page.api.storageItem.value.storageSourceAllParam.secretKey = ''
+		await page.api.submitForm()
+		assert.deepEqual(
+			plain(page.api.setupIssues.value.map((issue) => issue.key).sort()),
+			['accessKey', 'secretKey']
+		)
+		assert.equal(page.calls.save.length, 0)
+		page.api.storageItem.value.storageSourceAllParam.accessKey =
+			'synthetic-new-id'
+		await page.api.testConnection()
+		assert.equal(page.calls.preflight.length, 0)
+		assert.deepEqual(
+			plain(page.api.setupIssues.value.map((issue) => issue.key)),
+			['secretKey']
+		)
+		page.api.storageItem.value.storageSourceAllParam.secretKey =
+			'synthetic-new-secret'
+		page.api.verifyWrite.value = true
+		await page.api.submitForm()
+		assert.equal(page.calls.save.length, 1)
+		assert.equal(page.calls.save[0][0].verifyWrite, true)
+	} finally {
+		page.unmount()
+	}
+})
+
+test('remote edit preserves blank encrypted credentials and version while saving the explicitly selected write verification', async () => {
+	const page = setupPage({
+		accountModel: 'independent',
+		storageId: '901',
+		item: async (id) => ({ data: remoteRecord(id) }),
+		params: async () => ({ data: independentRemoteSchema() }),
+	})
+	try {
+		await page.mount()
+		assert.equal(page.api.verifyWrite.value, true)
+		page.api.checkSetup()
+		assert.deepEqual(plain(page.api.setupIssues.value), [])
+		const validator =
+			page.api.rules.value['storageSourceAllParam.accessKey'][0].validator
+		const validation = await new Promise((resolve) =>
+			validator({}, '', resolve)
+		)
+		assert.equal(validation, undefined)
+		page.api.verifyWrite.value = true
+		await page.api.testConnection()
+		assert.equal(page.calls.preflight.length, 1)
+		assert.equal(page.calls.preflight[0][0].id, 901)
+		assert.equal(page.calls.preflight[0][0].version, 7)
+		assert.equal(page.calls.preflight[0][0].storageSourceAllParam.secretKey, '')
+		await page.api.submitForm()
+		assert.equal(page.calls.save.length, 1)
+		assert.equal(page.calls.save[0][0].version, 7)
+		assert.equal(page.calls.save[0][0].verifyWrite, true)
+		assert.equal(page.calls.save[0][0].storageSourceAllParam.accessKey, '')
+		assert.equal(page.calls.save[0][0].storageSourceAllParam.secretKey, '')
+		assert.equal(
+			page.calls.save[0][0].storageSourceAllParam.pathStyleAccess,
+			false
+		)
+	} finally {
+		page.unmount()
+	}
+})
+
+test('an explicit read-only remote save does not inherit an earlier saved write verification', async () => {
+	const page = setupPage({
+		accountModel: 'independent',
+		storageId: '901',
+		item: async (id) => ({ data: remoteRecord(id) }),
+		params: async () => ({ data: independentRemoteSchema() }),
+	})
+	try {
+		await page.mount()
+		page.api.verifyWrite.value = false
+		await page.api.submitForm()
+		assert.equal(page.calls.save.length, 1)
+		assert.equal(page.calls.save[0][0].verifyWrite, false)
+		assert.equal(page.calls.preflight.length, 0)
+	} finally {
+		page.unmount()
+	}
+})
+
+test('editing one remote access credential requires its pair before any save or probe', async () => {
+	const page = setupPage({
+		accountModel: 'independent',
+		storageId: '901',
+		item: async (id) => ({ data: remoteRecord(id) }),
+		params: async () => ({ data: independentRemoteSchema() }),
+	})
+	try {
+		await page.mount()
+		page.api.storageItem.value.storageSourceAllParam.accessKey =
+			'replacement-id'
+		await page.api.submitForm()
+		assert.deepEqual(
+			plain(page.api.setupIssues.value.map((issue) => issue.key)),
+			['secretKey']
+		)
+		assert.equal(page.calls.save.length, 0)
+		page.api.storageItem.value.storageSourceAllParam.secretKey =
+			'replacement-secret'
+		page.api.checkSetup()
+		assert.deepEqual(plain(page.api.setupIssues.value), [])
+	} finally {
+		page.unmount()
+	}
+})
+
+test('independent remote setup cannot invoke unavailable bucket and CORS helper routes and uses the real connection endpoint', async () => {
+	const page = setupPage({
+		accountModel: 'independent',
+		storageId: '901',
+		item: async (id) => ({ data: remoteRecord(id) }),
+		params: async () => ({ data: independentRemoteSchema() }),
+	})
+	try {
+		await page.mount()
+		page.api.storageItem.value.storageSourceAllParam.accessKey = 'synthetic-id'
+		page.api.storageItem.value.storageSourceAllParam.secretKey =
+			'synthetic-secret'
+		await page.flush()
+		await page.api.readBuckets()
+		await page.api.readCors()
+		await page.api.applySavedCors()
+		assert.equal(
+			page.calls.buckets.length +
+				page.calls.cors.length +
+				page.calls.applyCors.length +
+				page.calls.dialogs.length,
+			0
+		)
+		assert.equal(page.api.canReadBuckets.value, false)
+		await page.api.testConnection()
+		assert.equal(page.calls.preflight.length, 1)
+		assert.equal(page.calls.save.length, 0)
+	} finally {
+		page.unmount()
+	}
+})
+
+const pendingOperation = {
+	id: '12345678-1234-4234-8234-123456789abc',
+	actorId: 3,
+	path: '/notes.txt',
+	status: 'UNCERTAIN',
+	createdAt: 1793059200000,
+	updatedAt: 1793059200001,
+}
+const pendingRemotePage = (options) =>
+	setupPage({
+		accountModel: 'independent',
+		loginInfo: { role: 'TENANT_ADMIN', isAdmin: false, tenantId: 9 },
+		storageId: '901',
+		item: async (id) => ({ data: remoteRecord(id) }),
+		params: async () => ({ data: independentRemoteSchema() }),
+		...options,
+	})
+
+test('pending remote writes load only on request and inspect only a displayed saved operation without credentials or file replay', async () => {
+	let reads = 0
+	const response = deferred()
+	const page = pendingRemotePage({
+		pendingWrites: async () => ({
+			data:
+				++reads === 1
+					? [{ ...pendingOperation, credentials: 'must-not-store' }]
+					: [],
+		}),
+		inspectWrite: () => response.promise,
+	})
+	try {
+		await page.mount()
+		assert.equal(page.calls.pendingWrites.length, 0)
+		await page.api.loadPendingWrites()
+		assert.equal(page.calls.pendingWrites.length, 1)
+		assert.equal(page.calls.pendingWrites[0][0], 901)
+		assert.deepEqual(plain(page.api.pendingWrites.value), [pendingOperation])
+		await page.api.inspectPendingWrite({ ...pendingOperation })
+		assert.equal(page.calls.inspectWrite.length, 0)
+		const inspecting = page.api.inspectPendingWrite(
+			page.api.pendingWrites.value[0]
+		)
+		await page.api.inspectPendingWrite(page.api.pendingWrites.value[0])
+		await page.api.submitForm()
+		assert.equal(page.calls.inspectWrite.length, 1)
+		assert.equal(page.calls.inspectWrite[0][0], 901)
+		assert.equal(page.calls.inspectWrite[0][1], pendingOperation.id)
+		assert.equal(
+			Object.hasOwn(page.calls.inspectWrite[0][2], 'secretKey'),
+			false
+		)
+		response.resolve({
+			data: {
+				id: pendingOperation.id,
+				status: 'COMPLETED',
+				result: 'CONFIRMED',
+				message: '已确认写入完成',
+			},
+		})
+		await inspecting
+		assert.equal(page.calls.pendingWrites.length, 2)
+		assert.deepEqual(plain(page.api.pendingWrites.value), [])
+		assert.match(page.api.pendingWritesNotice.value, /已确认写入完成/)
+		assert.equal(
+			page.calls.save.length +
+				page.calls.preflight.length +
+				page.calls.applyCors.length,
+			0
+		)
+		await page.flush()
+		assert.equal(page.calls.pendingWrites.length, 2)
+	} finally {
+		page.unmount()
+	}
+})
+
+for (const phase of ['load', 'inspect']) {
+	for (const change of ['route', 'account', 'token', 'unmount']) {
+		test(`${change} change cancels pending write ${phase} and ignores its late response`, async () => {
+			const response = deferred()
+			const page = pendingRemotePage({
+				pendingWrites: () =>
+					phase === 'load'
+						? response.promise
+						: Promise.resolve({ data: [pendingOperation] }),
+				inspectWrite: () => response.promise,
+			})
+			let disposed = false
+			try {
+				await page.mount()
+				let pending
+				if (phase === 'load') pending = page.api.loadPendingWrites()
+				else {
+					await page.api.loadPendingWrites()
+					pending = page.api.inspectPendingWrite(
+						page.api.pendingWrites.value[0]
+					)
+				}
+				if (change === 'route') await page.navigate('902')
+				else if (change === 'account')
+					page.storageStore.loginInfo.username = 'next-user'
+				else if (change === 'token') page.credential.value = 'next-session'
+				else {
+					page.unmount()
+					disposed = true
+				}
+				await page.flush()
+				const call =
+					phase === 'load'
+						? page.calls.pendingWrites[0]
+						: page.calls.inspectWrite[0]
+				assert.equal(call.at(-1).signal.aborted, true)
+				response.resolve({
+					data:
+						phase === 'load'
+							? [pendingOperation]
+							: {
+									id: pendingOperation.id,
+									status: 'COMPLETED',
+									result: 'CONFIRMED',
+									message: 'old result',
+							  },
+				})
+				await pending
+				assert.deepEqual(plain(page.api.pendingWrites.value), [])
+				assert.equal(page.api.pendingWritesNotice.value, '')
+				assert.equal(page.calls.pendingWrites.length, 1)
+				assert.equal(page.calls.save.length, 0)
+			} finally {
+				if (!disposed) page.unmount()
+			}
+		})
+	}
+}
+
+test('failed or malformed pending write reads remain actionable and never invent an empty healthy list', async () => {
+	let data = null
+	const page = pendingRemotePage({ pendingWrites: async () => ({ data }) })
+	try {
+		await page.mount()
+		await page.api.loadPendingWrites()
+		assert.ok(page.api.pendingWritesError.value)
+		assert.equal(page.api.pendingWritesLoaded.value, false)
+		data = [pendingOperation]
+		await page.api.loadPendingWrites()
+		assert.equal(page.api.pendingWritesLoaded.value, true)
+		assert.equal(page.api.pendingWritesError.value, '')
+		assert.equal(page.calls.pendingWrites.length, 2)
+	} finally {
+		page.unmount()
+	}
+})
+
+test('unconfirmed inspection keeps its record and failed inspections never retry or replay the file', async () => {
+	let fail = false
+	const page = pendingRemotePage({
+		pendingWrites: async () => ({ data: [pendingOperation] }),
+		inspectWrite: async () => {
+			if (fail) throw { response: { data: { msg: '远程核查暂时不可用' } } }
+			return {
+				data: {
+					id: pendingOperation.id,
+					status: 'UNCERTAIN',
+					result: 'PENDING',
+					message: '尚未匹配到本次写入，保留待核查状态',
+				},
+			}
+		},
+	})
+	try {
+		await page.mount()
+		await page.api.loadPendingWrites()
+		await page.api.inspectPendingWrite(page.api.pendingWrites.value[0])
+		assert.equal(page.api.pendingWrites.value.length, 1)
+		assert.equal(page.api.pendingWrites.value[0].status, 'UNCERTAIN')
+		assert.match(page.api.pendingWritesNotice.value, /保留待核查状态/)
+		assert.equal(page.calls.pendingWrites.length, 2)
+		fail = true
+		await page.api.inspectPendingWrite(page.api.pendingWrites.value[0])
+		await page.flush()
+		assert.match(page.api.pendingWritesError.value, /远程核查暂时不可用/)
+		assert.equal(page.calls.pendingWrites.length, 2)
+		assert.equal(page.calls.inspectWrite.length, 2)
+		assert.equal(page.calls.save.length + page.calls.preflight.length, 0)
+	} finally {
+		page.unmount()
+	}
+})
+
+test('pending writes are unavailable for new sources, local sources, and non-administrator sessions', async () => {
+	for (const options of [
+		{ storageId: undefined },
+		{ item: async (id) => ({ data: storageRecord(id, 'local') }) },
+		{ loginInfo: { role: 'USER', isAdmin: false } },
+	]) {
+		const page = pendingRemotePage(options)
+		try {
+			await page.mount()
+			assert.equal(page.api.canManagePendingWrites.value, false)
+			await page.api.loadPendingWrites()
+			await page.api.inspectPendingWrite(pendingOperation)
+			assert.equal(
+				page.calls.pendingWrites.length + page.calls.inspectWrite.length,
+				0
+			)
+		} finally {
+			page.unmount()
+		}
 	}
 })

@@ -239,6 +239,32 @@ test('global feedback lives in diagnostics without adding another primary naviga
 	assert.match(apiSource, /from '~\/http\/request'/)
 })
 
+test('a private-source publication restriction never blocks administrator correction or resolving feedback', async () => {
+	const app = await mount({
+		get: async (id) => ({
+			data: {
+				...detail(id),
+				canPublish: false,
+				publicationNotice: '含个人资料，仅供人工处理。',
+			},
+		}),
+	})
+	try {
+		await app.api.openDetail(idA)
+		assert.equal(app.api.detail.canPublish, false)
+		app.api.draft.status = 'RESOLVED'
+		app.api.draft.correctedAnswer = '人工核对后的正确答复。'
+		await flush()
+		assert.equal(app.api.canSave, true)
+		await app.api.saveDetail()
+		assert.equal(app.calls.save.length, 1)
+		assert.equal(app.calls.save[0][1].status, 'RESOLVED')
+		assert.equal(app.calls.save[0][1].correctedAnswer, '人工核对后的正确答复。')
+	} finally {
+		app.dispose()
+	}
+})
+
 test('list and detail render submitted text safely and never promote the original answer into the correction', async () => {
 	const app = await mount()
 	try {

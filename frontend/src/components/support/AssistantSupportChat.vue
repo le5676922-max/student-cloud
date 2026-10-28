@@ -122,6 +122,7 @@
 				</p>
 				<form
 					v-else
+					novalidate
 					class="assistant-support-composer"
 					@submit.prevent="sendMessage"
 				>
@@ -129,6 +130,7 @@
 					<textarea
 						id="assistant-support-reply"
 						v-model="draft"
+						style="resize: none"
 						maxlength="2000"
 						rows="2"
 						:disabled="sending || closing"
@@ -679,7 +681,6 @@ onBeforeUnmount(() => {
 .assistant-support-composer textarea {
 	box-sizing: border-box;
 	width: 100%;
-	resize: vertical;
 	min-height: 65px;
 	max-height: 150px;
 	padding: 9px;

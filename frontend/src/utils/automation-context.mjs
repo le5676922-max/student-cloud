@@ -81,7 +81,7 @@ export function canPreviewDirectory(context, source, permission, type) {
 	if (
 		!context?.storageKey ||
 		source?.key !== context.storageKey ||
-		sourceType !== 'local'
+		!['local', 'INDEPENDENT_LOCAL'].includes(sourceType)
 	)
 		return false
 	if (type === 'ORGANIZE_FILES')

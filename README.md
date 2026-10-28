@@ -4,294 +4,360 @@
 
 ### 学生云盘与智能资料管理平台
 
-**把个人文件、课程协作和资料检索放在同一个工作空间。**
+**把个人文件、课程资料和团队协作，放进一个有清楚权限边界的工作空间。**
 
-![Version 5.0.0](https://img.shields.io/badge/version-5.0.0-6b46c1)
-![Java 21](https://img.shields.io/badge/Java-21-437291)
-![Vue 3](https://img.shields.io/badge/Vue-3-42b883)
-![Spring Boot 3](https://img.shields.io/badge/Spring_Boot-3-6db33f)
-![Docker Compose](https://img.shields.io/badge/deploy-Docker_Compose-2496ed)
-![License MIT](https://img.shields.io/badge/License-MIT-green)
+![Java](https://img.shields.io/badge/Java-21-437291?style=flat-square)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.1.2-6db33f?style=flat-square)
+![Spring Cloud](https://img.shields.io/badge/Spring_Cloud-2025.1.4-6db33f?style=flat-square)
+![Vue](https://img.shields.io/badge/Vue-3-42b883?style=flat-square)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ed?style=flat-square)
+![License](https://img.shields.io/badge/License-MIT-606067?style=flat-square)
 
-[完整使用手册](项目介绍与使用手册.md) · [本地启动](docs/QUICKSTART.md) · [Docker 部署](docs/Docker生产部署与验收-20261011.md) · [文档导航](docs/README.md)
+**[在线界面预览](https://le5676922-max.github.io/student-cloud/)** · [快速启动](#quick-start) · [功能介绍](#features) · [微服务架构](#architecture) · [使用文档](docs/README.md)
+
+<img src="docs/showcase/images/login.jpg" alt="Student Cloud 最新登录界面，几何角色与灰白操作面板" width="100%">
 
 </div>
 
----
+> **当前开发主线：独立 Spring Cloud 后端。** 平台服务、内容服务、智能服务分别运行，Gateway 作为统一入口，共 **4 个 Java 进程**。最新代码在 [`backend-independent/`](backend-independent/)。历史 [`backend/`](backend/) 和 `docker/v4`、`docker/v5` 保留供迁移与溯源，不是本 README 的默认启动目标。前端包版本仍为 `5.0.0`，新后端开发版本为 `0.1.0-SNAPSHOT`。
 
-Student Cloud 面向学生、课程小组及学习团队，提供多存储云盘、分级空间管理、跨空间课程共享，以及可确认执行的小芽 Agent。基础云盘可独立使用，邮件、模型与语义检索按需接入。
+## 先看一眼
 
-| 整理文件 | 协作学习 | 减少重复工作 |
-| :--- | :--- | :--- |
-| 多存储接入、个人目录与容量 | 共享课程、独立邀请与上传审批 | 资料检索、确认执行与反馈改进 |
+[GitHub Pages 展示页](https://le5676922-max.github.io/student-cloud/)可切换查看最新真实界面，不需要注册。它是**静态展示**，不提供真实登录、上传或 AI 调用；完整使用需运行前后端。
 
-**快速浏览：** [功能](#features) · [角色](#roles) · [架构](#architecture) · [启动](#getting-started) · [容器部署](#deployment) · [测试](#verification) · [文档](#documentation)
+截图更新于 **2026-10-28**，来自当前本地源码与虚构演示资料，不是设计效果图，也不展示真实用户文件或公开测试账号密码。
 
-![文件管理界面](docs/images/file-manager-desktop.jpg)
-
-*阶段性功能截图，来自隔离测试环境；文件与目录使用虚构数据。页面细节可能随版本变化，不代表完整的最新界面。*
+|                                   文件管理                                    |                                           资料预览                                           |
+| :---------------------------------------------------------------------------: | :------------------------------------------------------------------------------------------: |
+| [![文件管理](docs/showcase/images/files.jpg)](docs/showcase/images/files.jpg) | [![Markdown 资料预览](docs/showcase/images/markdown.jpg)](docs/showcase/images/markdown.jpg) |
+|                         **上传、查找、整理学习资料**                          |                                 **在当前页面阅读文档与源码**                                 |
 
 <details>
-<summary><strong>查看个人资料库界面</strong></summary>
+<summary><strong>更多界面：空间管理、小芽 Agent、三维预览</strong></summary>
 
-![个人资料库与索引概况](docs/images/learning-index-overview.jpg)
+### 空间管理
 
-这张阶段性截图展示本人可见的学习索引页。跨空间共享课程使用独立入口和授权，不与个人资料库混用。
+普通管理员管理自己的空间、成员、云盘和课程；全局治理与成员日常授权分开。
+
+![空间管理界面](docs/showcase/images/workspace.jpg)
+
+### 小芽助手
+
+上传入口、整理目录、日期命名、课程归档与长期记忆放在同一面板。支持的写操作先预览，再确认。
+
+![小芽助手](docs/showcase/images/assistant.jpg)
+
+### 模型预览
+
+OBJ / STL 在本地浏览器显示几何内容，可旋转、缩放与键盘还原，不加载文件内的外部材质。
+
+![三维模型预览](docs/showcase/images/model.jpg)
 
 </details>
 
 <a id="features"></a>
 
-## 平台能做什么
+## 项目能做什么
 
-| 场景 | 对应功能 |
-| --- | --- |
-| 保存自己的学习文件 | 申请个人云盘，按授权目录上传、下载、预览、整理与分享 |
-| 给一个学习团队分配空间 | 管理成员、处理加入申请、重置成员密码、分配目录与容量上限 |
-| 向一门课程分发资料 | 创建共享课程，生成邀请链接，设置有效期、人数上限或随时停用 |
-| 与其他空间一起学习 | 成员和普通管理员均可跨空间加入课程，共享范围仅限该课程 |
-| 从资料中找答案 | 按文件名、标签和授权文档正文检索，回答展示资料来源 |
-| 减少重复整理操作 | 小芽生成分类、日期重命名或个人资料归档方案，确认后执行 |
-| 处理没有解决的问题 | 保存反馈、联系人工客服，由管理员整理正确答案并审核发布知识 |
+Student Cloud 面向学生、课程小组和学习团队，将**多存储文件管理、工作空间协作、课程共享、知识检索和可确认执行的 Agent** 组织在一起。基础文件功能可以独立使用，邮件、模型服务和其他基础设施按需配置。
 
-### 01 · 云盘与空间协作
+| 日常需求           | 项目提供的流程                                                   |
+| ------------------ | ---------------------------------------------------------------- |
+| 保存自己的资料     | 申请云盘 → 管理员授权目录与容量 → 上传、预览、下载和整理         |
+| 给学习团队分配空间 | 创建空间 → 邀请成员或处理加入申请 → 按成员设置访问范围           |
+| 给课程共享讲义     | 创建课程 → 导入资料 → 生成邀请 → 成员加入后共享课程内容          |
+| 控制课程上传       | 参与者申请上传权限 → 创建课程的管理员批准 → 可持续上传，亦可撤销 |
+| 从资料里寻找答案   | 使用项目知识、已审核问答和本人授权资料进行检索与回答             |
+| 减少重复整理       | 生成分类、日期重命名或归档方案 → 用户确认 → 再鉴权执行           |
+| 改进答错的问题     | 点击“未解决” → 管理员整理 → 可选 AI 润色 → 审核发布知识          |
 
-- 支持本地、S3 兼容对象存储及现有协议适配；自动识别连接地址格式，实际能力以驱动和授权为准。
-- 文件列表支持分页、搜索、卡片与表格视图、批量选择和按需预览；本地代理上传支持分片、断点续传及失败重试。
-- 成员可主动申请使用云盘，由所属普通管理员审批，并设置个人目录、操作权限及每存储源容量。
-- 普通管理员可添加本空间第三方云盘；服务器本地盘须由全局管理员审批，避免任意占用服务器目录。
-- 明确勾选写入测试后，LOCAL／S3 连接探针可验证写入、读回及清理；其他协议明确报告支持范围，不将只读通过当作写入成功。
+### 文件与存储
 
-### 02 · 共享课程
+- **本地存储**：浏览、上传下载、创建目录、重命名、复制、移动和回收等操作按权限开放；写入遵守不覆盖已有目标的约束。
+- **远程存储**：接入阿里云 OSS、S3 兼容存储及 MinIO 协议；支持授权目录读取、新建目录和 50 MiB 内的受控上传。当前不开放远程复制、移动、重命名、删除、回收与分享。
+- **连接识别与验证**：识别地址格式；只读探测与写入测试分开。明确选择写入测试后，写入随机探针、读回核对、精确清理，并如实报告清理结果。
+- **个人目录与容量**：普通管理员为成员分配目录、操作范围和容量上限，成员不能仅凭路径访问他人资料。
+- **本地盘审批**：普通管理员可添加本空间远程云盘；使用服务器本地目录需要全局管理员同意。
+- **上传下载**：本地分块续传、任务状态与失败恢复；支持的浏览器可流式保存下载文件，减少整文件前端内存占用。
+- **回收与分享**：本地删除进入保留期内可恢复的回收流程；分享必须登录，不因持有链接绕过授权。
 
-课程共享与私人云盘分开。加入课程不改变原工作空间，也不会获得他人的个人文件权限。
+### 私有文件预览
 
-1. 普通管理员创建课程、导入资料。
-2. 创建课程邀请码或链接，可同时保留多个独立邀请。
-3. 邀请可长期有效、自定义到期时间、限制加入人数或主动停用；名额用尽后不再接受新账号。
-4. 普通成员及其他普通管理员登录后预览并确认加入，即可查看课程资料。
-5. 参与者先申请上传权限，由课程创建者批准后持续上传；创建者可撤销权限或移出成员。
+双击支持的文件即可在当前页面查看，不默认把私有文件链接提交给外部 Office 或在线转换网站。
 
-详见[课程邀请与上传审批说明](docs/共享课程与成员邀请说明-20261025.md)。
+| 类别       | 格式示例                                   | 预算与说明                                                     |
+| ---------- | ------------------------------------------ | -------------------------------------------------------------- |
+| 图片       | PNG、JPEG、GIF、WebP、BMP                  | 20 MiB / 2000 万像素；缩放、旋转、还原                         |
+| PDF        | PDF                                        | 20 MiB；本地查看、翻页、缩放                                   |
+| 文本与代码 | TXT、JSON、YAML、Java、Python、JS、HTML 等 | 1 MiB，UTF-8；高亮与完整源码；HTML/脚本只作为源码显示          |
+| Markdown   | MD、Markdown                               | 1 MiB；标题、列表、表格与源码切换                              |
+| 表格       | CSV、TSV                                   | 1 MiB；有界解析、表格与分页                                    |
+| Office     | DOCX、XLSX、PPTX                           | 10 MiB；文字与表格只读预览，不保证原版排版，不执行宏或计算公式 |
+| 音视频     | MP3、WAV、FLAC、MP4、WebM 等               | 50 MiB；浏览器支持的编码，不含转码或 HLS                       |
+| 模型       | OBJ、ASCII / 二进制 STL                    | 10 MiB；本地几何渲染，不加载材质与外链                         |
 
-### 03 · 小芽 Agent 与可维护知识库
+后端检查格式、实际字节、解压预算和访问权限；关闭弹窗会取消旧请求并释放 Worker、Blob URL 和模型资源。完整边界见[私有预览使用说明](docs/私有文件预览功能与使用说明-2026-10-28.md)。
 
-小芽除了回答问题，还能在当前授权范围内查询文件、生成实际操作方案；上传时打开文件选择器，由用户选择文件并确认目标后上传。
+### 课程协作
+
+课程成员与空间成员是不同的业务关系：**加入课程不会改变原工作空间，也不会获得他人的私人云盘权限。**
+
+1. 普通管理员创建课程并导入资料。
+2. 创建一个或多个邀请码，可长期有效、设置到期时间、限定加入人数或主动撤销。
+3. 普通成员、其他空间的普通管理员均可登录后确认加入。
+4. 参与者按课程授权查看共享资料；上传权限由课程创建者批准，可持续使用，亦可撤销。
+
+### 小芽 Agent 与知识维护
+
+小芽提供资料问答，也为支持的文件操作生成可检查的方案。上传会打开文件选择入口，不能静默读取用户电脑上的文件。
 
 ```text
-提出任务 → 生成方案 → 核对目标与数量 → 用户确认 → 再次鉴权并执行 → 查看结果
+提出任务 → 生成操作预览 → 核对目标与数量 → 用户确认
+                                        ↓
+查看执行结果 ← 持久任务与状态记录 ← 再次鉴权并执行
 ```
 
-- **文件自动化**：本地文件分类、按日期重命名、将符合条件的资料加入本人学习索引；可配置每周规则，系统定期检查到期规则并生成待确认任务。
-- **长期记忆**：按账号保存用户明确提供的偏好，支持查看、编辑、关闭和删除；不自动归档全部聊天。
-- **资料问答**：项目说明与个人资料检索结合，语义检索使用独立、可选的 embedding 服务；未配置时使用关键词检索。
-- **人工服务**：在助手内确认转接后，与全局管理员沟通；历史消息持久化，WebSocket 通知会话变更。
-- **反馈改进**：点击“未解决”只记录该轮问答，不自动转人工。管理员核对答案、可选 AI 润色、预览后确认发布，支持版本记录与撤回。
+- **整理自动化**：分类、日期命名和本人资料归档；定时规则生成待确认任务，不会无人确认地批量改写文件。
+- **长期记忆**：保存用户明确提供的偏好，可查看、编辑、关闭和删除，不自动将全部聊天变成共享知识。
+- **资料检索**：项目说明、审核知识与有权访问的个人资料按范围检索，回答可展示相关来源。
+- **人工客服**：用户确认后在助手内联系全局管理员，WebSocket 通知与历史消息协同；“未解决”不强制转人工。
+- **知识改进**：管理员整理正确答案，AI 辅助草稿，审核后发布，保留版本与撤回流程。
 
 ```text
-未解决反馈 → 人工纠正 → 可选 AI 润色 → 审核范围 → 确认发布 → 后续检索使用
+未解决反馈 → 人工核对 → 可选 AI 润色 → 审核范围 → 确认发布 → 后续检索使用
 ```
 
-这里的“知识改进”更新检索知识，不是自动训练模型参数。个人索引、共享课程文件与已发布问答分别维护，不会自动互相转换。
-
-### 一次完整的使用流程
-
-> 创建空间 → 添加第三方云盘或申请本地存储 → 邀请成员 → 审批个人目录与容量 → 创建课程 → 邀请参加 → 批准资料上传 → 检索与整理资料
-
-<a id="roles"></a>
+这是**检索知识更新**，不是自动微调大模型。独立后端当前使用有界词法检索；外部 embedding、完整向量检索仍需后续接线与验收，不能把兼容配置当作已运行能力。
 
 ## 角色与数据范围
 
-| 角色 | 管理范围 | 典型操作 |
-| --- | --- | --- |
-| 普通成员 `USER` | 本人获授权目录、本人资料库及已加入课程 | 申请云盘、使用文件、加入课程、申请上传、小芽问答 |
-| 普通管理员 `TENANT_ADMIN` | 所属工作空间；本人创建的课程 | 审核成员、重置本空间成员密码、设置目录与容量、接入第三方云盘、创建课程 |
-| 全局管理员 `ADMIN` | 站点、工作空间及全局资源治理 | 平台统计图表、空间启停、本地存储审批、连接治理、人工客服、知识维护 |
+| 角色                      | 范围                               | 典型职责                                                 |
+| ------------------------- | ---------------------------------- | -------------------------------------------------------- |
+| 成员 `USER`               | 本人授权目录、本人索引、已加入课程 | 文件使用、加入课程、申请上传、问答与反馈                 |
+| 普通管理员 `TENANT_ADMIN` | 所属空间与本人创建的课程           | 加入审批、成员密码重置、目录容量授权、云盘接入、课程管理 |
+| 全局管理员 `ADMIN`        | 站点与全局资源治理                 | 全局信息、工作空间治理、本地存储审批、客服、知识审核     |
 
-成员的日常文件授权由对应普通管理员处理；全局管理员不逐个编辑成员权限。公开注册只能创建普通管理员或成员，不能获得全局管理员身份。
-
-- 注册普通管理员：完成邮箱验证后创建新空间，无需人工审核。
-- 注册成员：凭空间邀请码直接加入；凭空间名称提交申请后等待审核。
-- 登录支持邮箱、系统分配的唯一账号 ID，以及兼容的原有用户名。
-- 未登录业务访问进入登录流程，云盘不开放匿名浏览。
+- 普通管理员完成邮箱验证后创建空间，无需额外审核。
+- 成员凭空间邀请码直接加入；凭空间名称提交申请，等待对应管理员审批。
+- 支持邮箱、系统唯一账号 ID 和兼容的原有用户名登录。
+- 业务访问默认要求登录，不开放匿名云盘浏览；公开注册不能成为全局管理员。
+- 业务权限隔离普通用户数据；持有服务器、数据库管理权的运维人员不属于普通用户隔离模型。
 
 <a id="architecture"></a>
 
-## 架构与技术栈
+## 当前架构
 
-采用前后端分离、按业务模块组织的**模块化单体架构**。
+当前开发主线使用 **Spring Cloud 微服务**，不是把旧后端复制成三个实例。
 
 ```mermaid
-flowchart LR
-    U[浏览器 / Vue 3] --> N[Nginx]
-    N -->|API · SSE · WebSocket| B[Spring Boot 单后端]
-    B --> M[(MySQL)]
-    B --> R[(Redis 缓存与限流)]
-    B --> F[本地 / 第三方存储]
-    B --> A[可选 SMTP / 模型 / embedding]
+flowchart TB
+    Browser[浏览器 · Vue 3 / Vite / Element Plus] --> Nginx[Nginx · 静态资源 / HTTPS]
+    Nginx --> Gateway[Spring Cloud Gateway]
+    Gateway --> Platform[平台服务 · 18101]
+    Gateway --> Content[内容服务 · 18102]
+    Gateway --> Intelligence[智能服务 · 18103]
+    Content -->|内部身份校验| Platform
+    Intelligence -->|内部身份校验| Platform
+    Intelligence -->|授权内容接口| Content
+    Platform --> PDB[(platform 数据库)]
+    Content --> CDB[(content 数据库)]
+    Intelligence --> IDB[(intelligence 数据库)]
+    Content --> Storage[本地目录 / OSS / S3]
+    Platform --> Mail[可选 SMTP]
+    Intelligence --> Model[可选模型服务]
 ```
 
-| 层次 | 技术 |
-| --- | --- |
-| 前端 | Vue 3、Vite、Element Plus、Pinia、TypeScript / JavaScript |
-| 后端 | Java 21、Spring Boot 3、MyBatis-Plus、Sa-Token |
-| 数据 | MySQL 8、Flyway 增量迁移；部分演示及隔离测试使用 SQLite |
-| 缓存 | 内存缓存或 Redis 元数据缓存、共享限流 |
-| 智能能力 | 聊天模型兼容接口、RAG、独立可选 embedding、本地可选 Tesseract OCR |
-| 交付 | Docker Compose、Nginx、健康检查、持久卷与配置模板 |
+| 进程                         | 职责                                              | 默认端口 |
+| ---------------------------- | ------------------------------------------------- | -------- |
+| `cloud-platform-service`     | 账号、登录注册、工作空间、成员管理、人工客服      | 18101    |
+| `cloud-content-service`      | 云盘、驱动、文件、权限容量、课程与资料            | 18102    |
+| `cloud-intelligence-service` | 小芽、记忆、知识、反馈、自动化任务                | 18103    |
+| `cloud-gateway`              | 统一 API 入口、路由、服务发现、负载均衡与受限熔断 | 18093    |
 
-目录查询采用分页、请求合并和短时缓存；权限在业务访问与写入前重新校验，缓存不作为授权依据。Nginx 保留流式回答、客服连接和分片上传所需的独立代理规则。
+一个 MySQL 实例可承载三个专属数据库与账号；服务通过内部接口协作，不跨库 JOIN。16 个 Maven 模块组织契约、业务实现、适配器与运行服务；构建规则约束新服务不依赖历史后端实现。
 
-当前生产方案是 **Nginx + 一个后端 + Redis + MySQL**。登录会话、Agent 队列等仍有进程内状态，不能仅增加后端副本就认为完成多实例部署。
+| 层次       | 当前实现                                                                    |
+| ---------- | --------------------------------------------------------------------------- |
+| 前端       | Vue 3、Vite、Element Plus、Pinia、TypeScript / JavaScript                   |
+| 后端       | Java 21、Spring Boot 4.1.2、Spring Cloud 2025.1.4                           |
+| 服务治理   | Gateway、LoadBalancer、SimpleDiscoveryClient、CircuitBreaker / Resilience4j |
+| 数据       | MySQL 专属库与账号；H2 用于默认隔离开发与测试                               |
+| 文件       | 独立文件内核、本地与 OSS/S3 适配器、受控上传与状态记录                      |
+| 异步与助手 | 持久任务、Outbox、确认式操作、受控知识发布                                  |
+| 交付       | Docker Compose、Nginx、健康检查、非 root 运行、持久目录                     |
 
-<a id="getting-started"></a>
+**Redis 在新后端中目前只有可选基础设施模板，尚未完成业务缓存接线。** 初期 ECS 采用固定内网地址发现，不额外强制运行 Nacos、Eureka、Seata 或消息队列。
 
-## 本地启动
+<a id="quick-start"></a>
 
-需要 JDK **21**、Maven **3.9+**、Node.js **>=22.13.0**、pnpm **11.19.0** 和 MySQL **8**。仓库不包含 Maven Wrapper。
+## 快速启动：运行当前独立版本
+
+要求 JDK **21**、Maven **3.9+**、Node.js **>=22.13.0**、pnpm **11.19.0**。容器方案还需 Docker、Compose **v2.17+** 和 OpenSSL。仓库未附 Maven Wrapper。
 
 ```bash
 git clone https://github.com/le5676922-max/student-cloud.git
 cd student-cloud
 ```
 
-先创建空的 `student_cloud` 数据库及项目专用账号，具体 SQL 见[快速开始](docs/QUICKSTART.md)。表结构由 Flyway 自动迁移，正常安装不需要导入重建脚本。
+### 方案 A：Docker Compose + MySQL
 
-在后端终端设置私有配置后启动。以下为 Linux / macOS 示例，Windows PowerShell 写法见快速开始：
+以下为 Linux / Ubuntu 示例，使用当前独立微服务配置，不使用历史 `docker/v5`。
 
 ```bash
-cd backend
-export SPRING_DATASOURCE_USERNAME='你的数据库账号'
-# 在当前终端安全设置 SPRING_DATASOURCE_PASSWORD，或使用忽略的私有配置文件。
-export MAIL_ENABLED=false
-export TLGXY_CLOUD_AI_ENABLED=false
-export STUDENT_CLOUD_CACHE_TYPE=memory
-mvn spring-boot:run '-Dspring-boot.run.arguments=--server.address=127.0.0.1'
+# 1. 在仓库根目录构建新后端；省略测试用于构建，不代替验收。
+mvn -f backend-independent/pom.xml -DskipTests package
+
+# 2. 进入当前部署目录。
+cd backend-independent/deploy/microservices
+
+# 3. 首次生成随机密码与密钥，已有 .env 时拒绝覆盖。
+sh prepare-env.sh
+
+# 4. 准备三个互不重叠的内容服务目录。
+sudo install -d -o 10001 -g 10001 -m 0700 \
+  data/managed data/courses data/uploads
+
+# 5. 静默检查配置，不打印含密码的展开结果。
+docker compose config --quiet
+
+# 6. 构建并启动前端、网关、三个业务服务和 MySQL。
+docker compose build
+docker compose up -d
+docker compose ps
+
+# 7. 检查初始化状态。
+curl --fail http://127.0.0.1:18094/api/install/status
 ```
 
-另一终端启动前端：
+访问 **http://127.0.0.1:18094**。首次自行设置站点名称和全局管理员账号密码；没有公开的默认管理员密码。
+
+```bash
+# 查看应用日志。
+docker compose logs --tail=80 gateway platform content intelligence
+
+# 停止环境，保留数据库卷。
+docker compose down
+```
+
+模板只绑定本机入口，不直接接管现有网站的 80/443。服务器部署还需配置域名、来源、HTTPS 和内网地址，详见[完整微服务部署说明](backend-independent/deploy/microservices/README.md)。配置模板不是已完成生产压测或线上切换的证明。
+
+### 方案 B：本地源码开发
+
+构建后在四个终端分别运行服务，为它们设置**相同的随机 `SC_INTERNAL_KEY`**，长度为 32–200 个字符，不提交到仓库。
+
+```bash
+mvn -f backend-independent/pom.xml -DskipTests package
+
+# 以下命令分别在四个终端运行，各终端先配置 SC_INTERNAL_KEY。
+java -jar backend-independent/cloud-platform-service/target/cloud-platform-service-0.1.0-SNAPSHOT.jar
+java -jar backend-independent/cloud-content-service/target/cloud-content-service-0.1.0-SNAPSHOT.jar
+java -jar backend-independent/cloud-intelligence-service/target/cloud-intelligence-service-0.1.0-SNAPSHOT.jar
+java -jar backend-independent/cloud-gateway/target/cloud-gateway-0.1.0-SNAPSHOT.jar
+```
+
+默认业务服务使用独立 H2 内存数据库，退出不保留数据。MySQL 模式需为各服务设置 `SC_DB_URL`、`SC_DB_USER`、`SC_DB_PASSWORD`，并添加 `--spring.profiles.active=mysql`；三个服务分别连接自己的库与账号。目录和存储主密钥见[独立后端说明](backend-independent/README.md)。
+
+另开终端启动前端：
 
 ```bash
 cd frontend
 pnpm install --frozen-lockfile
+
+# Linux / macOS：两项变量均要设置，再启动 Vite。
+CLOUD_API_TARGET=http://127.0.0.1:18093 \
+CLOUD_BACKEND_MODE=microservices \
 pnpm dev --host 127.0.0.1 --port 5173 --strictPort
 ```
 
-访问 **`http://127.0.0.1:5173`**。新数据库首次进入初始化页面，由你自行设置全局管理员账号和密码；没有公开的默认密码。前端默认代理到 `http://127.0.0.1:8080`，后端端口不同可设置 `CLOUD_API_TARGET` 后重启 Vite。
+Windows PowerShell：
 
-初始化后，普通管理员添加第三方云盘或申请本地云盘，成员申请开通个人目录。注册成功不自动获得服务器本地存储。
-
-<details>
-<summary><strong>可选服务：邮件、模型、语义检索、Redis 与 OCR</strong></summary>
-
-| 能力 | 后端配置入口 | 未配置时 |
-| --- | --- | --- |
-| QQ 邮件 | `MAIL_ENABLED`、`MAIL_USERNAME`、`MAIL_PASSWORD`、`MAIL_FROM`、`MAIL_CODE_SECRET`；SMTP 为 `smtp.qq.com:465` | 管理员初始化和登录可用，邮箱注册及找回密码不可用 |
-| 聊天模型 | `TLGXY_CLOUD_AI_ENABLED`、`TLGXY_CLOUD_AI_BASE_URL`、`TLGXY_CLOUD_AI_API_KEY`、`TLGXY_CLOUD_AI_MODEL` | 基础云盘和规则任务预览仍可用 |
-| 语义检索 | `STUDENT_CLOUD_EMBEDDING_ENABLED`、`BASE_URL`、`API_KEY`、`MODEL`、`DIMENSIONS`，均使用同一完整前缀 | 使用关键词检索 |
-| Redis | `STUDENT_CLOUD_CACHE_TYPE=redis` 与 `STUDENT_CLOUD_REDIS_*` | 本地可使用内存缓存 |
-| OCR | `STUDENT_CLOUD_OCR_ENABLED` 与 Tesseract 配置 | 扫描图片不视为已识别文字 |
-
-数据库密码、SMTP 授权码和模型密钥通过后端环境变量或忽略的私有配置注入。配置模板为 [application-local-secrets.example.properties](backend/application-local-secrets.example.properties)。`VITE_*` 会进入浏览器，不能保存秘密。
-
-</details>
-
-<a id="deployment"></a>
-
-## Docker 容器化部署
-
-推荐先阅读[Docker + Nginx 详细教程](docs/Docker生产部署与验收-20261011.md)。通用方案从源码构建前后端，MySQL、Redis 和后端仅在容器网络内通信，由 Nginx 对外提供服务。
-
-```bash
-# Linux，项目根目录；已有配置不要覆盖。
-cp -n docker/.env.production.example docker/.env.production
-chmod 600 docker/.env.production
-
-# 编辑站点地址、不同的随机数据库与 Redis 密码，以及需要的可选服务。
-nano docker/.env.production
-
-# 仅校验语法，不打印展开后的秘密。
-docker compose --env-file docker/.env.production -f docker/compose.production.yml config --quiet
-
-# 从源码构建并等待健康检查；首次需要下载依赖与基础镜像。
-docker compose --env-file docker/.env.production -f docker/compose.production.yml up -d --build --wait
-docker compose --env-file docker/.env.production -f docker/compose.production.yml ps
+```powershell
+cd frontend
+pnpm install --frozen-lockfile
+$env:CLOUD_API_TARGET = 'http://127.0.0.1:18093'
+$env:CLOUD_BACKEND_MODE = 'microservices'
+pnpm dev --host 127.0.0.1 --port 5173 --strictPort
 ```
 
-生产使用前需按教程配置域名、HTTPS 及安全组。数据库、文件和续传暂存必须持久化；课程文件根也须位于后端可写持久卷内，不能落到只读容器层。
+打开 **http://127.0.0.1:5173/**。修改代理变量后需重新启动 Vite。
 
-[docker/v5](docker/v5/README.md) 另提供 V5 镜像发布、独立目录与资源预算模板。部署者需填写自己的镜像地址、站点与目录，不能假设可以访问作者的镜像仓库。Nginx 连接配置与资源上限不是并发承载保证，应在自己的服务器上验证。
+### 可选服务与两台 ECS
 
-<a id="verification"></a>
+| 能力      | 配置入口                                                              | 当前边界                                                                    |
+| --------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| QQ SMTP   | 平台服务 `SC_MAIL_ENABLED`、`SC_SMTP_USERNAME`、`SC_SMTP_PASSWORD` 等 | 使用授权码，默认关闭；独立版本真实外网投递需验收                            |
+| 模型问答  | 智能服务 `SC_AI_*`                                                    | 自行提供地址、模型与密钥，不写入公开源码                                    |
+| OSS / S3  | 内容服务主密钥与管理页连接配置                                        | `SC_STORAGE_MASTER_KEY` 为 32 字节 Base64，凭据加密；自建 endpoint 显式放行 |
+| Redis     | Compose 可选 profile                                                  | 基础设施已准备，业务缓存接线未完成                                          |
+| Embedding | 兼容配置与后续接线                                                    | 聊天模型不等于嵌入模型，未接通不宣称已启用向量检索                          |
 
-## 测试与验证
+两台阿里云 ECS 的初始布局：A 运行 MySQL、平台、Gateway 和前端，B 运行内容与智能服务，通过 VPC 私网互通。内存预算、端口和单实例状态限制见[微服务部署指南](backend-independent/deploy/microservices/README.md)。
 
-<details>
-<summary><strong>展开测试、构建与只读站点验收命令</strong></summary>
+## 验证与当前边界
+
+以下为 **2026-10-28 本地预览升级**的记录，不将不同历史轮次合并成一次全站测试：
+
+| 范围                         | 记录结果                                                       |
+| ---------------------------- | -------------------------------------------------------------- |
+| 前端完整 Node 测试集         | 984 通过，0 失败、0 跳过                                       |
+| 内容服务及其 Maven 依赖模块  | 382 项：378 通过、4 项 Windows 符号链接条件跳过，0 失败        |
+| Gateway + MySQL 真实预览接口 | 78 项断言通过，覆盖权限、MIME、内容与无效格式等                |
+| 类型检查与生产构建           | 通过；Vite 仍提示部分既有大体积 chunk                          |
+| 实际浏览器                   | 验证文档、图片、PDF、WAV、模型、错误提示、Escape 和 390px 窄屏 |
+
+四个符号链接用例不计为通过。MP4 本轮覆盖容器头、鉴权与解码错误提示，**未验证真实完整视频成功播放**。真实 OSS/S3 账号、QQ SMTP、完整压力测试和生产安全整改不能由上述本地结果替代。
 
 ```bash
-# 仓库根目录：后端测试与打包。
-mvn -f backend/pom.xml verify
+# 仓库根目录：当前新后端全模块校验。
+mvn -f backend-independent/pom.xml verify
 
-# frontend 目录：类型、回归、规范和生产构建。
+# frontend 目录：类型、回归与构建。
 pnpm typecheck
 pnpm test:unit
-pnpm lint
 pnpm build
-
-# 仓库根目录：只读站点冒烟检查，不创建账号或修改文件。
-node scripts/deployment-smoke.mjs https://你的域名
 ```
 
-</details>
+独立版本仍在持续完善，不能声称已替代历史部署全部功能。当前待完善包括 WebDAV/FTP/SFTP 独立驱动、远程写操作完整生命周期、Redis 业务缓存、向量检索接线、课程材料独立全文索引、原版 Office/复杂模型格式和多实例一致性。Agent 不提供任意 Shell、任意删除或绕过确认的权限修改。
 
-最近一轮专项记录（2026-10-25）：
-
-| 验证范围 | 记录结果 |
-| --- | --- |
-| 本次发布前后端全量默认测试 | 共 1010 项：993 项通过，17 项按独立环境条件跳过；Maven `verify` 成功 |
-| 课程与知识检索后端定向回归 | 69 项通过 |
-| 隔离集成回归 | 54 项通过：52 项真实 HTTP + MySQL 工作流、2 项临时 SQLite 统计测试 |
-| 前端完整回归 | 743 项通过，包含实际 Vue 组件的 JSDOM 交互 |
-| 原先因环境跳过的项目 | 17 项补测全部通过，覆盖真实 Redis、合成问题模型调用、检索基准及 Linux 符号链接 |
-
-本次发布前的前端类型检查、全量 lint 和 Compose 语法校验均通过。详见[源码发布检查](docs/公开发布检查-20261025.md)、[课程邀请验证记录](docs/共享课程与成员邀请说明-20261025.md)、[17 项专项补测报告](docs/17项专项补测报告-20261025.md)。这些是不同轮次、不同范围的记录，不合并冒充一次全量测试。JSDOM 不代替所有浏览器验证，真实邮箱投递、第三方存储与并发容量须按部署环境验收；GitHub CI 状态以仓库 Actions 为准。
-
-<a id="documentation"></a>
-
-## 目录与文档
+## 仓库结构
 
 ```text
 student-cloud/
-├── backend/                  Spring Boot 模块、Flyway 迁移与后端测试
-├── frontend/                 Vue 页面、交互组件与前端测试
-├── docker/                   源码构建、Nginx、HTTPS 与版本部署模板
-├── scripts/                  发布、隔离测试、站点冒烟与知识整理工具
-├── database/                 手工重建脚本，不作为常规升级入口
-├── docs/                     专项说明、部署教程与历史验证记录
-├── 项目介绍与使用手册.md       按角色组织的完整使用流程
-└── LICENSE                   MIT 许可证与原版权声明
+├── backend-independent/         当前 Spring Cloud 独立实现
+│   ├── cloud-platform-service/  账号、空间与客服
+│   ├── cloud-content-service/   文件、课程与权限容量
+│   ├── cloud-intelligence-service/ 小芽、知识与任务
+│   ├── cloud-gateway/           统一入口
+│   ├── cloud-*/                业务契约、领域、应用与适配模块
+│   └── deploy/microservices/    当前 Docker / Nginx / ECS 配置
+├── frontend/                   当前 Vue 前端与交互测试
+├── docs/showcase/              GitHub Pages 展示页和最新截图
+├── docs/                       使用说明、架构与验证记录
+├── .github/workflows/           自动校验与展示页发布
+├── backend/                    历史单体，非当前主线启动目标
+├── docker/                     历史部署与辅助配置
+├── DESIGN.md                   已采用的主题与视觉规范
+├── UX-CONTRACT.md              交互、权限与异步恢复约定
+└── LICENSE                     许可证与版权声明
 ```
 
-- [完整使用手册](项目介绍与使用手册.md)：注册、云盘审批、课程、助手及控制台操作。
-- [成员云盘、课程与知识改进](docs/云盘课程与知识改进操作说明-20261025.md)：业务规则与权限边界。
-- [长期记忆](docs/小芽长期记忆-20261022.md)：记忆保存、编辑、关闭与删除。
-- [知识反馈整理与发布](docs/知识库反馈整理与发布.md)：管理员操作及批量整理脚本。
-- [全部文档](docs/README.md)：开发、部署、架构及验收说明。旧报告描述其记录日期的状态，当前操作优先参考使用手册及最新专项文档。
+## 继续阅读
 
-## 当前边界
+| 想了解什么                     | 文档                                                                          |
+| ------------------------------ | ----------------------------------------------------------------------------- |
+| 当前服务职责、配置与限制       | [独立后端 README](backend-independent/README.md)                              |
+| Docker、Nginx、MySQL、两台 ECS | [微服务部署指南](backend-independent/deploy/microservices/README.md)          |
+| 注册、空间加入与 QQ SMTP       | [邮箱配置](backend-independent/deploy/microservices/邮箱注册与QQ-SMTP配置.md) |
+| OSS / S3 接入与读写测试        | [远程存储指南](docs/OSS与S3远程存储接入指南.md)                               |
+| 文档、媒体和模型预览           | [私有预览说明](docs/私有文件预览功能与使用说明-2026-10-28.md)                 |
+| 小芽知识维护与审核发布         | [知识库维护手册](docs/知识库内容与维护手册.md)                                |
+| 服务边界与架构决策             | [Spring Cloud 架构计划](docs/Spring-Cloud微服务架构与实施计划.md)             |
+| 全部说明和历史记录             | [文档导航](docs/README.md)                                                    |
 
-- 受限成员的配额写入主要覆盖可准确计量的 LOCAL／S3；不同存储驱动的操作能力并不一致。
-- Agent 写操作只执行已支持的本地任务，必须确认；不支持任意删除、覆盖文件或修改账号权限。
-- embedding 服务与聊天模型分别配置；没有配置不能宣称启用了向量检索。
-- 个人目录、课程、索引及记忆在业务接口中隔离；基础设施管理员仍具有服务器和数据库层面的管理能力。
-- 外部模型可能接收用户选择的问题、资料片段或记忆，使用前应确认资料允许由相应服务处理。
-- 当前没有覆盖全部存储协议的统一回收站、历史版本恢复或个人云盘全站用量账本。
+## 开源许可与来源
 
-## 开源许可与贡献
+仓库按 [MIT License](LICENSE) 管理。**历史代码基于 [ZFile](https://github.com/zfile-dev/zfile) 扩展；当前 `backend-independent` 是不调用历史后端实现的独立重写。** 历史代码、仍复用的前端与第三方组件继续保留其版权和许可，后端重写不改变原有代码的来源。
 
-本项目基于 [ZFile](https://github.com/zfile-dev/zfile) 扩展，保留上游版权与 [MIT 许可证](LICENSE)。工作空间、课程协作、Agent、客服和知识改进等扩展不改变原代码的归属；二次分发应继续保留许可证及版权声明。
+登录角色组件包含 [CareerCompass](https://github.com/arsh342/careercompass) 的 MIT 授权代码，见[许可声明](frontend/public/licenses/careercompass.txt)。其他依赖和资源遵循各自许可。
 
-登录角色组件包含 [CareerCompass](https://github.com/arsh342/careercompass) 的 MIT 授权代码，见[许可声明](frontend/public/licenses/careercompass.txt)。其他组件、字体与资源遵循各自许可，交互参考记录见[开源参考说明](docs/开源云盘参考与交互优化-20261012.md)。
-
-欢迎提交可复现的 Issue 或 Pull Request，提交前请阅读[贡献指南](CONTRIBUTING.md)。凭据、私人文件和安全漏洞不要公开贴到 Issue，请按[安全说明](SECURITY.md)处理。
+欢迎提交可复现的 Issue 或 Pull Request。贡献前阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，安全问题按 [SECURITY.md](SECURITY.md) 私下反馈；不要在公开 Issue 中粘贴密钥、密码或私人文件。

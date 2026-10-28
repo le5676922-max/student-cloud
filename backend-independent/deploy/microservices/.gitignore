@@ -1,0 +1,7 @@
+# Never add live service files, database material or image bundles to Git.
+data/
+image-bundles/
+*.tar
+*.tar.gz
+.env
+.env.new.*

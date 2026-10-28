@@ -1,0 +1,38 @@
+{
+  "capturedAt": "2026-10-28",
+  "source": "current local source; screenshots captured through browser UI",
+  "data": "synthetic demonstration documents and example.invalid accounts",
+  "format": "JPEG, original browser capture; no visual editing",
+  "screenshots": [
+    {
+      "file": "images/assistant.jpg",
+      "bytes": 71747,
+      "sha256": "b90f75c28379089764dfcea6de31df6f088154a6df17500c9aa8bb63b0db7ef2"
+    },
+    {
+      "file": "images/files.jpg",
+      "bytes": 60194,
+      "sha256": "db2ace754278356bcff127665fdb8eb8715f2f841c946d9ae912a45e100a6ef3"
+    },
+    {
+      "file": "images/login.jpg",
+      "bytes": 35506,
+      "sha256": "9108979aa5e8a650c282bb594e6496f6e860db9dd158f6e662f08560cb5a5b18"
+    },
+    {
+      "file": "images/markdown.jpg",
+      "bytes": 52352,
+      "sha256": "4b3e70ce9cb69afd89ef77ac661c4809593a83c1197fbc1e97d948fb6d67d55e"
+    },
+    {
+      "file": "images/model.jpg",
+      "bytes": 42815,
+      "sha256": "07dcd986967e0231bafedd77d8d28bdd3fa54841d2820e5f384bb50e56d4b9d0"
+    },
+    {
+      "file": "images/workspace.jpg",
+      "bytes": 65652,
+      "sha256": "dbb2379e915df9ec60e385709fba00273cfbeda2a83b9e4f86bfe5ee22feedd7"
+    }
+  ]
+}

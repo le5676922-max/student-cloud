@@ -44,6 +44,14 @@
 				><QueueListIcon aria-hidden="true" />自动化任务</router-link
 			>
 			<router-link
+				v-if="
+					storageConfigStore.globalConfig?.accountModel === 'independent' &&
+					storageConfigStore.folderConfig.metadata?.recycleBin !== false
+				"
+				to="/recycle-bin"
+				>回收站</router-link
+			>
+			<router-link
 				v-if="storageConfigStore.loginInfo.role === 'TENANT_ADMIN'"
 				to="/workspace-admin"
 				><UserGroupIcon aria-hidden="true" />空间管理</router-link
@@ -79,66 +87,79 @@
 			<!-- 文档模式显示 -->
 			<card-readme display-mode="top" class="my-3" />
 
-			<div class="cloud-file-toolbar">
-				<div class="cloud-directory-caption">
-					<span>{{
-						route.params.storageKey ? '当前目录' : '可访问的云盘'
-					}}</span
-					><span class="cloud-directory-count" aria-live="polite">{{
-						loading ? '读取中…' : directoryCount
-					}}</span>
-				</div>
-				<form
-					v-if="route.params.storageKey"
-					class="directory-filter"
-					@submit.prevent="applyDirectorySearch()"
+			<div class="cloud-file-toolbar-frame">
+				<div
+					class="cloud-file-toolbar"
+					:class="{ 'is-selection-hidden': selectionActive }"
+					:inert="selectionActive || undefined"
+					:aria-hidden="selectionActive"
 				>
-					<el-input
-						v-model="searchParam.nameQuery"
-						maxlength="200"
-						clearable
-						aria-label="按名称筛选当前目录"
-						aria-describedby="cloud-directory-scope"
-						placeholder="搜索当前目录的文件名"
-						@clear="applyDirectorySearch()"
-						><template #prefix
-							><MagnifyingGlassIcon
-								class="cloud-search-icon"
-								aria-hidden="true" /></template
-					></el-input>
-					<el-button native-type="submit" :loading="loading">筛选</el-button>
-				</form>
-				<el-button
-					class="cloud-directory-refresh"
-					:loading="loading"
-					:disabled="operationBusy"
-					@click="refreshDirectory"
-					><ArrowPathIcon aria-hidden="true" />刷新</el-button
-				>
-				<div class="cloud-view-options" role="group" aria-label="文件显示方式">
-					<button
-						type="button"
-						aria-label="列表视图"
-						:aria-pressed="
-							!fileDataStore.imgMode &&
-							studentCloudSettingCache.view.type === 'table'
-						"
-						@click="switchView('table')"
+					<div class="cloud-directory-caption">
+						<span>{{
+							route.params.storageKey ? '当前目录' : '可访问的云盘'
+						}}</span
+						><span class="cloud-directory-count" aria-live="polite">{{
+							loading ? '读取中…' : directoryCount
+						}}</span>
+					</div>
+					<form
+						v-if="route.params.storageKey"
+						novalidate
+						class="directory-filter"
+						@submit.prevent="applyDirectorySearch()"
 					>
-						<ListBulletIcon aria-hidden="true" />
-					</button>
-					<button
-						type="button"
-						aria-label="卡片视图"
-						:aria-pressed="
-							!fileDataStore.imgMode &&
-							studentCloudSettingCache.view.type === 'card'
-						"
-						@click="switchView('card')"
+						<el-input
+							v-model="searchParam.nameQuery"
+							maxlength="200"
+							clearable
+							aria-label="按名称筛选当前目录"
+							aria-describedby="cloud-directory-scope"
+							placeholder="搜索当前目录的文件名"
+							@clear="applyDirectorySearch()"
+							><template #prefix
+								><MagnifyingGlassIcon
+									class="cloud-search-icon"
+									aria-hidden="true" /></template
+						></el-input>
+						<el-button native-type="submit" :loading="loading">筛选</el-button>
+					</form>
+					<el-button
+						class="cloud-directory-refresh"
+						:loading="loading"
+						:disabled="operationBusy"
+						@click="refreshDirectory"
+						><ArrowPathIcon aria-hidden="true" />刷新</el-button
 					>
-						<Squares2X2Icon aria-hidden="true" />
-					</button>
+					<div
+						class="cloud-view-options"
+						role="group"
+						aria-label="文件显示方式"
+					>
+						<button
+							type="button"
+							aria-label="列表视图"
+							:aria-pressed="
+								!fileDataStore.imgMode &&
+								studentCloudSettingCache.view.type === 'table'
+							"
+							@click="switchView('table')"
+						>
+							<ListBulletIcon aria-hidden="true" />
+						</button>
+						<button
+							type="button"
+							aria-label="卡片视图"
+							:aria-pressed="
+								!fileDataStore.imgMode &&
+								studentCloudSettingCache.view.type === 'card'
+							"
+							@click="switchView('card')"
+						>
+							<Squares2X2Icon aria-hidden="true" />
+						</button>
+					</div>
 				</div>
+				<FileSelectionToolbar />
 			</div>
 			<p
 				v-if="route.params.storageKey"
@@ -205,8 +226,6 @@
 					>重试</el-button
 				>
 			</section>
-			<FileSelectionToolbar />
-
 			<table-file-view
 				v-if="studentCloudSettingCache.view.type === 'table'"
 				class="student-cloud-file-view"
@@ -229,6 +248,7 @@
 			<z-contextmenu />
 
 			<!-- 文本编辑器 -->
+			<private-file-preview />
 			<text-viewer-dialog />
 
 			<!-- pdf 在线预览 -->
@@ -251,7 +271,11 @@
 			<GenerateLinkResult />
 
 			<!-- 创建分享 -->
-			<CreateShareDialog ref="createShareDialogRef" />
+			<ControlledShareDialog
+				v-if="storageConfigStore.globalConfig?.accountModel === 'independent'"
+				ref="controlledShareDialogRef"
+			/>
+			<CreateShareDialog v-else ref="createShareDialogRef" />
 
 			<!-- 上传框 -->
 			<ZUpload />
@@ -311,7 +335,14 @@ import CardReadme from '~/components/file/readme/CardReadme.vue'
 import DialogReadme from '~/components/file/readme/DialogReadme.vue'
 import BatchOperatorResult from '~/components/file/BatchOperatorResult.vue'
 import CreateShareDialog from '~/components/file/CreateShareDialog.vue'
+import ControlledShareDialog from '~/components/file/ControlledShareDialog.vue'
 import FileSelectionToolbar from '~/components/file/FileSelectionToolbar.vue'
+import useFileSelect from '~/composables/file/useFileSelect'
+import { driveSelectionActions } from '~/utils/drive-selection-actions.mjs'
+const { selectRows } = useFileSelect()
+const selectionActive = computed(
+	() => driveSelectionActions(selectRows.value).count > 0
+)
 const FileGallery = defineAsyncComponent(() =>
 	import('~/components/file/preview/FileGallery.vue')
 )
@@ -391,8 +422,9 @@ const { generateLinkDialogVisible } = useFileLink()
 
 // 分享
 import useFileShare from '~/composables/file/useFileShare'
-const { setCreateShareDialogRef } = useFileShare()
+const { setCreateShareDialogRef, setControlledShareDialogRef } = useFileShare()
 const createShareDialogRef = ref()
+const controlledShareDialogRef = ref()
 
 // 初始化时，加载文件列表
 onBeforeMount(() => {
@@ -402,6 +434,7 @@ onBeforeMount(() => {
 // 设置分享对话框引用
 onMounted(() => {
 	setCreateShareDialogRef(createShareDialogRef)
+	setControlledShareDialogRef(controlledShareDialogRef)
 })
 
 // 切换存储源或路径时，重新加载文件列表
@@ -501,7 +534,11 @@ const retryDirectory = () => {
 const refreshDirectory = async () => {
 	if (loading.value || operationBusy.value) return
 	if (route.params.storageKey) {
-		return navigationFailed.value ? loadDirectory() : loadFile()
+		return navigationFailed.value
+			? loadDirectory()
+			: storageConfigStore.globalConfig?.accountModel === 'independent'
+			? loadFile({ forceMetadata: true })
+			: loadFile()
 	}
 	const request = navigationRequests.begin()
 	cancelLoadFile()
@@ -647,12 +684,20 @@ onBeforeUnmount(() => {
 		font-weight: 500;
 	}
 }
+.cloud-file-toolbar-frame {
+	position: relative;
+	min-height: 52px;
+	margin-bottom: 8px;
+}
 .cloud-file-toolbar {
 	display: flex;
 	align-items: center;
 	gap: 16px;
-	min-height: 38px;
-	margin-bottom: 8px;
+	min-height: 52px;
+}
+.cloud-file-toolbar.is-selection-hidden {
+	visibility: hidden;
+	pointer-events: none;
 }
 .cloud-directory-caption {
 	display: flex;
@@ -815,6 +860,9 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 767px) {
+	.cloud-file-toolbar-frame {
+		min-height: 96px;
+	}
 	.student-cloud-index-body {
 		gap: 12px;
 		padding: 12px;

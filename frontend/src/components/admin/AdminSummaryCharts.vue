@@ -21,7 +21,11 @@
 			>
 				<h3>{{ chart.title }}</h3>
 				<p v-if="chart.total === null" class="chart-empty" role="status">
-					统计未返回，请刷新重试。
+					{{
+						overview.accountModel === 'independent'
+							? '此项统计暂不可用。'
+							: '统计未返回，请刷新重试。'
+					}}
 				</p>
 				<template v-else>
 					<div v-if="!tableMode" class="ring-layout">
@@ -114,7 +118,9 @@
 				<h3>最近 7 天登录趋势</h3>
 				<p v-if="overview.loginLoggingEnabled !== true" class="chart-empty">
 					{{
-						overview.loginLoggingEnabled === false
+						overview.accountModel === 'independent'
+							? '当前暂未提供登录趋势统计。'
+							: overview.loginLoggingEnabled === false
 							? '登录日志未启用，当前图表不代表实际登录量。'
 							: '日志开关状态未返回。'
 					}}

@@ -277,6 +277,7 @@ declare global {
   const usePreferredLanguages: typeof import('@vueuse/core')['usePreferredLanguages']
   const usePreferredReducedMotion: typeof import('@vueuse/core')['usePreferredReducedMotion']
   const usePrevious: typeof import('@vueuse/core')['usePrevious']
+  const usePrivatePreviewDialog: typeof import('../../src/composables/file/usePrivatePreviewDialog.js')['default']
   const useRafFn: typeof import('@vueuse/core')['useRafFn']
   const useRefHistory: typeof import('@vueuse/core')['useRefHistory']
   const useResizeObserver: typeof import('@vueuse/core')['useResizeObserver']
@@ -294,6 +295,7 @@ declare global {
   const useShareActions: typeof import('../../src/composables/file/useShareActions.js')['default']
   const useShareData: typeof import('../../src/composables/share/useShareData.js')['default']
   const useShareTableOperator: typeof import('../../src/composables/file/useShareTableOperator.js')['default']
+  const useSiteConfigBootstrap: typeof import('../../src/composables/useSiteConfigBootstrap.js')['default']
   const useSlots: typeof import('vue')['useSlots']
   const useSorted: typeof import('@vueuse/core')['useSorted']
   const useSpeechRecognition: typeof import('@vueuse/core')['useSpeechRecognition']
@@ -372,7 +374,6 @@ declare module 'vue' {
   interface GlobalComponents {}
   interface ComponentCustomProperties {
     readonly EffectScope: UnwrapRef<typeof import('vue')['EffectScope']>
-    readonly ElLoading: UnwrapRef<typeof import('element-plus/es')['ElLoading']>
     readonly ElMessage: UnwrapRef<typeof import('element-plus/es')['ElMessage']>
     readonly ElMessageBox: UnwrapRef<typeof import('element-plus/es')['ElMessageBox']>
     readonly acceptHMRUpdate: UnwrapRef<typeof import('pinia')['acceptHMRUpdate']>
@@ -642,6 +643,7 @@ declare module 'vue' {
     readonly usePreferredLanguages: UnwrapRef<typeof import('@vueuse/core')['usePreferredLanguages']>
     readonly usePreferredReducedMotion: UnwrapRef<typeof import('@vueuse/core')['usePreferredReducedMotion']>
     readonly usePrevious: UnwrapRef<typeof import('@vueuse/core')['usePrevious']>
+    readonly usePrivatePreviewDialog: UnwrapRef<typeof import('../../src/composables/file/usePrivatePreviewDialog.js')['default']>
     readonly useRafFn: UnwrapRef<typeof import('@vueuse/core')['useRafFn']>
     readonly useRefHistory: UnwrapRef<typeof import('@vueuse/core')['useRefHistory']>
     readonly useResizeObserver: UnwrapRef<typeof import('@vueuse/core')['useResizeObserver']>
@@ -659,6 +661,7 @@ declare module 'vue' {
     readonly useShareActions: UnwrapRef<typeof import('../../src/composables/file/useShareActions.js')['default']>
     readonly useShareData: UnwrapRef<typeof import('../../src/composables/share/useShareData.js')['default']>
     readonly useShareTableOperator: UnwrapRef<typeof import('../../src/composables/file/useShareTableOperator.js')['default']>
+    readonly useSiteConfigBootstrap: UnwrapRef<typeof import('../../src/composables/useSiteConfigBootstrap.js')['default']>
     readonly useSlots: UnwrapRef<typeof import('vue')['useSlots']>
     readonly useSorted: UnwrapRef<typeof import('@vueuse/core')['useSorted']>
     readonly useSpeechRecognition: UnwrapRef<typeof import('@vueuse/core')['useSpeechRecognition']>

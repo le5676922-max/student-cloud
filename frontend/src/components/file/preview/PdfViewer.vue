@@ -14,7 +14,11 @@
 				>
 					上一页
 				</button>
-				<form class="page-jump" @submit.prevent="goToPage(pageInput)">
+				<form
+					novalidate
+					class="page-jump"
+					@submit.prevent="goToPage(pageInput)"
+				>
 					<label>
 						第
 						<input
@@ -91,6 +95,7 @@
 		</div>
 		<form
 			v-if="passwordCallback"
+			novalidate
 			class="password-form"
 			@submit.prevent="submitPassword"
 		>
@@ -124,7 +129,7 @@
 				v-if="session"
 				:key="session.id"
 				class="pdf-page"
-				annotation-layer
+				:annotation-layer="!privateSource"
 				text-layer
 				:source="session.source"
 				:page="page"
@@ -164,6 +169,7 @@ GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 const props = defineProps({
 	fileUrl: { type: String, default: '' },
 	fileName: { type: String, default: '' },
+	privateSource: { type: Boolean, default: false },
 })
 const contentRef = ref()
 const { width: contentWidth } = useElementSize(contentRef)
@@ -227,7 +233,14 @@ function resetDocument() {
 	// A fresh key unmounts the previous loader; guarded callbacks cannot update a new document.
 	session.value = {
 		id,
-		source: props.fileUrl,
+		source: props.privateSource
+			? {
+					url: props.fileUrl,
+					enableXfa: false,
+					isEvalSupported: false,
+					maxImageSize: 20000000,
+			  }
+			: props.fileUrl,
 		onLoaded: guard((doc) => {
 			if (!Number.isSafeInteger(doc?.numPages) || doc.numPages < 1) {
 				failDocument('PDF 页数无效，请检查文件后重新加载。')

@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 import * as vue from 'vue'
 import { parse, compileScript, compileTemplate } from 'vue/compiler-sfc'
 import * as overviewHelpers from '../src/utils/admin-overview.mjs'
+import { createLatestRequest } from '../src/utils/latest-request.mjs'
 
 const source = await readFile(
 	new URL('../src/pages/admin/overview.vue', import.meta.url),
@@ -66,6 +67,19 @@ const sampleWorkspaces = () => ({
 	page: 1,
 	pageSize: 10,
 })
+const contentOverview = () => ({
+	scope: 'GLOBAL',
+	workspaceId: null,
+	dataComplete: true,
+	metrics: Object.fromEntries(
+		Object.entries({
+			mounts: 5,
+			enabledMounts: 4,
+			shares: 9,
+			activeShares: 2,
+		}).map(([key, value]) => [key, { available: true, value }])
+	),
+})
 function deferred() {
 	let resolve, reject
 	const promise = new Promise((yes, no) => {
@@ -83,6 +97,11 @@ function execute(code, modules) {
 					name
 				)}];`
 		)
+		.replace(
+			/import\s+(\w+)\s+from\s+['"]([^'"]+)['"];?/g,
+			(_whole, name, path) =>
+				`const ${name} = modules[${JSON.stringify(path)}];`
+		)
 		.replace('export default', 'return')
 		.replace('export function render', 'return function render')
 	return vm.runInNewContext(`(function(){${executable}\n})()`, {
@@ -93,10 +112,20 @@ function execute(code, modules) {
 
 // Run the real SFC setup and compiled render. Only HTTP and UI-library boundaries
 // are replaced; no browser/network page navigation is used for these unit tests.
-function setupPage({ overviewRequest, workspacesRequest } = {}) {
-	const calls = { overview: [], workspaces: [] },
+function setupPage({
+	overviewRequest,
+	workspacesRequest,
+	fileBusinessRequest,
+	accountModel = '',
+} = {}) {
+	const calls = { overview: [], workspaces: [], fileBusiness: [] },
 		mounted = [],
 		cleanups = []
+	const store = vue.reactive({
+		globalConfig: { accountModel },
+		loginInfo: { isLogin: true, role: 'ADMIN', id: 1, tenantId: null },
+	})
+	const credential = vue.ref('fixture-token')
 	const icons = Object.fromEntries(
 		[
 			'ArrowPathIcon',
@@ -112,11 +141,27 @@ function setupPage({ overviewRequest, workspacesRequest } = {}) {
 			onMounted: (callback) => mounted.push(callback),
 			onBeforeUnmount: (callback) => cleanups.push(callback),
 			resolveComponent: (name) => ({ name }),
+			resolveDynamicComponent: (value) =>
+				typeof value === 'string' && value !== 'article'
+					? { name: value }
+					: value,
 			resolveDirective: () => null,
 			withDirectives: (node) => node,
 		},
 		'@heroicons/vue/24/outline': icons,
 		'~/utils/admin-overview.mjs': overviewHelpers,
+		'~/stores/storage-config': () => store,
+		'@vueuse/core': { useStorage: () => credential },
+		'~/utils/latest-request.mjs': { createLatestRequest },
+		'~/api/admin/file-business': {
+			getFileBusinessOverviewReq: (...args) => {
+				calls.fileBusiness.push(args)
+				return (
+					fileBusinessRequest?.(...args) ??
+					Promise.resolve({ data: contentOverview() })
+				)
+			},
+		},
 		'~/api/admin/admin-overview': {
 			getGlobalOverviewReq: (config) => {
 				calls.overview.push(config)
@@ -142,6 +187,8 @@ function setupPage({ overviewRequest, workspacesRequest } = {}) {
 	return {
 		bindings,
 		calls,
+		store,
+		credential,
 		async mount() {
 			await Promise.all(mounted.map((callback) => callback()))
 			await flush()
@@ -460,4 +507,154 @@ test('disposing the actual overview cancels both pending requests and prevents s
 	await mounting
 	assert.equal(page.bindings.overview.value, null)
 	assert.equal(page.bindings.workspacePage.value, null)
+})
+
+test('independent overview shares one content response with the file panel and keeps account counts accurate', async () => {
+	const page = setupPage({ accountModel: 'independent' })
+	try {
+		await page.mount()
+		assert.equal(page.calls.fileBusiness.length, 1)
+		const cards = view(page).filter((node) => hasClass(node, 'metric'))
+		assert.match(text(cards[1]), /普通成员账号6/)
+		assert.match(text(cards[2]), /存储源5已启用 4/)
+		assert.equal(cards[3].type, 'article')
+		assert.match(text(cards[3]), /受控分享记录9有效 2/)
+		assert.doesNotMatch(text(cards[3]), /已过期/)
+		assert.equal(page.bindings.summaryOverview.value.members, 6)
+		assert.equal(
+			page.bindings.summaryOverview.value.accountModel,
+			'independent'
+		)
+		const panel = view(page).find((node) => node.props?.managed === '')
+		assert.ok(panel)
+		assert.equal(panel.props.overview, page.bindings.fileBusiness.value)
+		assert.doesNotMatch(text(view(page)), /接口不存在/)
+		assert.match(text(view(page)), /跨业务申请、知识反馈/)
+		await panel.props.onRefresh(30)
+		assert.equal(page.calls.fileBusiness.length, 2)
+		assert.equal(page.calls.fileBusiness[1][0], 30)
+		await page.bindings.refreshAll()
+		assert.equal(page.calls.fileBusiness.length, 3)
+		assert.equal(page.calls.fileBusiness[2][0], 30)
+	} finally {
+		page.dispose()
+	}
+})
+
+test('independent partial content failures stay unknown while platform counts remain visible', async () => {
+	const partial = contentOverview()
+	partial.metrics.mounts = { available: false, value: 123, note: '暂不可用' }
+	partial.metrics.activeShares = { available: false, value: 12 }
+	const page = setupPage({
+		accountModel: 'independent',
+		fileBusinessRequest: async () => ({ data: partial }),
+	})
+	try {
+		await page.mount()
+		const cards = view(page).filter((node) => hasClass(node, 'metric'))
+		assert.match(text(cards[0]), /工作空间2/)
+		assert.match(text(cards[2]), /存储源—/)
+		assert.match(text(cards[3]), /受控分享记录9有效 —/)
+		assert.equal(page.bindings.summaryOverview.value.storageSources, null)
+	} finally {
+		page.dispose()
+	}
+	const failure = setupPage({
+		accountModel: 'independent',
+		fileBusinessRequest: async () => {
+			throw new Error('private failure')
+		},
+	})
+	try {
+		await failure.mount()
+		assert.match(failure.bindings.fileBusinessError.value, /文件统计暂不可用/)
+		assert.equal(failure.bindings.summaryOverview.value.shares, null)
+		assert.equal(failure.bindings.overview.value.members, 6)
+	} finally {
+		failure.dispose()
+	}
+})
+
+test('global overview rejects workspace content and session changes fence all late responses', async () => {
+	const invalid = setupPage({
+		accountModel: 'independent',
+		fileBusinessRequest: async () => ({
+			data: { ...contentOverview(), scope: 'WORKSPACE', workspaceId: 4 },
+		}),
+	})
+	try {
+		await invalid.mount()
+		assert.equal(invalid.bindings.fileBusiness.value, null)
+		assert.match(invalid.bindings.fileBusinessError.value, /范围与当前账号不符/)
+	} finally {
+		invalid.dispose()
+	}
+	const pending = [deferred(), deferred(), deferred()]
+	const page = setupPage({
+		accountModel: 'independent',
+		overviewRequest: () => pending[0].promise,
+		workspacesRequest: () => pending[1].promise,
+		fileBusinessRequest: () => pending[2].promise,
+	})
+	const mounting = page.mount()
+	await flush()
+	page.store.loginInfo.role = 'USER'
+	await flush()
+	assert.equal(page.calls.fileBusiness[0][1].signal.aborted, true)
+	pending[0].resolve({ data: sampleOverview() })
+	pending[1].resolve({ data: sampleWorkspaces() })
+	pending[2].resolve({ data: contentOverview() })
+	await mounting
+	assert.equal(page.bindings.overview.value, null)
+	assert.equal(page.bindings.workspacePage.value, null)
+	assert.equal(page.bindings.fileBusiness.value, null)
+	page.dispose()
+})
+
+test('a platform overview failure does not discard independently successful content counts', async () => {
+	const page = setupPage({
+		accountModel: 'independent',
+		overviewRequest: async () => {
+			throw new Error('platform unavailable')
+		},
+	})
+	try {
+		await page.mount()
+		assert.equal(page.bindings.overview.value, null)
+		const cards = view(page).filter((node) => hasClass(node, 'metric'))
+		assert.match(text(cards[0]), /工作空间—/)
+		assert.match(text(cards[2]), /存储源5/)
+		assert.match(text(cards[3]), /受控分享记录9/)
+		assert.equal(page.calls.fileBusiness.length, 1)
+	} finally {
+		page.dispose()
+	}
+})
+
+test('credential changes replace a pending global request without accepting the previous identity response', async () => {
+	const old = deferred(),
+		current = deferred()
+	let reads = 0
+	const page = setupPage({
+		accountModel: 'independent',
+		fileBusinessRequest: () => (reads++ ? current.promise : old.promise),
+	})
+	const mounting = page.mount()
+	await flush()
+	page.credential.value = 'new-token'
+	await flush()
+	assert.equal(page.calls.fileBusiness.length, 2)
+	assert.equal(page.calls.fileBusiness[0][1].signal.aborted, true)
+	old.resolve({ data: contentOverview() })
+	await mounting
+	assert.equal(page.bindings.fileBusiness.value, null)
+	current.resolve({
+		data: {
+			...contentOverview(),
+			metrics: { mounts: { available: true, value: 0 } },
+		},
+	})
+	await flush()
+	assert.equal(page.bindings.summaryOverview.value.storageSources, 0)
+	page.dispose()
 })

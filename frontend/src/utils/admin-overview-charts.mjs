@@ -19,12 +19,20 @@ function distribution(id, title, total, first, labels, note) {
 }
 
 export function overviewDistributions(value) {
+	const members = count(value?.members)
+	const admins = count(value?.workspaceAdmins)
+	const roleTotal =
+		value?.accountModel === 'independent'
+			? members !== null && admins !== null
+				? count(members + admins)
+				: null
+			: members
 	return [
 		distribution(
 			'roles',
 			'空间成员构成',
-			value?.members,
-			value?.workspaceAdmins,
+			roleTotal,
+			admins,
 			['空间管理员', '普通成员'],
 			'不含全局管理员和系统内置账号'
 		),

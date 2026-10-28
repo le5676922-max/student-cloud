@@ -33,6 +33,8 @@ export const deleteStorageReq = (id) => {
 	return axios({
 		url: `/admin/storage/${id}`,
 		method: 'delete',
+		// Called only after the storage-list confirmation dialog is accepted.
+		data: { confirmed: true },
 	})
 }
 
@@ -117,6 +119,25 @@ export const existStorageKeyReq = (data, config = {}) => {
 		method: 'get',
 		data,
 		config: { timeout: 10000, ...config },
+	})
+}
+
+// 仅查询已保存连接的写入记录；不提交表单凭据或重放文件写入。
+export const loadPendingStorageWritesReq = (id, config = {}) => {
+	return axios({
+		url: `/admin/storage/${id}/pending-writes`,
+		method: 'get',
+		config: { timeout: 15000, ...config },
+	})
+}
+
+export const inspectPendingStorageWriteReq = (id, operationId, config = {}) => {
+	return axios({
+		url: `/admin/storage/${id}/pending-writes/${encodeURIComponent(
+			operationId
+		)}/inspect`,
+		method: 'post',
+		config: { timeout: 22000, ...config },
 	})
 }
 

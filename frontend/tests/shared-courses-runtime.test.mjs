@@ -80,7 +80,6 @@ const request = async (path = '', method = 'get', body, config) => {
 			data: [{ id: 'c'.repeat(32), filename: '课程讲义.txt', sizeBytes: 3 }],
 		}
 	if (path.endsWith('/members')) return { data: structuredClone(serverMembers) }
-	if (path.endsWith('/code') && method === 'post') return { data: joinCode }
 	if (path === '/invitation-preview')
 		return {
 			data: {
@@ -133,7 +132,7 @@ const request = async (path = '', method = 'get', body, config) => {
 		serverMembers[0].uploadStatus = body.approve ? 'APPROVED' : 'REJECTED'
 	if (path === '' && method === 'post') {
 		serverCourses = [course(true)]
-		return { data: { course: course(true), joinCode } }
+		return { data: course(true) }
 	}
 	return { data: null }
 }
@@ -165,7 +164,13 @@ const modules = {
 		useRoute: () => route,
 		useRouter: () => ({
 			replace: async (value) => {
-				route.query = value.query
+				// Vue Router exposes URL query values as strings even when callers
+				// originally passed a numeric backend identifier.
+				route.query = {
+					...value.query,
+					course:
+						value.query.course == null ? undefined : String(value.query.course),
+				}
 			},
 		}),
 	},
@@ -274,6 +279,69 @@ const button = (root, text) =>
 		(node) => node.textContent.trim() === text
 	)
 
+test('numeric backend course IDs honor a direct URL and retain the chosen course on refresh', async () => {
+	const items = [
+		{ ...course(), id: 7, name: '程序设计' },
+		{ ...course(), id: 8, name: '数据结构' },
+	]
+	const view = mount('USER', items, { query: { course: '8' } })
+	try {
+		await settle()
+		assert.equal(
+			view.root.querySelector('.course-content h2').textContent,
+			'数据结构'
+		)
+		assert.equal(route.query.course, '8')
+		assert.equal(
+			calls.filter((call) => call.path.endsWith('/materials')).at(-1).path,
+			'/8/materials'
+		)
+		button(view.root, '刷新').click()
+		await settle()
+		assert.equal(
+			view.root.querySelector('.course-content h2').textContent,
+			'数据结构'
+		)
+		assert.equal(route.query.course, '8')
+	} finally {
+		view.close()
+	}
+})
+
+test('browser course query navigation resolves numeric IDs without changing their API identity', async () => {
+	const view = mount('USER', [
+		{ ...course(), id: 7, name: '程序设计' },
+		{ ...course(), id: 8, name: '数据结构' },
+	])
+	try {
+		await settle()
+		assert.equal(route.query.course, '7')
+		route.query = { course: '8' }
+		await settle()
+		assert.equal(
+			view.root.querySelector('.course-content h2').textContent,
+			'数据结构'
+		)
+		assert.equal(
+			calls.filter((call) => call.path.endsWith('/materials')).at(-1).path,
+			'/8/materials'
+		)
+		route.query = { course: '7' }
+		await settle()
+		assert.equal(
+			view.root.querySelector('.course-content h2').textContent,
+			'程序设计'
+		)
+		assert.equal(route.query.course, '7')
+		assert.equal(
+			calls.filter((call) => call.path.endsWith('/materials')).at(-1).path,
+			'/7/materials'
+		)
+	} finally {
+		view.close()
+	}
+})
+
 test('actual member page joins a course then requests persistent upload permission without exposing creator approvals', async () => {
 	const view = mount()
 	try {
@@ -380,6 +448,40 @@ test('account switch clears prior course content and cancels outstanding request
 		resolveOld({ data: [course()] })
 		await settle()
 		assert.doesNotMatch(view.root.textContent, /程序设计|课程讲义.txt/)
+	} finally {
+		view.close()
+	}
+})
+
+test('course form keeps the whole-MB capacity constraint without native validation bubbles', async () => {
+	const view = mount('TENANT_ADMIN')
+	try {
+		await settle()
+		button(view.root, '创建课程').click()
+		await vue.nextTick()
+		const form = view.root.querySelector('.course-form')
+		assert.equal(form.noValidate, true)
+		const name = form.querySelector('input')
+		name.value = '离散数学'
+		name.dispatchEvent(new Event('input', { bubbles: true }))
+		const quota = form.querySelector('input[type="number"]')
+		for (const value of ['', '0', '1025', '1.5']) {
+			quota.value = value
+			quota.dispatchEvent(new Event('input', { bubbles: true }))
+			await vue.nextTick()
+			assert.equal(button(view.root, '保存').disabled, true, value)
+			form.dispatchEvent(
+				new Event('submit', { bubbles: true, cancelable: true })
+			)
+			await settle()
+			assert.ok(
+				!calls.some((call) => call.path === '' && call.method === 'post')
+			)
+		}
+		quota.value = '1'
+		quota.dispatchEvent(new Event('input', { bubbles: true }))
+		await vue.nextTick()
+		assert.equal(button(view.root, '保存').disabled, false)
 	} finally {
 		view.close()
 	}
@@ -529,23 +631,15 @@ test('creator chooses a bounded expiry or custom future time and cannot generate
 	}
 })
 
-test('legacy invitation action retires the old code without displaying an unrestricted replacement', async () => {
+test('independent course UI does not expose the retired code rotation route', async () => {
 	const view = mount('TENANT_ADMIN', [course(true)])
 	try {
 		await settle()
 		button(view.root, '邀请成员').click()
 		await settle()
-		view.root.querySelector('.legacy-invitation').open = true
-		button(view.root, '停用旧版邀请码').click()
-		await settle()
-		assert.ok(
-			calls.some(
-				(call) => call.path === `/${id}/code` && call.method === 'post'
-			)
-		)
-		assert.deepEqual(alerts, [])
-		assert.doesNotMatch(view.root.textContent, new RegExp(joinCode))
-		assert.equal(view.root.querySelector('input[aria-label="邀请链接"]'), null)
+		assert.equal(view.root.querySelector('.legacy-invitation'), null)
+		assert.equal(button(view.root, '停用旧版邀请码'), undefined)
+		assert.ok(!calls.some((call) => call.path.endsWith('/code')))
 	} finally {
 		view.close()
 	}

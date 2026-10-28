@@ -30,6 +30,15 @@
 						@change="loadList(1)"
 					>
 						<option value="OPEN">待整理</option>
+						<option
+							v-if="
+								statusFilter === 'REVIEWING' ||
+								pageData?.supportedStatuses?.includes('REVIEWING')
+							"
+							value="REVIEWING"
+						>
+							整理中
+						</option>
 						<option value="RESOLVED">已整理</option>
 						<option value="DISMISSED">无需处理</option>
 						<option value="">全部状态</option>
@@ -173,12 +182,19 @@
 							<label
 								>处理结果<select v-model="draft.status" :disabled="saving">
 									<option value="OPEN">待整理</option>
+									<option
+										v-if="detail.supportedStatuses?.includes('REVIEWING')"
+										value="REVIEWING"
+									>
+										整理中
+									</option>
 									<option value="RESOLVED">已整理</option>
 									<option value="DISMISSED">无需处理</option>
 								</select></label
 							><label
 								>修订后的正确答案<textarea
 									v-model="draft.correctedAnswer"
+									style="resize: none"
 									maxlength="12000"
 									rows="8"
 									:disabled="saving"
@@ -190,6 +206,7 @@
 							><label
 								>管理备注<textarea
 									v-model="draft.note"
+									style="resize: none"
 									maxlength="2000"
 									rows="3"
 									:disabled="saving"
@@ -274,11 +291,15 @@ const listRequests = createLatestRequest(),
 	saveRequests = createLatestRequest(),
 	exportRequests = createLatestRequest()
 let disposed = false
-const states = new Set(['OPEN', 'RESOLVED', 'DISMISSED'])
+const states = new Set(['OPEN', 'REVIEWING', 'RESOLVED', 'DISMISSED'])
 const validId = (id) => typeof id === 'string' && /^[a-f0-9]{32}$/.test(id)
 const statusLabel = (status) =>
-	({ OPEN: '待整理', RESOLVED: '已整理', DISMISSED: '无需处理' }[status] ||
-	'状态未知')
+	({
+		OPEN: '待整理',
+		REVIEWING: '整理中',
+		RESOLVED: '已整理',
+		DISMISSED: '无需处理',
+	}[status] || '状态未知')
 const errorText = (error, fallback) =>
 	error?.response?.data?.msg || error?.data?.msg || fallback
 const fresh = (request, boundIdentity) =>
@@ -408,6 +429,9 @@ async function saveDetail() {
 		status: draft.value.status,
 		correctedAnswer: draft.value.correctedAnswer,
 		note: draft.value.note,
+		...(Number.isSafeInteger(detail.value?.version)
+			? { expectedVersion: detail.value.version }
+			: {}),
 	}
 	saving.value = true
 	saveError.value = ''
@@ -591,7 +615,6 @@ textarea {
 	min-height: 80px;
 	padding: 11px;
 	line-height: 1.7;
-	resize: vertical;
 }
 button:disabled {
 	opacity: 0.5;

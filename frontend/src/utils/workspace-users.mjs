@@ -46,11 +46,11 @@ export function workspaceUserStatus(row) {
 	return { label: '状态未获取', type: 'info' }
 }
 
-export function canManageWorkspaceAdministrator(row, tenantId) {
+export function canManageWorkspaceAdministrator(row, tenantId, accountModel) {
 	return (
 		row?.role === 'TENANT_ADMIN' &&
 		Number.isSafeInteger(row.id) &&
-		row.id > 2 &&
+		row.id > (accountModel === 'independent' || row.accountModel === 'independent' ? 0 : 2) &&
 		workspaceUserTenantId(row.tenantId) === workspaceUserTenantId(tenantId) &&
 		workspaceUserTenantId(tenantId) !== null &&
 		row.membershipStatus === 'ACTIVE' &&
@@ -76,7 +76,7 @@ export function validWorkspaceUserPage(data, tenantId, role) {
 				(row) =>
 					row !== null &&
 					Number.isSafeInteger(row?.id) &&
-					row.id > 2 &&
+					row.id > (data.accountModel === 'independent' ? 0 : 2) &&
 					workspaceUserTenantId(row.tenantId) === id &&
 					row.role === role
 			)

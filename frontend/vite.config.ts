@@ -21,6 +21,7 @@ interface SupportUpgradeProxy {
 const supportApiTarget = new URL(
 	process.env.CLOUD_API_TARGET || 'http://127.0.0.1:8080'
 )
+const preserveSupportOrigin = process.env.CLOUD_BACKEND_MODE === 'microservices'
 
 export default defineConfig({
 	appType: 'spa',
@@ -75,7 +76,11 @@ export default defineConfig({
 							return
 						}
 						// Authentication remains the backend's one-use ticket handshake.
-						proxyReq.setHeader('origin', supportApiTarget.origin)
+						// New service tickets bind the browser Origin; retain legacy behavior by default.
+						const upstreamOrigin = preserveSupportOrigin
+							? String(req.headers.origin)
+							: supportApiTarget.origin
+						proxyReq.setHeader('origin', upstreamOrigin)
 					})
 				},
 			},

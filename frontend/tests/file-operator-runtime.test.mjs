@@ -7,6 +7,7 @@ import { parse, compileScript } from 'vue/compiler-sfc'
 import ts from 'typescript'
 import * as contexts from '../src/composables/file/file-operation-context.mjs'
 import * as lifecycle from '../src/composables/file/upload-lifecycle.mjs'
+import * as privateDownloads from '../src/utils/private-file-download.mjs'
 
 const source = await readFile(
 	new URL('../src/composables/file/useFileOperator.js', import.meta.url),
@@ -56,7 +57,7 @@ const row = (type = 'FILE', name = 'original.txt') => ({
 })
 
 // Execute the real composable and synchronous Vue context watchers with controlled dialogs/APIs.
-function setupOperators({ refresh } = {}) {
+function setupOperators({ refresh, browser = {} } = {}) {
 	const route = vue.reactive({ key: 'source-one', path: '/original' })
 	const storage = vue.reactive({
 		loginInfo: { isLogin: true, username: 'synthetic-user', tenantId: 1 },
@@ -88,7 +89,10 @@ function setupOperators({ refresh } = {}) {
 		loadings = [],
 		details = [],
 		passwords = [],
-		downloads = []
+		downloads = [],
+		blobs = [],
+		revoked = [],
+		progresses = []
 	const api = {}
 	for (const method of [
 		'batchDeleteReq',
@@ -111,7 +115,15 @@ function setupOperators({ refresh } = {}) {
 			kind,
 			(message, title, options) => {
 				const pending = deferred()
-				dialogs.push({ kind, message, title, options, ...pending })
+				const dialog = { kind, message, title, options, closed: 0, ...pending }
+				if (typeof message === 'function')
+					dialog.message = message({
+						close: () => {
+							dialog.closed++
+							pending.reject('close')
+						},
+					})
+				dialogs.push(dialog)
 				return pending.promise
 			},
 		])
@@ -120,12 +132,25 @@ function setupOperators({ refresh } = {}) {
 		vue,
 		'element-plus': {
 			ElMessageBox: box,
-			ElMessage: Object.fromEntries(
-				['warning', 'error', 'success'].map((kind) => [
-					kind,
-					(message) => messages.push({ kind, message }),
-				])
-			),
+			ElMessage: {
+				...Object.fromEntries(
+					['warning', 'error', 'success'].map((kind) => [
+						kind,
+						(message) => messages.push({ kind, message }),
+					])
+				),
+				info: (options) => {
+					const progress = {
+						options,
+						closes: 0,
+						close() {
+							this.closes++
+						},
+					}
+					progresses.push(progress)
+					return progress
+				},
+			},
 			ElLoading: {
 				service: () => {
 					const loading = {
@@ -191,6 +216,14 @@ function setupOperators({ refresh } = {}) {
 		},
 		'./upload-lifecycle.mjs': lifecycle,
 		'./file-operation-context.mjs': contexts,
+		'~/utils/private-file-download.mjs': privateDownloads,
+		'~/http/request': {
+			default: (options) => {
+				const pending = deferred()
+				requests.push({ method: 'privateDownload', ...options, ...pending })
+				return pending.promise
+			},
+		},
 	}
 	const executable = rewriteImports(source)
 		.replaceAll('export const', 'const')
@@ -199,7 +232,27 @@ function setupOperators({ refresh } = {}) {
 		`(function(){${executable}\nreturn { factory: useFileOperator, busy: operationBusy, dispose: () => { activeOperation?.stop(); } };})()`,
 		vm.createContext({
 			modules,
-			window: { open: (url) => downloads.push(url) },
+			AbortController,
+			Blob,
+			setTimeout: (callback) => callback(),
+			URL: {
+				createObjectURL: (blob) => {
+					blobs.push(blob)
+					return 'blob:private-download'
+				},
+				revokeObjectURL: (url) => revoked.push(url),
+			},
+			document: {
+				body: { append() {} },
+				createElement: () => ({
+					style: {},
+					click() {
+						downloads.push({ blob: this.href, name: this.download })
+					},
+					remove() {},
+				}),
+			},
+			window: { open: (url) => downloads.push(url), ...browser },
 		})
 	)
 	return {
@@ -219,8 +272,385 @@ function setupOperators({ refresh } = {}) {
 		details,
 		passwords,
 		downloads,
+		blobs,
+		revoked,
+		progresses,
 	}
 }
+
+const privateRow = () => ({
+	...row(),
+	size: 7,
+	authenticatedContent: true,
+	url: '/api/drives/source-one/content?path=%2Foriginal%2Foriginal.txt',
+})
+
+test('private download uses authenticated request and releases its object URL', async () => {
+	const h = setupOperators()
+	h.api.batchDownloadFile(privateRow())
+	h.dialogs[0].resolve('confirm')
+	await flush()
+	assert.equal(h.requests.length, 1)
+	assert.equal(h.requests[0].method, 'get')
+	assert.equal(h.requests[0].config.responseType, 'blob')
+	assert.equal(h.requests[0].config.responseIntercept, false)
+	const body = new Blob(['private'], { type: 'application/octet-stream' })
+	h.requests[0].resolve({ data: body })
+	await flush()
+	assert.deepEqual(h.downloads, [
+		{ blob: 'blob:private-download', name: 'original.txt' },
+	])
+	assert.deepEqual(h.revoked, ['blob:private-download'])
+})
+
+test('private download never attaches credentials to an external URL', async () => {
+	const h = setupOperators()
+	h.api.batchDownloadFile({
+		...privateRow(),
+		url: 'https://other.invalid/file',
+	})
+	if (h.dialogs[0]) h.dialogs[0].resolve('confirm')
+	await flush()
+	assert.equal(h.requests.length, 0)
+	assert.equal(h.downloads.length, 0)
+	assert.ok(
+		h.messages.some((item) => item.kind === 'warning' || item.kind === 'error')
+	)
+})
+
+test('account switch cancels a private download and does not expose the old account blob', async () => {
+	const h = setupOperators()
+	h.api.batchDownloadFile(privateRow())
+	h.dialogs[0].resolve('confirm')
+	await flush()
+	assert.equal(h.requests.length, 1)
+	h.storage.loginInfo.username = 'different-user'
+	assert.equal(h.requests[0].config.signal.aborted, true)
+	h.requests[0].resolve({ data: new Blob(['private']) })
+	await flush()
+	assert.equal(h.downloads.length, 0)
+})
+
+test('leaving and returning while confirmation is open cancels the private download', async () => {
+	const h = setupOperators()
+	h.api.batchDownloadFile(privateRow())
+	h.route.path = '/another-directory'
+	h.route.path = '/original'
+	h.dialogs[0].resolve('confirm')
+	await flush()
+	assert.equal(h.requests.length, 0)
+	assert.equal(h.downloads.length, 0)
+})
+
+test('stale private confirmations close only their own dialog and release download slots', async () => {
+	const h = setupOperators()
+	h.api.batchDownloadFile(privateRow())
+	h.api.batchDownloadFile(privateRow())
+	h.route.path = '/another-directory'
+	await flush()
+	assert.equal(h.dialogs[0].closed, 1)
+	assert.equal(h.dialogs[1].closed, 1)
+	h.route.path = '/original'
+	h.api.batchDownloadFile(privateRow())
+	assert.equal(h.dialogs.length, 3)
+	h.dialogs[2].reject('cancel')
+	await flush()
+	assert.equal(h.requests.length, 0)
+})
+
+test('private download failure is handled and legacy download still opens its URL', async () => {
+	const h = setupOperators()
+	h.api.batchDownloadFile(privateRow())
+	h.dialogs[0].resolve('confirm')
+	await flush()
+	assert.equal(h.requests.length, 1)
+	h.requests[0].reject(new Error('network failed'))
+	await flush()
+	assert.ok(h.messages.some((item) => item.kind === 'error'))
+	h.api.batchDownloadFile({ ...row(), url: '/legacy-file' })
+	h.dialogs[1].resolve('confirm')
+	await flush()
+	assert.deepEqual(h.downloads, ['/legacy-file'])
+})
+
+const streamBrowser = (showSaveFilePicker) => ({
+	isSecureContext: true,
+	navigator: { userActivation: { isActive: true } },
+	showSaveFilePicker,
+})
+const streamResponse = (text = 'private') => ({
+	data: new ReadableStream({
+		start(controller) {
+			controller.enqueue(new TextEncoder().encode(text))
+			controller.close()
+		},
+	}),
+	headers: {
+		'content-type': 'application/octet-stream',
+		'content-length': '7',
+	},
+})
+const saveHandle = () => {
+	const events = []
+	return {
+		events,
+		async createWritable() {
+			return {
+				async write(chunk) {
+					events.push([...chunk])
+				},
+				async close() {
+					events.push('close')
+				},
+				async abort() {
+					events.push('abort')
+				},
+			}
+		},
+	}
+}
+
+test('private stream selects a target before GET and uses existing authenticated Axios fetch transport', async () => {
+	const target = deferred()
+	let picked = 0
+	let suggestedName
+	const h = setupOperators({
+		browser: streamBrowser((options) => {
+			picked++
+			suggestedName = options.suggestedName
+			return target.promise
+		}),
+	})
+	const selected = privateRow()
+	h.api.batchDownloadFile(selected)
+	assert.equal(picked, 0)
+	selected.name = 'changed.txt'
+	selected.size = 100
+	h.dialogs[0].resolve('confirm')
+	await flush()
+	assert.equal(picked, 1)
+	assert.equal(suggestedName, 'original.txt')
+	assert.equal(h.requests.length, 0)
+	const handle = saveHandle()
+	target.resolve(handle)
+	await flush()
+	assert.equal(h.requests.length, 1)
+	const request = h.requests[0]
+	assert.equal(
+		request.url,
+		'/api/drives/source-one/content?path=%2Foriginal%2Foriginal.txt'
+	)
+	assert.equal(request.config.adapter, 'fetch')
+	assert.equal(request.config.responseType, 'stream')
+	assert.equal(request.config.responseIntercept, false)
+	assert.equal('headers' in request.config, false)
+	assert.equal(h.progresses[0].options.duration, 0)
+	assert.match(h.progresses[0].options.message().children, /0%/)
+	request.resolve(streamResponse())
+	await flush()
+	assert.deepEqual(handle.events, [[112, 114, 105, 118, 97, 116, 101], 'close'])
+	assert.equal(h.blobs.length, 0)
+	assert.equal(h.downloads.length, 0)
+	assert.match(h.progresses[0].options.message().children, /100%/)
+	assert.equal(h.progresses[0].closes, 1)
+	assert.ok(
+		h.messages.some(
+			(item) => item.kind === 'success' && /已保存/.test(item.message)
+		)
+	)
+})
+
+test('private stream works without extra confirmation when the click already has user activation', async () => {
+	let picked = 0
+	const handle = saveHandle()
+	const h = setupOperators({
+		browser: streamBrowser(() => {
+			picked++
+			return Promise.resolve(handle)
+		}),
+	})
+	h.storage.globalConfig.enableNormalDownloadConfirm = false
+	h.api.batchDownloadFile(privateRow())
+	assert.equal(picked, 1)
+	assert.equal(h.dialogs.length, 0)
+	await flush()
+	h.requests[0].resolve(streamResponse())
+	await flush()
+	assert.ok(handle.events.includes('close'))
+})
+
+test('picker cancellation never performs a fallback download and releases the concurrency slot', async () => {
+	const h = setupOperators({
+		browser: streamBrowser(() =>
+			Promise.reject(Object.assign(new Error('cancel'), { name: 'AbortError' }))
+		),
+	})
+	for (let index = 0; index < 3; index++) {
+		h.api.batchDownloadFile(privateRow())
+		h.dialogs[index].resolve('confirm')
+		await flush()
+	}
+	assert.equal(h.dialogs.length, 3)
+	assert.equal(h.requests.length, 0)
+	assert.equal(h.messages.length, 0)
+})
+
+test('only unsupported picker errors fall back to a single Blob request', async () => {
+	for (const name of [
+		'SecurityError',
+		'NotSupportedError',
+		'NotAllowedError',
+	]) {
+		const h = setupOperators({
+			browser: streamBrowser(() =>
+				Promise.reject(Object.assign(new Error(name), { name }))
+			),
+		})
+		h.api.batchDownloadFile(privateRow())
+		h.dialogs[0].resolve('confirm')
+		await flush()
+		if (name === 'NotAllowedError') {
+			assert.equal(h.requests.length, 0)
+			assert.ok(h.messages.some((item) => item.kind === 'error'))
+		} else {
+			assert.equal(h.requests.length, 1)
+			assert.equal(h.requests[0].config.responseType, 'blob')
+			h.requests[0].resolve({
+				data: new Blob(['private'], { type: 'application/octet-stream' }),
+			})
+			await flush()
+			assert.equal(h.downloads.length, 1)
+		}
+	}
+})
+
+test('unknown, fractional and oversized file size never opens a picker or starts GET', async () => {
+	let picked = 0
+	const h = setupOperators({
+		browser: streamBrowser(() => {
+			picked++
+			return Promise.resolve(saveHandle())
+		}),
+	})
+	for (const size of [
+		undefined,
+		-1,
+		'7',
+		0.5,
+		Infinity,
+		50 * 1024 * 1024 + 1,
+	]) {
+		h.api.batchDownloadFile({ ...privateRow(), size })
+		await flush()
+	}
+	assert.equal(picked, 0)
+	assert.equal(h.requests.length, 0)
+	assert.equal(h.dialogs.length, 0)
+})
+
+test('changing account while save picker is open stops download before GET', async () => {
+	const picker = deferred()
+	const handle = saveHandle()
+	const h = setupOperators({ browser: streamBrowser(() => picker.promise) })
+	h.api.batchDownloadFile(privateRow())
+	h.dialogs[0].resolve('confirm')
+	await flush()
+	h.storage.loginInfo.username = 'other-account'
+	picker.resolve(handle)
+	await flush()
+	assert.equal(h.requests.length, 0)
+	assert.equal(handle.events.length, 0)
+	assert.equal(h.messages.length, 0)
+})
+
+test('stream response failure aborts transport and disk, never falls back or publishes a Blob', async () => {
+	const handle = saveHandle()
+	const h = setupOperators({
+		browser: streamBrowser(() => Promise.resolve(handle)),
+	})
+	h.api.batchDownloadFile(privateRow())
+	h.dialogs[0].resolve('confirm')
+	await flush()
+	h.requests[0].resolve(streamResponse('short'))
+	await flush()
+	assert.equal(h.requests.length, 1)
+	assert.equal(h.requests[0].config.signal.aborted, true)
+	assert.ok(handle.events.includes('abort'))
+	assert.equal(handle.events.includes('close'), false)
+	assert.equal(h.downloads.length, 0)
+	assert.ok(h.messages.some((item) => item.kind === 'error'))
+	assert.equal(h.progresses[0].closes, 1)
+})
+
+test('permission removal during a pending stream cancels read and disk without an error toast', async () => {
+	const handle = saveHandle()
+	let cancelled = 0
+	const h = setupOperators({
+		browser: streamBrowser(() => Promise.resolve(handle)),
+	})
+	h.api.batchDownloadFile(privateRow())
+	h.dialogs[0].resolve('confirm')
+	await flush()
+	const response = streamResponse()
+	response.data = new ReadableStream({
+		cancel() {
+			cancelled++
+		},
+	})
+	h.requests[0].resolve(response)
+	await flush()
+	h.storage.folderConfig.permission.download = false
+	await flush()
+	assert.equal(cancelled, 1)
+	assert.ok(handle.events.includes('abort'))
+	assert.equal(handle.events.includes('close'), false)
+	assert.equal(h.messages.length, 0)
+	assert.equal(h.progresses[0].closes, 1)
+})
+
+test('Blob fallback rejects error documents and changed file lengths without exposing an object URL', async () => {
+	for (const response of [
+		{ data: new Blob(['private'], { type: 'application/json' }) },
+		{ data: new Blob(['private'], { type: 'text/html' }) },
+		{ data: new Blob(['short'], { type: 'application/octet-stream' }) },
+		{
+			data: new Blob(['private'], { type: 'application/octet-stream' }),
+			headers: {
+				'content-type': 'application/octet-stream',
+				'content-length': '8',
+			},
+		},
+	]) {
+		const h = setupOperators()
+		h.api.batchDownloadFile(privateRow())
+		h.dialogs[0].resolve('confirm')
+		await flush()
+		h.requests[0].resolve(response)
+		await flush()
+		assert.equal(h.requests.length, 1)
+		assert.equal(h.blobs.length, 0)
+		assert.equal(h.downloads.length, 0)
+		assert.equal(h.requests[0].config.signal.aborted, true)
+		assert.ok(h.messages.some((item) => item.kind === 'error'))
+	}
+})
+
+test('Blob fallback preserves the original filename and accepts a zero byte file', async () => {
+	const h = setupOperators()
+	const selected = { ...privateRow(), size: 0 }
+	h.api.batchDownloadFile(selected)
+	selected.name = 'changed.txt'
+	selected.size = 50
+	h.dialogs[0].resolve('confirm')
+	await flush()
+	h.requests[0].resolve({
+		data: new Blob([], { type: 'application/octet-stream' }),
+	})
+	await flush()
+	assert.deepEqual(h.downloads, [
+		{ blob: 'blob:private-download', name: 'original.txt' },
+	])
+})
 
 const starts = {
 	newFolder: (h) => h.api.newFolder(),
