@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
+/** 装配远程存储配置、对象存储适配器及本地与远程云盘路由。 */
 @Configuration(proxyBeanMethods=false)
 public class RemoteStorageConfiguration {
  @Bean ObjectStoreFactory objectStoreFactory(){return new SdkObjectStoreFactory();}

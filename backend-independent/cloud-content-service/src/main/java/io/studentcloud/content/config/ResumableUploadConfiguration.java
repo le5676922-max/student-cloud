@@ -1,6 +1,7 @@
 package io.studentcloud.content.config;
 
 import io.studentcloud.drive.application.*;
+import io.studentcloud.account.AccountDirectory;
 import java.nio.file.Path;
 import java.time.Clock;
 import org.springframework.beans.factory.annotation.Value;
@@ -9,16 +10,17 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.*;
 import org.springframework.transaction.PlatformTransactionManager;
 
+/** 装配分片上传服务的暂存目录与节点标识，并调度过期会话清理。 */
 @Configuration(proxyBeanMethods=false)
 @EnableScheduling
 public class ResumableUploadConfiguration {
     @Bean @DependsOn("independentSchema")
-    ResumableUploadService resumableUploads(JdbcTemplate jdbc,PlatformTransactionManager tx,Clock clock,DriveOperations mounts,
+    ResumableUploadService resumableUploads(JdbcTemplate jdbc,PlatformTransactionManager tx,Clock clock,DriveOperations mounts,AccountDirectory accounts,
             @Value("${student-cloud.uploads.staging-root:}") String stage,
             @Value("${student-cloud.storage.managed-root:}") String managed,
             @Value("${student-cloud.courses.private-root:}") String course,
             @Value("${student-cloud.uploads.node-id:content-local}") String node){
-        return new ResumableUploadService(jdbc,tx,clock,mounts,path(stage),path(managed),path(course),node);
+        return new ResumableUploadService(jdbc,tx,clock,mounts,accounts,path(stage),path(managed),path(course),node);
     }
     @Bean Cleanup uploadCleanup(ResumableUploadService uploads){return new Cleanup(uploads);}
     static final class Cleanup {

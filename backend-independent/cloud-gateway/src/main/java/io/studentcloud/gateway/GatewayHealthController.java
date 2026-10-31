@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/** 提供网关自身的存活检查接口。 */
 @RestController
 public class GatewayHealthController {
     @GetMapping("/healthz") public Map<String,String> alive() { return Map.of("status", "UP"); }

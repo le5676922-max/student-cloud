@@ -5,7 +5,10 @@ import io.studentcloud.drive.*;
 import java.io.InputStream;
 import java.util.*;
 
-/** Authorization-aware application port shared by local and remote adapters. */
+/**
+ * 定义携带操作者身份的云盘操作入口，供本地与远程存储实现。
+ * Authorization-aware application port shared by local and remote adapters.
+ */
 public interface DriveOperations {
  List<MountView> listMounts(Actor actor);
  List<FileRecord> list(Actor actor,String key,DrivePath path,boolean refresh);

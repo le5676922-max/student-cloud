@@ -7,7 +7,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-/** Provider-only capabilities. No account, HTTP session, SQL transaction, or public signed URL. */
+/**
+ * 定义对象存储的列表、读取、不覆盖写入及探针核验能力。
+ * Provider-only capabilities. No account, HTTP session, SQL transaction, or public signed URL.
+ */
 public interface ObjectStore extends AutoCloseable {
     enum Provider { ALIYUN_OSS, S3 }
     record Connection(Provider provider,URI endpoint,String bucket,String region,boolean pathStyle,

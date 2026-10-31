@@ -7,6 +7,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
+/** 构造网关拦截与降级时使用的统一JSON响应。 */
 final class GatewayReplies {
     private GatewayReplies() { }
     static Mono<Void> failure(ServerWebExchange exchange, HttpStatus status, String code, String message) {

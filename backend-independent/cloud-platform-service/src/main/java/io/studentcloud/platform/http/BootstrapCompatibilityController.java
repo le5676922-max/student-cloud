@@ -14,13 +14,14 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Honest bootstrap configuration for the development slice; absent features remain disabled. */
+/** 向兼容前端提供当前站点配置和可用登录能力。 Honest bootstrap configuration for the development slice; absent features remain disabled. */
 @RestController
 public class BootstrapCompatibilityController {
     private final AccountService accounts;
     private final PlatformAdministrationService administration;
     public BootstrapCompatibilityController(AccountService accounts,PlatformAdministrationService administration) { this.accounts = accounts;this.administration=administration; }
 
+    /** 组合基础展示配置与允许公开的站点设置。 */
     @GetMapping("/api/site/config/global")
     public ApiResponse<Map<String, Object>> site() {
         var config = new LinkedHashMap<String, Object>();
@@ -60,6 +61,7 @@ public class BootstrapCompatibilityController {
     @GetMapping("/user/login/verify-mode")
     public ApiResponse<String> verificationMode() { return ApiResponse.success("off"); }
 
+    /** 校验当前版本支持的默认登录入口。 */
     @GetMapping("/user/login/entry/validate")
     public ApiResponse<Boolean> loginEntry(@RequestParam(required=false) String entry) {
         if (entry != null && !entry.isBlank()) throw new ApplicationFault("41000", 400, "当前开发版本未启用自定义登录入口");

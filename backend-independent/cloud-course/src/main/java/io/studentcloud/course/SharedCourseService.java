@@ -23,7 +23,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Course-owned sharing independent of workspace/cloud grants. Every mutation locks its course row. */
+/**
+ * 管理共享课程、邀请加入和成员上传授权，并校验课程访问权限。
+ * Course-owned sharing independent of workspace/cloud grants. Every mutation locks its course row.
+ */
 public final class SharedCourseService {
     private static final long MAX_QUOTA = 1024L * 1024 * 1024;
     private static final SecureRandom RANDOM = new SecureRandom();

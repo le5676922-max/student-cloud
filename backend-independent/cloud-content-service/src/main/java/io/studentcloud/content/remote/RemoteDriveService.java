@@ -15,7 +15,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.*;
 import org.springframework.transaction.support.*;
 
-/** All keys are server-derived from a fresh mount grant; provider IO never holds an SQL transaction. */
+/**
+ * 根据实时挂载授权执行远程对象浏览、读取、建目录与上传，并核对写入状态。
+ * All keys are server-derived from a fresh mount grant; provider IO never holds an SQL transaction.
+ */
 public final class RemoteDriveService implements DriveOperations {
  private final JdbcTemplate jdbc;private final TransactionTemplate tx;private final Clock clock;private final AccountDirectory accounts;
  private final RemoteConnections configs;private final ObjectStoreFactory factory;private final Path stage;private final Semaphore io=new Semaphore(4);

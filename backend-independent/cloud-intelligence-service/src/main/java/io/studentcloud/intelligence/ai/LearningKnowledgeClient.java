@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+/** 从内容服务检索本人课程资料片段及真实引用。 */
 @Component
 public class LearningKnowledgeClient {
     private final RestClient client;

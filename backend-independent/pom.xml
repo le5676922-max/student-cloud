@@ -21,21 +21,37 @@
     <spring-cloud.version>2025.1.4</spring-cloud.version>
   </properties>
   <modules>
+    <!-- 公共响应与错误类型，不单独启动。 -->
     <module>cloud-common</module>
+    <!-- 账号、角色、空间及会话查询的共享接口契约。 -->
     <module>cloud-account-api</module>
+    <!-- 文件路径、文件记录和本地存储基础能力。 -->
     <module>cloud-drive</module>
+    <!-- 阿里云 OSS 与 S3 兼容对象存储驱动。 -->
     <module>cloud-object-storage</module>
+    <!-- 账号、邮箱验证、空间成员与权限管理的业务实现。 -->
     <module>cloud-account</module>
+    <!-- 持久任务、租约、幂等及事务通知记录。 -->
     <module>cloud-tasks</module>
+    <!-- 云盘授权、容量、文件操作、续传和回收站编排。 -->
     <module>cloud-drive-application</module>
+    <!-- 共享课程、邀请、课程资料及上传资格审批。 -->
     <module>cloud-course</module>
+    <!-- 个人记忆、未解决反馈与人工审核知识。 -->
     <module>cloud-assistant</module>
+    <!-- 人工客服会话、消息与实时通知业务。 -->
     <module>cloud-support</module>
+    <!-- 各业务服务共用的鉴权、HTTP过滤器与运行设施。 -->
     <module>cloud-service-runtime</module>
+    <!-- 服务间 HTTP 调用、身份查询与实例发现。 -->
     <module>cloud-service-clients</module>
+    <!-- 启动入口：平台服务，负责账号、空间和人工客服。 -->
     <module>cloud-platform-service</module>
+    <!-- 启动入口：内容服务，负责存储、文件、课程和配额。 -->
     <module>cloud-content-service</module>
+    <!-- 启动入口：智能服务，负责对话、RAG、记忆和 Agent 任务。 -->
     <module>cloud-intelligence-service</module>
+    <!-- 启动入口：统一网关，负责路由转发与调用保护。 -->
     <module>cloud-gateway</module>
   </modules>
   <dependencyManagement>

@@ -17,6 +17,7 @@ import org.springframework.web.multipart.support.MissingServletRequestPartExcept
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+/** 将业务与框架异常转换为统一、安全的HTTP错误响应。 */
 @RestControllerAdvice
 public class HttpFailures {
     private static final Logger LOG = LoggerFactory.getLogger(HttpFailures.class);

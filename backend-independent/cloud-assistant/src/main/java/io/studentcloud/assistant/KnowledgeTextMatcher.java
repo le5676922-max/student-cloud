@@ -7,7 +7,10 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-/** Bounded local lexical ranking. Scores are relative relevance, never semantic confidence. */
+/** 对中英文查询做有界词法匹配与相关性排序，不代表向量语义检索。
+ *
+ * Bounded local lexical ranking. Scores are relative relevance, never semantic confidence.
+ */
 public final class KnowledgeTextMatcher {
     public static final int MAX_QUERY_CHARS = 2000;
     private static final int MAX_TERMS = 64;

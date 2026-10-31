@@ -12,7 +12,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import tools.jackson.databind.ObjectMapper;
 
-/** Bound JSON before deserialization, including requests with no Content-Length. */
+/**
+ * 在反序列化前限制分享创建请求的正文大小与并发数量。
+ * Bound JSON before deserialization, including requests with no Content-Length.
+ */
 @Component
 @Order(11)
 public final class ControlledShareBodyFilter extends OncePerRequestFilter {

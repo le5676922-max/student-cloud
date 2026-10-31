@@ -16,7 +16,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Account-scoped task read/cancel only. Claim and tool execution have no public route. */
+/** 提供当前账号任务查询和取消入口，不公开工作节点抢占或执行接口。
+ *
+ * Account-scoped task read/cancel only. Claim and tool execution have no public route.
+ */
 @RestController
 @RequestMapping("/api/tasks")
 public class TaskController {

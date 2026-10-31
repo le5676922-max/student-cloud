@@ -7,7 +7,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Internal service-key filter protects this aggregate; identity and member data never cross database boundaries. */
+/**
+ * 向内部服务返回指定工作空间的存储源数量。
+ * Internal service-key filter protects this aggregate; identity and member data never cross database boundaries.
+ */
 @RestController
 public class InternalWorkspaceSummaryController {
     private final JdbcTemplate jdbc;

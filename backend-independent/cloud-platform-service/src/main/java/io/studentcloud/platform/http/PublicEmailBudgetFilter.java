@@ -15,7 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import tools.jackson.databind.ObjectMapper;
 
-/** Bounded mail requests before body parsing; verified gateway client context separates unrelated users. */
+/** 在请求体解析前限制公开验证码接口的客户端频率和并发。 Bounded mail requests before body parsing; verified gateway client context separates unrelated users. */
 @Component @Order(4)
 public final class PublicEmailBudgetFilter extends OncePerRequestFilter {
     private final Set<String> endpoints=Set.of("/user/registration/email-code","/user/password-reset/email-code");
@@ -24,6 +24,7 @@ public final class PublicEmailBudgetFilter extends OncePerRequestFilter {
     private final ObjectMapper json;private final TrustedClientAddress clients;
     public PublicEmailBudgetFilter(ObjectMapper json,TrustedClientAddress clients){this.json=json;this.clients=clients;}
     @Override protected boolean shouldNotFilter(HttpServletRequest request){return !"POST".equals(request.getMethod()) || !endpoints.contains(request.getRequestURI());}
+    /** 按可信客户端地址和全局发送槽位放行验证码请求。 */
     @Override protected void doFilterInternal(HttpServletRequest request,HttpServletResponse response,FilterChain chain) throws IOException,ServletException {
         if(!allow(clients.peer(request)) || !slots.tryAcquire()){
             response.setStatus(429);response.setHeader("Retry-After","60");response.setHeader("Cache-Control","no-store");response.setContentType("application/json;charset=UTF-8");

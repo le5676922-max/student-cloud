@@ -153,6 +153,50 @@ class WorkspaceEnrollmentServiceTest {
         assertEquals(1,jdbc.queryForObject("SELECT use_count FROM sc_workspace_invitation WHERE id=?",Integer.class,Long.parseLong(invitation.id())));
     }
 
+    @Test void revokedInvitationHistoryDoesNotPermanentlyDisableNewInvitations() {
+        invitationHistory(200,"revoked");
+        assertNotNull(service.createInvitation(owner,null,null).code());
+    }
+
+    @Test void expiredInvitationHistoryDoesNotPermanentlyDisableNewInvitations() {
+        invitationHistory(200,"expired");
+        assertNotNull(service.createInvitation(owner,null,null).code());
+    }
+
+    @Test void exhaustedInvitationHistoryDoesNotPermanentlyDisableNewInvitations() {
+        invitationHistory(200,"exhausted");
+        assertNotNull(service.createInvitation(owner,null,null).code());
+    }
+
+    @Test void olderLiveInvitationsStayManageableAfterNewerHistoryFillsTheList() {
+        var active=service.createInvitation(owner,null,null);
+        invitationHistory(220,"revoked");
+        var visible=service.listInvitations(owner);
+        assertEquals(200,visible.size());
+        assertEquals(active.id(),visible.getFirst().id(),"A valid code must not disappear behind inactive history");
+        service.revokeInvitation(owner,Long.parseLong(active.id()));
+        assertTrue(jdbc.queryForObject("SELECT revoked_at IS NOT NULL FROM sc_workspace_invitation WHERE id=?",Boolean.class,Long.parseLong(active.id())));
+    }
+
+    @Test void onlySimultaneouslyLiveInvitationsUseTheLimitAndRevokingOneFreesCapacity() {
+        invitationHistory(200,"active");
+        assertEquals(409,assertThrows(ApplicationFault.class,()->service.createInvitation(owner,null,null)).httpStatus());
+        long first=jdbc.queryForObject("SELECT MIN(id) FROM sc_workspace_invitation WHERE workspace_id=1",Long.class);
+        service.revokeInvitation(owner,first);
+        assertNotNull(service.createInvitation(owner,null,null).code());
+        assertEquals(201,jdbc.queryForObject("SELECT COUNT(*) FROM sc_workspace_invitation WHERE workspace_id=1",Integer.class));
+    }
+
+    private void invitationHistory(int count,String state) {
+        for(int index=0;index<count;index++) {
+            Long expiresAt=state.equals("expired")?clock.millis()-1:null;
+            Integer maximum=state.equals("exhausted")?1:null;
+            Long revokedAt=state.equals("revoked")?clock.millis()-1000:null;
+            jdbc.update("INSERT INTO sc_workspace_invitation(workspace_id,creator_id,code_hash,expires_at,max_uses,use_count,revoked_at,created_at) VALUES(1,1,?,?,?,?,?,?)",
+                    String.format("%064x",index+1),expiresAt,maximum,state.equals("exhausted")?1:0,revokedAt,clock.millis()-120_000);
+        }
+    }
+
     private boolean joinRace(CyclicBarrier barrier,String code,long id) throws Exception {
         barrier.await(5,TimeUnit.SECONDS);
         try {transaction.execute(status->service.enrollMember("INVITE",code,id));return true;}

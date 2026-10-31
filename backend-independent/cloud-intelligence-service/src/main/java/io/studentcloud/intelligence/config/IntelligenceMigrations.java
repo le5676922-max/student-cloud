@@ -14,7 +14,10 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 
-/** The intelligence migration history contains only intelligence-owned tables. */
+/** 登记智能服务拥有的数据库迁移与版本。
+ *
+ * The intelligence migration history contains only intelligence-owned tables.
+ */
 @Configuration(proxyBeanMethods=false)
 public class IntelligenceMigrations {
     @Bean(name="intelligenceSchema", initMethod="migrate")

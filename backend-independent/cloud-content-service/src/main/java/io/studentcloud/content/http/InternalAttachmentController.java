@@ -6,6 +6,7 @@ import java.util.*;
 import java.util.concurrent.Semaphore;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+/** 提取内部助手请求中的附件文本，并限制附件规模与解析并发。 */
 @RestController
 public class InternalAttachmentController {
     private final Semaphore parsing=new Semaphore(2);
@@ -26,7 +27,8 @@ public class InternalAttachmentController {
                 truncated|=text.truncated() || text.text().length()>remaining;
             }
             return ApiResponse.success(Map.of("text",context.toString(),"truncated",truncated));
-        }catch(IOException | IllegalArgumentException failure){throw new ApplicationFault("41000",400,"附件格式不支持或无法解析；请使用TXT、MD、PDF或DOCX");}
+        }catch(LearningTextExtractor.ExtractionBusyException busy){throw new ApplicationFault("PARSE_BUSY",429,"PDF解析繁忙，请稍后重试");}
+        catch(IOException | IllegalArgumentException failure){throw new ApplicationFault("41000",400,"附件格式不支持或无法解析；请使用TXT、MD、PDF或DOCX");}
         finally{parsing.release();}
     }
     private static ApplicationFault invalid(){return new ApplicationFault("41000",400,"每轮最多3个附件，单个2MiB，合计4MiB");}

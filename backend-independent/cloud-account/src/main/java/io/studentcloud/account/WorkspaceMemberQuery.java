@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.Objects;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** Bounded workspace member read model: profile and enrollment enrichment costs one query per page. */
+/** 为本空间成员分页结果批量补充昵称与入驻状态。 Bounded workspace member read model: profile and enrollment enrichment costs one query per page. */
 public final class WorkspaceMemberQuery {
     private final JdbcTemplate jdbc;
     private final AccountAdministration accounts;
@@ -25,6 +25,7 @@ public final class WorkspaceMemberQuery {
         public Page { items = List.copyOf(items); }
     }
 
+    /** 校验分页及管理员归属后返回成员资料和总数。 */
     public Page page(Actor caller, int page, int limit, String search) {
         if (page < 1 || page > 10_000 || limit < 1 || limit > 100 || (long) (page - 1) * limit > 100_000)
             throw new ApplicationFault("41000",400,"分页参数无效");

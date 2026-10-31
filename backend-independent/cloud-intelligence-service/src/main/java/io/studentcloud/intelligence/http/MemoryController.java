@@ -14,6 +14,7 @@ import jakarta.validation.constraints.Size;
 import java.util.List;
 import org.springframework.web.bind.annotation.*;
 
+/** 提供本人长期记忆的查看、编辑、删除与启停接口。 */
 @RestController
 @RequestMapping("/api/ai/memories")
 public class MemoryController {

@@ -4,7 +4,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** A platform-independent path inside one drive; it never contains a host path. */
+/**
+ * 规范化云盘内部路径，并提供子路径、父路径与名称校验。
+ * A platform-independent path inside one drive; it never contains a host path.
+ */
 public record DrivePath(String value) {
     private static final int MAX_PATH_LENGTH = 4096;
 

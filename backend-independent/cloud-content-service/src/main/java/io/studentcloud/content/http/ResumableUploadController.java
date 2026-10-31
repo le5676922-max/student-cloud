@@ -12,7 +12,10 @@ import java.io.IOException;
 import java.util.*;
 import org.springframework.web.bind.annotation.*;
 
-/** Strict header authentication is supplied by AuthenticationFilter, never URL credentials. */
+/**
+ * 提供分片上传能力查询、会话创建、块上传、完成与取消接口。
+ * Strict header authentication is supplied by AuthenticationFilter, never URL credentials.
+ */
 @RestController
 @RequestMapping("/api/uploads/resumable")
 public class ResumableUploadController {

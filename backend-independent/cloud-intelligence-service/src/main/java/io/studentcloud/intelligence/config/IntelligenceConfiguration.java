@@ -20,6 +20,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.PlatformTransactionManager;
 
+/** 显式装配对话、模型规划、记忆、审核知识与任务组件。 */
 @Configuration(proxyBeanMethods=false)
 public class IntelligenceConfiguration {
     @Bean @DependsOn("intelligenceSchema")
@@ -27,8 +28,8 @@ public class IntelligenceConfiguration {
         return new MemoryService(jdbc, tx, clock, accounts);
     }
     @Bean @DependsOn("intelligenceSchema")
-    AnswerFeedbackService feedback(JdbcTemplate jdbc, PlatformTransactionManager tx, Clock clock, AccountDirectory accounts, CourseKnowledgeAccess courses) {
-        return new AnswerFeedbackService(jdbc, tx, clock, accounts, courses);
+    AnswerFeedbackService feedback(JdbcTemplate jdbc, PlatformTransactionManager tx, Clock clock, AccountDirectory accounts, CourseKnowledgeAccess courses, ChatAnswerStore answers) {
+        return new AnswerFeedbackService(jdbc, tx, clock, accounts, courses, answers::requirePublishable);
     }
     @Bean @DependsOn("intelligenceSchema")
     ReviewedKnowledgeService knowledge(JdbcTemplate jdbc, PlatformTransactionManager tx, Clock clock, AccountDirectory accounts, CourseKnowledgeAccess courses,ChatAnswerStore answers) {
@@ -46,10 +47,14 @@ public class IntelligenceConfiguration {
     @Bean
     ProjectKnowledgeService projectKnowledge() { return new ProjectKnowledgeService(); }
     @Bean
+    io.studentcloud.intelligence.agent.AgentModelPlanner modelPlanner(OpenAiChatClient model) {
+        return new io.studentcloud.intelligence.agent.AgentModelPlanner(model);
+    }
+    @Bean
     ChatService chat(AccountDirectory accounts, MemoryService memories, ReviewedKnowledgeService knowledge,
             OpenAiChatClient model, ChatAnswerStore answers,io.studentcloud.intelligence.ai.LearningKnowledgeClient library,AgentPlanService plans,
-            ProjectKnowledgeService project) {
-        return new ChatService(accounts, memories, knowledge, model, answers,library,plans,project);
+            ProjectKnowledgeService project, io.studentcloud.intelligence.agent.AgentModelPlanner planner) {
+        return new ChatService(accounts, memories, knowledge, model, answers,library,plans,project,planner);
     }
     @Bean @DependsOn("intelligenceSchema")
     AgentPlanService agentPlans(JdbcTemplate jdbc, PlatformTransactionManager tx, Clock clock,

@@ -37,7 +37,7 @@ class ResumableUploadControllerTest {
         var mounts=new MountService(jdbc,tx,Clock.systemUTC(),managed,accounts);
         var mount=mounts.createLocal(admin,"drive","local-drive",root,1L);
         jdbc.update("INSERT INTO sc_drive_grant(user_id,mount_id,root_path,permissions,enabled,revision,created_at) VALUES(3,?,'/members/u3','list,read,upload',TRUE,1,1)",mount.id());
-        service=new ResumableUploadService(jdbc,tx,Clock.systemUTC(),mounts,stage,managed,null,"node-a");
+        service=new ResumableUploadService(jdbc,tx,Clock.systemUTC(),mounts,accounts,stage,managed,null,"node-a");
         mvc=MockMvcBuilders.standaloneSetup(new ResumableUploadController(service)).setControllerAdvice(new HttpFailures())
                 .addFilters(new AuthenticationFilter(token->{if(!"member".equals(token))throw new ApplicationFault("42000",401,"请先登录");return member;},json)).build();
     }

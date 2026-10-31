@@ -23,6 +23,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+/** 提供共享课程、邀请、成员授权与课程资料管理接口。 */
 @RestController
 @RequestMapping("/api/courses")
 public class CourseController {

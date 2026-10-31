@@ -8,7 +8,10 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
 
-/** Only a short-lived gateway MAC can supply client addressing; arbitrary forwarding headers are ignored. */
+/** 校验网关短时签名后读取客户端地址，忽略任意转发头。
+ *
+ * Only a short-lived gateway MAC can supply client addressing; arbitrary forwarding headers are ignored.
+ */
 public final class TrustedClientAddress {
     private final byte[] key;
     public TrustedClientAddress(@Value("${student-cloud.services.internal-key:}") String key) {this.key=key.getBytes(StandardCharsets.UTF_8);}

@@ -22,7 +22,10 @@ import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
-/** Signed transport context for per-client budgets, never an authentication or authorization claim. */
+/** 签名转发客户端地址供后端限流使用，该信息不代表用户身份。
+ *
+ * Signed transport context for per-client budgets, never an authentication or authorization claim.
+ */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
 public class SignedClientContextFilter implements WebFilter {

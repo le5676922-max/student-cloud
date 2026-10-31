@@ -12,6 +12,7 @@ import java.util.List;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 
+/** 提供受控分享的创建、查询、撤销与授权内容下载接口。 */
 @RestController
 @RequestMapping("/api/shares")
 public final class ControlledShareController {

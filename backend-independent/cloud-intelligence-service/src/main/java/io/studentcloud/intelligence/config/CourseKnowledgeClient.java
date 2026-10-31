@@ -14,7 +14,10 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
-/** Authorization only: no content database dependency, private course data or fail-open fallback. */
+/** 通过课程所属服务核验知识访问资格，不直接读取课程数据库。
+ *
+ * Authorization only: no content database dependency, private course data or fail-open fallback.
+ */
 @Component
 public final class CourseKnowledgeClient implements CourseKnowledgeAccess {
     private final RestClient client;

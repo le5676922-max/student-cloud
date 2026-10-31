@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import org.springframework.web.bind.annotation.*;
 
+/** 提供云盘目录分页查询与回收站查询、恢复和清理接口。 */
 @RestController
 @RequestMapping("/api/drives/{key}")
 public final class FileLifecycleController {

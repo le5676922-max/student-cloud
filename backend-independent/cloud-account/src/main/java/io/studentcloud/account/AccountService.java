@@ -22,7 +22,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Independent JDBC identity/session service. All authorization identities come from current rows. */
+/** 负责平台初始化、账号登录及会话与密码管理。 Independent JDBC identity/session service. All authorization identities come from current rows. */
 public final class AccountService {
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final String ACCOUNT_COLUMNS = "a.id,a.account_id,a.username,a.email,a.password_hash,a.role,a.workspace_id,a.enabled,a.session_version";
@@ -49,7 +49,7 @@ public final class AccountService {
         return jdbc.queryForObject("SELECT site_name FROM sc_platform_settings WHERE id=1", String.class);
     }
 
-    /** A singleton settings row serializes initializers across processes, rather than a Java monitor. */
+    /** 首次安装时创建站点和唯一的初始全局管理员。 A singleton settings row serializes initializers across processes, rather than a Java monitor. */
     public AccountView install(String siteName, String username, String password) {
         String name = requiredText(siteName, 120, "Site name is required");
         String loginName = normalizedUsername(username);
@@ -80,6 +80,7 @@ public final class AccountService {
         });
     }
 
+    /** 验证账号凭据并签发有期限的随机会话令牌。 */
     public LoginResult login(String identifier, String password) {
         if (identifier == null || identifier.isBlank() || identifier.length() > 254 || password == null || password.length() > 128)
             throw invalidLogin();
@@ -105,12 +106,13 @@ public final class AccountService {
         });
     }
 
+    /** 校验令牌、会话版本及账号和空间的当前可用状态。 */
     public Actor authenticate(String token) {
         if (!validToken(token)) throw unauthorized();
         return authenticateDigest(digest(token));
     }
 
-    /** An in-process capability for long-lived transports; it exposes neither bearer token nor digest. */
+    /** 将有效令牌绑定为供长连接使用的本地会话引用。 An in-process capability for long-lived transports; it exposes neither bearer token nor digest. */
     public SessionReference bindSession(String token) {
         if (!validToken(token)) throw unauthorized();
         String hash = digest(token);
@@ -118,7 +120,7 @@ public final class AccountService {
         return new SessionReference(this, hash);
     }
 
-    /** Every call reads the same live session/account/workspace state as ordinary HTTP authentication. */
+    /** 通过本地会话引用重新验证当前身份。 Every call reads the same live session/account/workspace state as ordinary HTTP authentication. */
     public Actor authenticateSession(SessionReference reference) {
         if (reference == null || reference.issuer != this) throw unauthorized();
         return authenticateDigest(reference.tokenHash);
@@ -134,17 +136,19 @@ public final class AccountService {
         return session.account().actor();
     }
 
+    /** 封装仅签发服务可使用的会话引用。 */
     public static final class SessionReference {
         private final AccountService issuer;
         private final String tokenHash;
         private SessionReference(AccountService issuer, String tokenHash) { this.issuer = issuer; this.tokenHash = tokenHash; }
     }
 
+    /** 撤销指定令牌对应的登录会话。 */
     public void logout(String token) {
         if (validToken(token)) jdbc.update("DELETE FROM sc_session WHERE token_hash=?", digest(token));
     }
 
-    /** Caller must resolve actorId through authenticate; an arbitrary HTTP actorId is never accepted. */
+    /** 校验原密码后更新密码并撤销该账号的全部会话。 Caller must resolve actorId through authenticate; an arbitrary HTTP actorId is never accepted. */
     public void changePassword(long actorId, String oldPassword, String newPassword) {
         requireNewPassword(newPassword);
         transactions.executeWithoutResult(status -> {

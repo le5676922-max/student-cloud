@@ -16,12 +16,14 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
 
+/** 为当前空间管理员汇总成员数量和内容服务的存储统计。 */
 @RestController
 public class WorkspaceSummaryController {
     private final AccountDirectory accounts;private final JdbcTemplate jdbc;private final RestClient client;private final CircuitBreakerFactory<?,?> breakers;
     public WorkspaceSummaryController(AccountDirectory accounts,JdbcTemplate jdbc,@Qualifier("serviceRestClientBuilder") RestClient.Builder builder,CircuitBreakerFactory<?,?> breakers){
         this.accounts=accounts;this.jdbc=jdbc;this.client=builder.build();this.breakers=breakers;
     }
+    /** 复核空间权限并以可降级的跨服务调用补充存储数量。 */
     @GetMapping("/api/workspace-admin/summary") public ApiResponse<Map<String,Object>> summary(HttpServletRequest request){
         var actor=accounts.current(AuthenticationFilter.actor(request));
         if(actor.role()!=Role.TENANT_ADMIN || actor.workspaceId()==null) throw new ApplicationFault("30000",403,"只有本空间普通管理员可以查看此信息");

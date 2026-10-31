@@ -40,7 +40,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.stereotype.Service;
 
-/** HTTP-facing local mount metadata adapter. It never exposes physical roots to workspace actors. */
+/**
+ * 处理本地存储源配置、启停与成员权限管理，并生成管理界面所需数据。
+ * HTTP-facing local mount metadata adapter. It never exposes physical roots to workspace actors.
+ */
 @Service
 public final class StorageAdministrationService {
     private static final Set<String> PERMISSIONS=Set.of("list","read","mkdir","upload","copy","move","rename","delete");

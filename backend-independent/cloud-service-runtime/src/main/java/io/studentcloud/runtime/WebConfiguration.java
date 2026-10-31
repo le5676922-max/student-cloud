@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+/** 配置业务服务的跨域来源及Web请求处理规则。 */
 @Configuration(proxyBeanMethods = false)
 public class WebConfiguration implements WebMvcConfigurer {
     private final String[] origins;

@@ -2,6 +2,7 @@ package io.studentcloud.content.config;
 import io.studentcloud.drive.application.MountService;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+/** 定时触发本地云盘回收站中过期资料的清理。 */
 @Component
 public final class RecycleRetention {
     private final MountService mounts;

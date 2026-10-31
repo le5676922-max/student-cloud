@@ -10,7 +10,10 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.transaction.*;
 import org.springframework.transaction.support.*;
 
-/** Candidate validation precedes the short configuration commit. Secrets never leave this adapter. */
+/**
+ * 校验并保存远程存储配置，管理连接探测、写入验证与挂载授权。
+ * Candidate validation precedes the short configuration commit. Secrets never leave this adapter.
+ */
 public final class RemoteStorageAdministration implements RemoteConnections {
  private final JdbcTemplate jdbc;private final TransactionTemplate tx;private final Clock clock;private final AccountDirectory accounts;
  private final WorkspaceDirectory workspaces;private final ObjectStoreFactory factory;private final RemoteCredentialCipher cipher;private final RemoteEndpointPolicy endpoints;

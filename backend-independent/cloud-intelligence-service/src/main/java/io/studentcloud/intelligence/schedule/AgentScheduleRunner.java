@@ -3,7 +3,10 @@ package io.studentcloud.intelligence.schedule;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** A separate scheduler thread lets weekly previews coexist with confirmed file jobs. */
+/** 定期触发已到期的整理预览规则，与已确认文件任务分开调度。
+ *
+ * A separate scheduler thread lets weekly previews coexist with confirmed file jobs.
+ */
 @Component
 public final class AgentScheduleRunner {
     private final AgentScheduleService schedules;

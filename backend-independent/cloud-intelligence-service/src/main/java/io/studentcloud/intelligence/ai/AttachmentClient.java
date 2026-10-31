@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.multipart.MultipartFile;
+/** 调用内容服务受限解析临时对话附件，不将附件自动保存到云盘。 */
 @Component
 public class AttachmentClient {
     private final RestClient client;

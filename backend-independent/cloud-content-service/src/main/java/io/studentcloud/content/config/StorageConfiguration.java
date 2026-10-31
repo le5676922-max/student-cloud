@@ -17,6 +17,7 @@ import org.springframework.context.annotation.DependsOn;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
+/** 装配本地云盘、学习库和课程资料服务，并校验私有存储目录配置。 */
 @Configuration(proxyBeanMethods = false)
 public class StorageConfiguration {
     @Bean @DependsOn("independentSchema")

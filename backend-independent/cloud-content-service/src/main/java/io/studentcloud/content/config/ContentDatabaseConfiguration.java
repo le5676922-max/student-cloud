@@ -8,7 +8,10 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/** Only this service's schema can be connected; no schema-qualified identity access is permitted. */
+/**
+ * 校验内容服务数据库配置并创建连接池。
+ * Only this service's schema can be connected; no schema-qualified identity access is permitted.
+ */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(ContentDatabaseConfiguration.DatabaseSettings.class)
 public class ContentDatabaseConfiguration {

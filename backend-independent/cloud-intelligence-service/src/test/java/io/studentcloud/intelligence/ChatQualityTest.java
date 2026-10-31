@@ -197,9 +197,16 @@ class ChatQualityTest {
     }
 
     @Test void disablingUsedMemoryDuringCompletionRejectsAnswer() {
-        memories.create(owner, "Remember this synthetic preference.");
+        memories.create(owner, "上传时先核对目录与配额。");
         duringCompletion.set(() -> memories.enable(owner, false));
-        assertEquals(409, assertThrows(ApplicationFault.class, () -> chat.answer(owner, request("如何上传？", "concise", false, null))).httpStatus());
+        assertEquals(409, assertThrows(ApplicationFault.class, () -> chat.answer(owner, request("如何上传？", "concise", true, null))).httpStatus());
+        assertNoAnswerSaved();
+    }
+
+    @Test void deletingRelevantOptedInMemoryDuringCompletionRejectsAnswer() {
+        var memory = memories.create(owner, "上传时先核对目录与配额。");
+        duringCompletion.set(() -> memories.delete(owner, memory.id(), memory.version()));
+        assertEquals(409, assertThrows(ApplicationFault.class, () -> chat.answer(owner, request("如何上传？", "concise", true, null))).httpStatus());
         assertNoAnswerSaved();
     }
 

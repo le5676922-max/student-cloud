@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import org.springframework.web.bind.annotation.*;
 
+/** 提供个人学习课程、资料引用、索引刷新与文本检索接口。 */
 @RestController
 @RequestMapping("/api/learning")
 public class LearningController {

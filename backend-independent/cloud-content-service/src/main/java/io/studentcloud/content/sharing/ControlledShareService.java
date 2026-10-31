@@ -18,7 +18,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Content-owned grants. Opaque IDs identify a policy; they never replace session authorization. */
+/**
+ * 创建带受众和有效期的文件分享，并在读取时校验权限与源文件一致性。
+ * Content-owned grants. Opaque IDs identify a policy; they never replace session authorization.
+ */
 public final class ControlledShareService {
     private static final SecureRandom RANDOM=new SecureRandom();
     private static final long DAY=86_400_000L;

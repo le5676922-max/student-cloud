@@ -9,6 +9,7 @@ import jakarta.validation.constraints.Size;
 import java.util.Map;
 import org.springframework.web.bind.annotation.*;
 
+/** 提供邮箱验证注册、自助找回密码及相关能力状态接口。 */
 @RestController
 public class PublicRegistrationController {
     private final PublicRegistrationService registrations;
@@ -29,18 +30,22 @@ public class PublicRegistrationController {
         return ApiResponse.success(Map.of("enabled",registrations.resetAvailable(),"mailAvailable",registrations.mailAvailable(),
                 "message",registrations.resetAvailable()?"通过注册邮箱找回密码":"找回密码暂不可用，请联系管理员"));
     }
+    /** 校验验证码用途后请求发送注册邮件。 */
     @PostMapping("/user/registration/email-code") public ApiResponse<Void> registrationCode(@Valid @RequestBody EmailInput input){
         if(input.purpose()!=null && !"REGISTER".equals(input.purpose())) throw new ApplicationFault("41000",400,"验证码用途不正确");
         registrations.requestRegistrationCode(input.email());return success("验证码已发送，请查收邮箱");
     }
+    /** 请求密码重置邮件并统一返回不泄露账号存在性的提示。 */
     @PostMapping("/user/password-reset/email-code") public ApiResponse<Void> resetCode(@Valid @RequestBody EmailInput input){
         registrations.requestResetCode(input.email());return success("如果该邮箱已注册，将收到验证码，请检查收件箱");
     }
+    /** 校验注册表单并提交账号与空间归属注册流程。 */
     @PostMapping("/user/register") public ApiResponse<PublicRegistrationService.RegistrationResult> register(@Valid @RequestBody RegisterInput input){
         var saved=registrations.register(new PublicRegistrationService.RegistrationInput(input.email(),input.emailCode(),input.password(),input.confirmPassword(),
                 input.nickname(),input.registrationType(),input.workspaceName(),input.joinType(),input.joinValue()));
         return new ApiResponse<>("0",saved.message(),saved,null,null);
     }
+    /** 使用邮箱验证码完成自助密码重置。 */
     @PostMapping("/user/password-reset") public ApiResponse<Void> reset(@Valid @RequestBody ResetInput input){
         registrations.resetPassword(input.email(),input.emailCode(),input.password(),input.confirmPassword());
         return success("密码已重置，原登录状态已失效，请重新登录");

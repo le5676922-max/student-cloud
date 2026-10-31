@@ -24,6 +24,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
+ * 在指定物理根目录内执行文件读写、目录操作与回收站管理。
  * Bounded local storage with explicit physical roots. No sessions, database, HTTP DTOs,
  * framework services, or storage-source globals participate in file access.
  * The caller must authorize a root and path before invoking this class.

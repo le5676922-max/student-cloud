@@ -14,6 +14,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/** 复用对象键校验、探针回执核对与读取流生命周期管理。 */
 abstract class AbstractSdkObjectStore implements ObjectStore {
     static final String OPERATION_METADATA = "studentcloud-operation-id";
     static final String PROBE_METADATA = "studentcloud-probe";

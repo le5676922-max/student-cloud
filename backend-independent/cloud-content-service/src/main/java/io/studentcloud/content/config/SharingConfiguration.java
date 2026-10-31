@@ -11,6 +11,7 @@ import org.springframework.context.annotation.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
+/** 装配受控分享服务及其身份、云盘和课程访问依赖。 */
 @Configuration(proxyBeanMethods=false)
 public class SharingConfiguration {
     @Bean @DependsOn("independentSchema")

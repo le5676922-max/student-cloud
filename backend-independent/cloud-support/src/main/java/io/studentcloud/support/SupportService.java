@@ -21,6 +21,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
+ * 管理用户主动发起的人工服务会话及其授权和消息持久化。
  * Explicit user-requested human service, backed by the independent database.
  * No AI call, automatic handoff, chat-history copy, WebSocket, or background poller is started.
  * Trusted HTTP adapters supply Actor; every method rechecks the current database identity.
@@ -46,12 +47,12 @@ public final class SupportService {
         this.clock = Objects.requireNonNull(clock);
     }
 
-    /** An explicit request only sends the subject and message the user selected to send. */
+    /** 以用户主动提供的标题和正文发起人工服务。 An explicit request only sends the subject and message the user selected to send. */
     public SupportConversation request(Actor actor, String subject, String openingMessage) {
         return request(actor, subject, openingMessage, "new-" + UUID.randomUUID());
     }
 
-    /** Retry of the same explicit opening request returns its existing conversation. */
+    /** 按请求标识幂等创建人工服务会话和首条消息。 Retry of the same explicit opening request returns its existing conversation. */
     public SupportConversation request(Actor actor, String subject, String openingMessage, String clientMessageId) {
         String title = normalizedText(subject, 160, false, "问题标题须为 1 至 160 字符");
         String body = message(openingMessage);
@@ -83,6 +84,7 @@ public final class SupportService {
         }));
     }
 
+    /** 由申请人结束自己的人工服务会话。 */
     public SupportConversation closeForRequester(Actor actor, String id) {
         requireId(id);
         return Objects.requireNonNull(transactions.execute(status -> {
@@ -101,11 +103,12 @@ public final class SupportService {
         catch (NoSuchAlgorithmException unavailable) { throw new IllegalStateException("Request hashing is unavailable", unavailable); }
     }
 
-    /** Ordinary administrators see their own conversations, never their workspace members' cases. */
+    /** 按当前身份分页读取可见的人工服务会话。 Ordinary administrators see their own conversations, never their workspace members' cases. */
     public List<SupportConversation> list(Actor actor, int offset, int limit) {
         return list(actor, offset, limit, null);
     }
 
+    /** 按状态筛选并分页读取当前身份可见的会话。 */
     public List<SupportConversation> list(Actor actor, int offset, int limit, SupportState state) {
         page(offset, limit);
         return Objects.requireNonNull(transactions.execute(status -> {
@@ -124,6 +127,7 @@ public final class SupportService {
 
     public long count(Actor actor) { return count(actor, null); }
 
+    /** 统计当前身份和状态条件下可见的会话数量。 */
     public long count(Actor actor, SupportState state) {
         Long result = transactions.execute(status -> {
             CurrentAccount current = requireCurrent(actor);
@@ -137,11 +141,13 @@ public final class SupportService {
         return Objects.requireNonNull(result);
     }
 
+    /** 确认当前访问权限后读取单个会话。 */
     public SupportConversation get(Actor actor, String id) {
         requireId(id);
         return Objects.requireNonNull(transactions.execute(status -> conversation(requireCurrent(actor), id, false)));
     }
 
+    /** 验证会话访问权限后按消息序号分页读取正文。 */
     public List<SupportMessage> messages(Actor actor, String id, int offset, int limit) {
         requireId(id);
         page(offset, limit);
@@ -152,6 +158,7 @@ public final class SupportService {
         }));
     }
 
+    /** 验证会话访问权限后统计消息总数。 */
     public long messageCount(Actor actor, String id) {
         requireId(id);
         Long result = transactions.execute(status -> {
@@ -161,7 +168,7 @@ public final class SupportService {
         return Objects.requireNonNull(result);
     }
 
-    /** First successful acceptance owns the conversation; repeating it by that admin is idempotent. */
+    /** 由全局管理员原子接待待处理会话。 First successful acceptance owns the conversation; repeating it by that admin is idempotent. */
     public SupportConversation accept(Actor actor, String id) {
         requireId(id);
         return Objects.requireNonNull(transactions.execute(status -> {
@@ -180,7 +187,7 @@ public final class SupportService {
         }));
     }
 
-    /** Idempotency is scoped to one conversation and sender; retries after close return the old message. */
+    /** 校验会话归属与状态后幂等写入有序回复。 Idempotency is scoped to one conversation and sender; retries after close return the old message. */
     public SupportMessage reply(Actor actor, String id, String clientMessageId, String body) {
         requireId(id);
         requireClientId(clientMessageId);
@@ -210,7 +217,7 @@ public final class SupportService {
         }));
     }
 
-    /** Only a global admin closes a selected case; an active case belongs to its accepting admin. */
+    /** 由有接待权限的全局管理员结束会话。 Only a global admin closes a selected case; an active case belongs to its accepting admin. */
     public SupportConversation close(Actor actor, String id) {
         requireId(id);
         return Objects.requireNonNull(transactions.execute(status -> {

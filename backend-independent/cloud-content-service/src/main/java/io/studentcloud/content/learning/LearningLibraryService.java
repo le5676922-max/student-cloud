@@ -23,7 +23,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Private references and extracted text. No physical paths, remote extractors, or shared indexes. */
+/**
+ * 维护个人课程资料引用与提取文本，并在重新校验文件权限后生成检索引用。
+ * Private references and extracted text. No physical paths, remote extractors, or shared indexes.
+ */
 public final class LearningLibraryService {
     public static final int MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
     private static final int MAX_SEARCH_DOCUMENTS = 200;
@@ -298,7 +301,8 @@ public final class LearningLibraryService {
                 return new Snapshot(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)), bytes.length,
                         extract ? LearningTextExtractor.extract(path.name(), bytes) : null);
             }
-        } catch (IOException | IllegalArgumentException failure) { throw invalid("无法安全读取或提取此资料"); }
+        } catch (LearningTextExtractor.ExtractionBusyException busy) { throw new ApplicationFault("41000", 429, "PDF索引任务繁忙，请稍后重试"); }
+        catch (IOException | IllegalArgumentException failure) { throw invalid("无法安全读取或提取此资料"); }
         catch (NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
         finally { parsing.release(); }
     }

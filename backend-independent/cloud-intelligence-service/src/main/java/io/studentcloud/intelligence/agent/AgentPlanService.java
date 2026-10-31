@@ -20,7 +20,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** User confirmation is required between content-owned preview and a durable execution task. */
+/** 保存内容服务校验过的操作预览，并在本人确认后创建持久执行任务。
+ *
+ * User confirmation is required between content-owned preview and a durable execution task.
+ */
 public final class AgentPlanService {
     private static final int MAX_PENDING_PER_OWNER = 50;
     private static final long RETENTION_MILLIS = 30L * 24 * 60 * 60 * 1000;

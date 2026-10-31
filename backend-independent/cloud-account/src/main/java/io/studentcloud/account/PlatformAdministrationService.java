@@ -19,7 +19,7 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Freshly authorized global administration read/write adapter for the platform-owned identity database. */
+/** 提供经过实时授权的平台空间、管理员和站点配置管理。 Freshly authorized global administration read/write adapter for the platform-owned identity database. */
 public final class PlatformAdministrationService {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
@@ -46,6 +46,7 @@ public final class PlatformAdministrationService {
         public AdministratorInput(String username,String email,String password,String nickname,Long tenantId,String role){this(null,username,email,password,null,nickname,tenantId,role,null);}
     }
 
+    /** 供全局管理员按条件分页查询空间及身份侧统计。 */
     public Page<Workspace> workspaces(Actor supplied, String keyword, Boolean enabled, Long workspaceId, int page, int pageSize) {
         requireAdmin(supplied);
         page(page, pageSize);
@@ -69,6 +70,7 @@ public final class PlatformAdministrationService {
         return new Page<>(records, Objects.requireNonNullElse(total,0L), page, pageSize,"independent");
     }
 
+    /** 供全局管理员读取有数量上限的空间目录。 */
     public List<Workspace> tenantList(Actor supplied) {
         requireAdmin(supplied);
         return jdbc.query("SELECT w.id,w.name,w.enabled,w.created_at,(SELECT a.account_id FROM sc_account a WHERE a.workspace_id=w.id AND a.role='TENANT_ADMIN' ORDER BY a.id LIMIT 1) owner_id,"
@@ -77,6 +79,7 @@ public final class PlatformAdministrationService {
                 (r,n)->new Workspace(r.getLong("id"),r.getString("name"),r.getString("owner_id"),r.getLong("members"),r.getLong("admins"),r.getLong("pending"),null,r.getBoolean("enabled"),r.getLong("created_at")));
     }
 
+    /** 供全局管理员按空间和角色分页查询账号。 */
     public Page<Member> workspaceUsers(Actor supplied, long tenantId, String role, String keyword, int page, int pageSize) {
         requireAdmin(supplied);
         page(page,pageSize);
@@ -102,6 +105,7 @@ public final class PlatformAdministrationService {
         return new Page<>(rows,Objects.requireNonNullElse(total,0L),page,pageSize,"independent");
     }
 
+    /** 创建或更新空间并在停用时撤销其账号会话。 */
     public Workspace saveWorkspace(Actor supplied, TenantInput input) {
         requireAdmin(supplied);
         if (input == null) throw invalid("工作空间数据无效");
@@ -125,6 +129,7 @@ public final class PlatformAdministrationService {
         }));
     }
 
+    /** 由全局管理员为已启用空间创建管理员账号。 */
     public Member createWorkspaceAdministrator(Actor supplied, AdministratorInput input) {
         requireAdmin(supplied);
         if(input==null || input.tenantId()==null || input.tenantId()<1 || !"TENANT_ADMIN".equals(input.role())) throw invalid("只能创建指定工作空间的管理员");
@@ -149,7 +154,7 @@ public final class PlatformAdministrationService {
         } catch(DuplicateKeyException duplicate){throw duplicateAccount();}
     }
 
-    /** Existing-account saves can edit only the caller's own profile or a workspace administrator's profile/status. */
+    /** 创建空间管理员，或受限更新本人及空间管理员资料。 Existing-account saves can edit only the caller's own profile or a workspace administrator's profile/status. */
     public Member saveAdministrator(Actor supplied, AdministratorInput input) {
         Actor current=requireAdmin(supplied);
         if(input==null || input.id()==null) return createWorkspaceAdministrator(supplied,input);
@@ -187,6 +192,7 @@ public final class PlatformAdministrationService {
         }));
     }
 
+    /** 按本人或全局管理员可查看的范围读取账号资料。 */
     public Member user(Actor supplied, long targetId) {
         Actor current=fresh(supplied);
         if(targetId<1) throw missingAccount();
@@ -205,6 +211,7 @@ public final class PlatformAdministrationService {
         return rows.getFirst();
     }
 
+    /** 汇总身份侧管理指标并标识其他服务数据的可用性。 */
     public Map<String,Object> overview(Actor supplied) {
         requireAdmin(supplied);
         var result=new LinkedHashMap<String,Object>();
@@ -230,12 +237,13 @@ public final class PlatformAdministrationService {
         return result;
     }
 
+    /** 供全局管理员读取站点与界面配置。 */
     public Map<String,Object> configuration(Actor supplied) {
         requireAdmin(supplied);
         return configurationValues();
     }
 
-    /** Public bootstrap port contains only display and connection metadata from the explicit allowlist. */
+    /** 仅公开白名单内的站点展示和连接信息。 Public bootstrap port contains only display and connection metadata from the explicit allowlist. */
     public Map<String,Object> publicSiteView() {
         Map<String,Object> all=configurationValues();var result=new LinkedHashMap<String,Object>();
         for(String key:List.of("siteName","siteHomeName","icp","faviconUrl","siteHomeLogo","siteHomeLogoLink","siteHomeLogoTargetMode","frontDomain","forceBackendAddress","siteAdminLogoTargetMode","siteAdminVersionOpenChangeLog"))
@@ -252,6 +260,7 @@ public final class PlatformAdministrationService {
         return data;
     }
 
+    /** 按设置白名单校验并持久化站点或界面配置。 */
     public void updateConfiguration(Actor supplied, Map<String,Object> input, boolean view) {
         requireAdmin(supplied);
         if(input==null || input.isEmpty()) throw invalid("设置内容不能为空");

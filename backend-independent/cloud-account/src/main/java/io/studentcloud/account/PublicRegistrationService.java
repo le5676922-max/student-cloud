@@ -15,7 +15,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Email ownership, account creation and membership assignment; never accepts a public ADMIN role. */
+/** 负责邮箱验证注册、空间归属分配及自助密码重置。 Email ownership, account creation and membership assignment; never accepts a public ADMIN role. */
 public final class PublicRegistrationService {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
@@ -37,9 +37,11 @@ public final class PublicRegistrationService {
     public boolean resetAvailable() {return resetEnabled && installed() && codes.available();}
     public boolean mailAvailable() {return codes.available();}
 
+    /** 检查注册可用性后发送注册验证码。 */
     public void requestRegistrationCode(String email) {
         requireAvailable(registrationAvailable());codes.request(email,EmailPurpose.REGISTER);
     }
+    /** 统一回应重置请求并仅向已有账号的邮箱投递验证码。 */
     public void requestResetCode(String email) {
         requireAvailable(resetAvailable());
         String normalized=EmailCodeService.normalizeEmail(email);
@@ -48,10 +50,23 @@ public final class PublicRegistrationService {
         codes.requestPasswordReset(normalized,count!=null && count==1);
     }
 
+    /** 为已确认归属的成员邮箱发送可反馈投递失败的重置验证码。 Used only after an ordinary administrator has resolved their member's bound mailbox.
+     * Unlike public enumeration-safe requests, an authorized management action reports delivery failure.
+     * The same purpose, one-use proof and durable mailbox rate limits are reused.
+     */
+    public void requestManagedResetCode(String email) {
+        requireAvailable(resetAvailable());
+        String normalized=EmailCodeService.normalizeEmail(email);
+        Long count=jdbc.queryForObject("SELECT COUNT(*) FROM sc_account WHERE email=?",Long.class,normalized);
+        if(count==null || count!=1) throw new ApplicationFault("ACCOUNT_CHANGED",409,"账号邮箱已变化，请刷新成员列表后重试");
+        codes.request(normalized,EmailPurpose.RESET_PASSWORD);
+    }
+
     public record RegistrationInput(String email,String emailCode,String password,String confirmPassword,String nickname,
                                     String registrationType,String workspaceName,String joinType,String joinValue) { }
     public record RegistrationResult(String accountId,String email,String role,long tenantId,String tenantName,String status,String message) { }
 
+    /** 核销邮箱凭据后创建账号并按注册方式建立空间归属。 */
     public RegistrationResult register(RegistrationInput input) {
         requireAvailable(registrationAvailable());
         if(input==null) throw invalid("请完整填写注册信息");
@@ -93,6 +108,7 @@ public final class PublicRegistrationService {
         }catch(DuplicateKeyException conflict){throw new ApplicationFault("ACCOUNT_ALREADY_EXISTS",409,"邮箱或账号已被使用，请核对后登录或重试");}
     }
 
+    /** 核销重置凭据后更新密码、撤销会话并保持原审批和启停状态。 */
     public void resetPassword(String email,String code,String password,String confirmPassword) {
         requireAvailable(resetAvailable());
         String normalized=EmailCodeService.normalizeEmail(email);
@@ -118,6 +134,7 @@ public final class PublicRegistrationService {
         return names.isEmpty()?fallback:names.getFirst();
     }
 
+    /** 在数量预算内批量读取账号昵称。 */
     public java.util.Map<String,String> nicknamesByAccountIds(List<String> accountIds){
         if(accountIds.isEmpty())return java.util.Map.of();
         if(accountIds.size()>200)throw invalid("本次资料查询数量过多");

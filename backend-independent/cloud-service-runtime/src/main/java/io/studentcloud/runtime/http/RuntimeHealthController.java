@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/** 分别提供服务存活与专属数据库就绪检查。 */
 @RestController
 public final class RuntimeHealthController {
     private final ObjectProvider<DataSource> dataSource;

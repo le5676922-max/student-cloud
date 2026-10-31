@@ -7,6 +7,7 @@ import org.springframework.context.annotation.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import tools.jackson.databind.ObjectMapper;
+/** 装配智能助手文件命令服务及其存储、身份和学习库依赖。 */
 @Configuration(proxyBeanMethods=false)
 public class AgentCommandConfiguration {
     @Bean @DependsOn("independentSchema") AgentCommandService agentCommands(JdbcTemplate jdbc,PlatformTransactionManager tx,Clock clock,AccountDirectory accounts,MountService mounts,ObjectMapper json,io.studentcloud.content.learning.LearningLibraryService learning){return new AgentCommandService(jdbc,tx,clock,accounts,mounts,json,learning);}

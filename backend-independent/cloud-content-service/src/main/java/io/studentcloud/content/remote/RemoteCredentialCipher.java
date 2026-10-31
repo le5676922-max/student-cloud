@@ -13,7 +13,10 @@ import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
-/** Credentials are authenticated to one mount and never serialized into a public DTO. */
+/**
+ * 将远程存储凭据加密绑定到指定挂载，并校验解密数据的完整性。
+ * Credentials are authenticated to one mount and never serialized into a public DTO.
+ */
 final class RemoteCredentialCipher {
     record Secrets(String accessKey,String secretKey,String sessionToken) {
         @Override public String toString(){return "RemoteCredentials[redacted]";}

@@ -15,7 +15,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** SQL metadata snapshots only. The caller freshly authorizes and validates the directory on every request. */
+/**
+ * 缓存按成员授权范围隔离的目录元数据，并提供分页与名称检索。
+ * SQL metadata snapshots only. The caller freshly authorizes and validates the directory on every request.
+ */
 public final class FileCatalog {
     private static final long TTL_MILLIS=10_000;
     private static final int MAX_DIRECTORIES=100,MAX_OWNER_RECORDS=50_000,MAX_DIRECTORY_RECORDS=10_000;

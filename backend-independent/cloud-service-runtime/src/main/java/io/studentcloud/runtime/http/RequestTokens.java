@@ -3,7 +3,10 @@ package io.studentcloud.runtime.http;
 import io.studentcloud.common.ApplicationFault;
 import jakarta.servlet.http.HttpServletRequest;
 
-/** No URL or request-body tokens; browser compatibility is kept in a single HTTP adapter. */
+/** 统一提取HTTP登录凭证，拒绝URL或正文中传递的登录Token。
+ *
+ * No URL or request-body tokens; browser compatibility is kept in a single HTTP adapter.
+ */
 public final class RequestTokens {
     public static final String BROWSER_HEADER = "tongligong-student-cloud-token";
     private RequestTokens() { }

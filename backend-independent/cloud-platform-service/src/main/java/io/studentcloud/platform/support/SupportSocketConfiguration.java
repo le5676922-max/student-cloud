@@ -18,7 +18,7 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
 
-/** Ticket authentication is intentionally separate from HTTP bearer authentication. */
+/** 配置人工服务 WebSocket 路由、来源限制与一次性票据握手。 Ticket authentication is intentionally separate from HTTP bearer authentication. */
 @Configuration(proxyBeanMethods = false)
 @EnableWebSocket
 public class SupportSocketConfiguration implements WebSocketConfigurer {
@@ -30,6 +30,7 @@ public class SupportSocketConfiguration implements WebSocketConfigurer {
         this.origins = Arrays.stream(configured.split(",")).map(String::trim).distinct().toArray(String[]::new);
     }
 
+    /** 为人工服务通知通道注册票据握手和消息处理器。 */
     @Override public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(new Handler(hub), "/ws/support").setAllowedOrigins(origins)
                 .addInterceptors(new TicketHandshake(hub));

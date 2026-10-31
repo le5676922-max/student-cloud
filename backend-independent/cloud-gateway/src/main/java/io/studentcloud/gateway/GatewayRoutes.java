@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 
+/** 显式声明平台、内容、智能服务的路由、负载均衡与调用保护。 */
 @Configuration(proxyBeanMethods = false)
 public class GatewayRoutes {
     @Bean RouteLocator publicRoutes(RouteLocatorBuilder builder,

@@ -87,8 +87,12 @@
 					<el-button :disabled="loading" @click="loadMembers(members.page)"
 						>刷新</el-button
 					>
-					<el-button type="primary" @click="createVisible = true"
-						>新增成员</el-button
+					<el-button
+						type="primary"
+						aria-controls="workspace-registration-panel"
+						:aria-expanded="registrationExpanded"
+						@click="openInvitationPanel"
+						>邀请成员</el-button
 					>
 				</div>
 			</div>
@@ -146,7 +150,7 @@
 						}}</el-tag></template
 					></el-table-column
 				>
-				<el-table-column label="操作" width="230" fixed="right"
+				<el-table-column label="操作" width="280" fixed="right"
 					><template #default="scope"
 						><el-button
 							link
@@ -157,9 +161,14 @@
 						><el-button
 							link
 							type="primary"
-							:disabled="!canManageMember(scope.row)"
+							:disabled="!canManageMember(scope.row) || !scope.row.email"
+							:title="
+								scope.row.email
+									? '成员验证邮箱后自行设置密码'
+									: '成员未绑定邮箱，暂不能发送重置邮件'
+							"
 							@click="openPasswordReset(scope.row)"
-							>重置密码</el-button
+							>发送重置邮件</el-button
 						><el-button
 							link
 							type="primary"
@@ -205,7 +214,13 @@
 				@busy="permissionSaving = $event"
 			/>
 		</el-drawer>
-		<details class="registration-panel" @toggle="onRegistrationToggle">
+		<details
+			id="workspace-registration-panel"
+			ref="registrationPanel"
+			class="registration-panel"
+			:open="registrationExpanded"
+			@toggle="onRegistrationToggle"
+		>
 			<summary>
 				邀请与加入申请 <span>展开后查看邀请码与待审核成员</span>
 			</summary>
@@ -225,45 +240,8 @@
 			这里只管理本空间成员与可委派的存储权限。站点和跨空间设置由全局管理员负责。
 		</p>
 		<el-dialog
-			v-model="createVisible"
-			title="新增普通用户"
-			width="min(460px, 92vw)"
-			destroy-on-close
-		>
-			<el-form label-position="top" @submit.prevent="createMember">
-				<el-form-item label="用户名"
-					><el-input v-model="draft.username" maxlength="50" autocomplete="off"
-				/></el-form-item>
-				<el-form-item label="昵称"
-					><el-input v-model="draft.nickname" maxlength="100"
-				/></el-form-item>
-				<el-form-item label="初始密码"
-					><el-input
-						v-model="draft.password"
-						type="password"
-						show-password
-						autocomplete="new-password"
-				/></el-form-item>
-				<p class="hint">
-					密码至少 8 位。请通过安全方式告知成员，首次登录后由成员自行修改。
-				</p>
-			</el-form>
-			<template #footer
-				><el-button @click="createVisible = false">取消</el-button
-				><el-button
-					type="primary"
-					:loading="saving"
-					:disabled="
-						draft.username.trim().length < 3 || draft.password.length < 8
-					"
-					@click="createMember"
-					>创建</el-button
-				></template
-			>
-		</el-dialog>
-		<el-dialog
 			:model-value="!!passwordMember"
-			title="重置成员密码"
+			title="发送密码重置邮件"
 			width="min(460px, 92vw)"
 			:close-on-click-modal="false"
 			:close-on-press-escape="!passwordSaving"
@@ -275,28 +253,15 @@
 				<p>
 					为
 					{{ passwordMember?.nickname || passwordMember?.username }}
-					设置新密码，原登录会话将失效。
+					发送重置邮件至 <strong>{{ passwordMember?.email }}</strong
+					>。
 				</p>
-				<el-form label-position="top">
-					<el-form-item label="新密码"
-						><el-input
-							v-model="passwordDraft.password"
-							type="password"
-							show-password
-							maxlength="128"
-							autocomplete="new-password"
-							:disabled="passwordSaving"
-					/></el-form-item>
-					<el-form-item label="再次输入"
-						><el-input
-							v-model="passwordDraft.confirmPassword"
-							type="password"
-							show-password
-							maxlength="128"
-							autocomplete="new-password"
-							:disabled="passwordSaving"
-					/></el-form-item>
-				</el-form>
+				<p class="hint">
+					成员自行在登录页选择“忘记密码”，使用邮件验证码设置新密码。管理员不会获得验证码或新密码。
+				</p>
+				<p class="hint">
+					发送邮件不会立即修改密码。成员完成重置后，原登录会话才会失效；账号的审批与启停状态不变。
+				</p>
 				<p v-if="passwordError" role="alert">{{ passwordError }}</p>
 			</form>
 			<template #footer
@@ -306,9 +271,9 @@
 				<el-button
 					type="primary"
 					:loading="passwordSaving"
-					:disabled="!validPasswordDraft"
+					:disabled="!canSendPasswordReset"
 					@click="submitPasswordReset"
-					>确认重置</el-button
+					>确认发送</el-button
 				></template
 			>
 		</el-dialog>
@@ -319,9 +284,9 @@
 import {
 	computed,
 	defineAsyncComponent,
+	nextTick,
 	onMounted,
 	onBeforeUnmount,
-	reactive,
 	ref,
 	watch,
 } from 'vue'
@@ -338,9 +303,8 @@ const AdminFileBusinessPanel = defineAsyncComponent({
 import {
 	getWorkspaceSummaryReq,
 	getWorkspaceMembersReq,
-	createWorkspaceMemberReq,
 	setWorkspaceMemberEnabledReq,
-	resetWorkspaceMemberPasswordReq,
+	sendWorkspaceMemberPasswordResetEmailReq,
 } from '~/api/home/workspace-admin'
 const summary = ref(null)
 const storageCountDisplay = computed(() =>
@@ -360,7 +324,6 @@ const identity = computed(
 )
 const members = ref({ total: 0, page: 1, items: [] })
 const loading = ref(false)
-const saving = ref(false)
 const error = ref('')
 const memberError = ref('')
 const summaryRequests = createLatestRequest()
@@ -376,44 +339,37 @@ function clearMemberSearch() {
 	search.value = ''
 	return searchMembers()
 }
-const createVisible = ref(false)
+const registrationPanel = ref(null)
+const registrationExpanded = ref(false)
 const registrationLoaded = ref(false)
 const cloudAccessLoaded = ref(false)
 const permissionMember = ref(null)
 const permissionSaving = ref(false)
 const passwordMember = ref(null)
-const passwordDraft = reactive({ password: '', confirmPassword: '' })
 const passwordSaving = ref(false)
 const passwordError = ref('')
 let passwordController
-const validPasswordDraft = computed(
+const canSendPasswordReset = computed(
 	() =>
 		passwordMember.value &&
-		passwordDraft.password.length >= 8 &&
-		passwordDraft.password.length <= 128 &&
-		passwordDraft.password.trim().length > 0 &&
-		passwordDraft.password === passwordDraft.confirmPassword
+		!!passwordMember.value.email?.trim() &&
+		canManageMember(passwordMember.value)
 )
-function clearPasswordDraft() {
-	passwordDraft.password = ''
-	passwordDraft.confirmPassword = ''
-}
 function openPasswordReset(member) {
-	if (!canManageMember(member) || passwordSaving.value) return
-	clearPasswordDraft()
+	if (!canManageMember(member) || !member.email?.trim() || passwordSaving.value)
+		return
 	passwordError.value = ''
 	passwordMember.value = member
 }
 function closePasswordReset(done) {
 	if (passwordSaving.value) return
 	passwordMember.value = null
-	clearPasswordDraft()
 	passwordError.value = ''
 	if (typeof done === 'function') done()
 }
 async function submitPasswordReset() {
 	if (
-		!validPasswordDraft.value ||
+		!canSendPasswordReset.value ||
 		passwordSaving.value ||
 		!canManageMember(passwordMember.value)
 	)
@@ -424,22 +380,20 @@ async function submitPasswordReset() {
 	const controller = new AbortController()
 	passwordController = controller
 	try {
-		await resetWorkspaceMemberPasswordReq(
-			target.id,
-			{ ...passwordDraft },
-			{ signal: controller.signal }
-		)
+		await sendWorkspaceMemberPasswordResetEmailReq(target.id, {
+			signal: controller.signal,
+		})
 		if (disposed || passwordMember.value !== target) return
 		passwordSaving.value = false
 		closePasswordReset()
-		ElMessage.success('密码已重置，成员需要重新登录')
-	} catch {
+		ElMessage.success('重置邮件已发送，新密码由成员自行设置')
+	} catch (failure) {
 		if (!disposed && passwordMember.value === target)
 			passwordError.value =
-				'重置结果未确认，请先让成员验证新密码，不要反复提交。'
+				failure?.response?.data?.msg ||
+				'发送结果未确认，请先让成员查收邮件，不要反复提交。'
 	} finally {
 		if (passwordController === controller) {
-			clearPasswordDraft()
 			passwordSaving.value = false
 		}
 	}
@@ -465,10 +419,18 @@ function permissionsSaved() {
 	permissionMember.value = null
 	ElMessage.success('成员权限已更新')
 }
-function onRegistrationToggle(event) {
-	if (event.currentTarget.open) registrationLoaded.value = true
+async function openInvitationPanel() {
+	const actor = identity.value
+	registrationExpanded.value = true
+	registrationLoaded.value = true
+	await nextTick()
+	if (disposed || identity.value !== actor) return
+	registrationPanel.value?.querySelector('summary')?.focus()
 }
-const draft = reactive({ username: '', nickname: '', password: '' })
+function onRegistrationToggle(event) {
+	registrationExpanded.value = event.currentTarget.open
+	if (registrationExpanded.value) registrationLoaded.value = true
+}
 const refreshMembership = () => Promise.all([loadSummary(), loadMembers(1)])
 function memberState(member) {
 	if (member.membershipStatus === 'PENDING') {
@@ -519,28 +481,6 @@ async function loadMembers(page = 1) {
 		if (request.isCurrent() && !disposed) loading.value = false
 	}
 }
-async function createMember() {
-	if (saving.value) return
-	const actor = identity.value
-	saving.value = true
-	try {
-		await createWorkspaceMemberReq({ ...draft })
-		if (disposed || identity.value !== actor) return
-		draft.username = ''
-		draft.nickname = ''
-		draft.password = ''
-		createVisible.value = false
-		ElMessage.success('成员已创建')
-		search.value = ''
-		appliedSearch.value = ''
-		await Promise.all([loadSummary(), loadMembers(1)])
-	} catch (failure) {
-		if (!disposed && identity.value === actor)
-			ElMessage.error(failure?.response?.data?.msg || '创建失败，请检查输入')
-	} finally {
-		if (identity.value === actor) saving.value = false
-	}
-}
 async function toggleMember(member) {
 	if (!canManageMember(member)) return
 	const actor = identity.value
@@ -563,9 +503,6 @@ async function toggleMember(member) {
 			ElMessage.error(failure?.response?.data?.msg || '状态修改失败')
 	}
 }
-watch(createVisible, (visible) => {
-	if (!visible) draft.password = ''
-})
 watch(
 	identity,
 	() => {
@@ -573,19 +510,16 @@ watch(
 		memberRequests.cancel()
 		passwordController?.abort()
 		passwordController = null
-		clearPasswordDraft()
 		passwordMember.value = null
 		passwordSaving.value = false
 		passwordError.value = ''
 		permissionMember.value = null
 		permissionSaving.value = false
-		createVisible.value = false
-		saving.value = false
-		draft.username = draft.nickname = draft.password = ''
 		summary.value = null
 		members.value = { total: 0, page: 1, items: [] }
 		loading.value = false
 		search.value = appliedSearch.value = ''
+		registrationExpanded.value = false
 		registrationLoaded.value = false
 		cloudAccessLoaded.value = false
 		error.value = memberError.value = ''
@@ -608,7 +542,6 @@ onBeforeUnmount(() => {
 	summaryRequests.cancel()
 	memberRequests.cancel()
 	passwordController?.abort()
-	clearPasswordDraft()
 })
 </script>
 

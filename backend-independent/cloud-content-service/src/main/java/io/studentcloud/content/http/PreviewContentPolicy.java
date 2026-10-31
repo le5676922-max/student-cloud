@@ -20,7 +20,10 @@ import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamException;
 
-/** Bounded representation policy. Inspects containers only; never runs a document/image/media decoder. */
+/**
+ * 检查预览文件的格式、容器结构与大小，确定可用的预览表示。
+ * Bounded representation policy. Inspects containers only; never runs a document/image/media decoder.
+ */
 final class PreviewContentPolicy {
     static final long MAX_BINARY_BYTES=20L*1024*1024,MAX_TEXT_BYTES=1024L*1024;
     static final long MAX_OFFICE_BYTES=10L*1024*1024,MAX_MEDIA_BYTES=50L*1024*1024;

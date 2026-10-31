@@ -2,9 +2,12 @@ package io.studentcloud.assistant;
 
 import io.studentcloud.account.Actor;
 import io.studentcloud.account.AccountDirectory;
+import io.studentcloud.common.ApplicationFault;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Clock;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -12,21 +15,42 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** User-selected unresolved turns, without automatic transfer, model training or history ingestion. */
+/** 记录未解决回答、管理人工修订，并按来源与发布范围限制知识导出。
+ *
+ * User-selected unresolved turns, without automatic transfer, model training or history ingestion.
+ */
 public final class AnswerFeedbackService {
+    private static final String EXPORTABLE_KNOWLEDGE = """
+            FROM sc_reviewed_knowledge k JOIN sc_answer_feedback f ON f.id=k.feedback_id
+            WHERE k.scope='GLOBAL' AND k.workspace_id IS NULL AND k.course_id IS NULL
+              AND k.revoked_at IS NULL AND k.superseded_at IS NULL
+              AND f.status='RESOLVED' AND f.course_id IS NULL AND f.corrected_answer<>''
+              AND k.source_feedback_version=f.version AND k.answer=f.corrected_answer
+              AND NOT EXISTS (SELECT 1 FROM sc_reviewed_knowledge newer
+                              WHERE newer.feedback_id=k.feedback_id AND newer.version>k.version)
+            """;
+    private static final String EXPORT_ORDER = " ORDER BY f.updated_at DESC,f.id DESC LIMIT 500";
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final Clock clock;
     private final CourseKnowledgeAccess courses;
     private final AccountDirectory accounts;
+    private final KnowledgeSourcePolicy sources;
 
     public AnswerFeedbackService(JdbcTemplate jdbc, PlatformTransactionManager transactions, Clock clock, AccountDirectory accounts, CourseKnowledgeAccess courses) {
+        this(jdbc, transactions, clock, accounts, courses, id -> {
+            throw AssistantAccess.fault("KNOWLEDGE_SOURCE_POLICY_UNAVAILABLE", 503, "知识来源策略不可用，无法导出");
+        });
+    }
+
+    public AnswerFeedbackService(JdbcTemplate jdbc, PlatformTransactionManager transactions, Clock clock, AccountDirectory accounts, CourseKnowledgeAccess courses, KnowledgeSourcePolicy sources) {
         this.jdbc = Objects.requireNonNull(jdbc);
         this.transactions = new TransactionTemplate(Objects.requireNonNull(transactions));
         this.transactions.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         this.clock = Objects.requireNonNull(clock);
         this.courses = Objects.requireNonNull(courses);
         this.accounts = Objects.requireNonNull(accounts);
+        this.sources = Objects.requireNonNull(sources);
     }
 
     public FeedbackReceipt submit(Actor actor, String question, String answer, String messageId) {
@@ -83,12 +107,58 @@ public final class AnswerFeedbackService {
                 : jdbc.queryForObject("SELECT COUNT(*) FROM sc_answer_feedback WHERE status=?", Long.class, status.name()));
     }
 
-    /** Bounded manual export; contains no identities, administrative notes or original model answers. */
+    /** Only current GLOBAL publications with permitted provenance enter this bounded manual export. */
     public List<ReviewedAnswer> exportReviewed(Actor actor) {
-        AssistantAccess.administrator(accounts, actor);
-        return jdbc.query("SELECT question,corrected_answer FROM sc_answer_feedback WHERE status='RESOLVED' AND course_id IS NULL AND corrected_answer<>'' ORDER BY updated_at DESC,id DESC LIMIT 500",
-                (r, index) -> new ReviewedAnswer(r.getString("question"), r.getString("corrected_answer")));
+        exportAdministrator(actor);
+        // Bound provenance work before checking sources; denied rows never trigger an unbounded refill.
+        List<ExportCandidate> candidates = jdbc.query("SELECT k.id,k.feedback_id " + EXPORTABLE_KNOWLEDGE + EXPORT_ORDER,
+                (r, index) -> new ExportCandidate(r.getLong("id"), r.getLong("feedback_id")));
+        List<Long> allowed = new ArrayList<>();
+        for (ExportCandidate candidate : candidates) {
+            if (exportableSource(candidate.feedbackId())) allowed.add(candidate.knowledgeId());
+        }
+        // Re-read lifecycle and review state after provenance checks, then check the current administrator.
+        // Only server-owned knowledge IDs enter this query; denied candidate text is never read for export.
+        List<ExportRow> current = allowed.isEmpty() ? List.of() : jdbc.query(
+                "SELECT f.id AS feedback_id,f.question,f.corrected_answer,k.answer AS published_answer " + EXPORTABLE_KNOWLEDGE
+                        + " AND k.id IN (" + String.join(",", Collections.nCopies(allowed.size(), "?")) + ")" + EXPORT_ORDER,
+                r -> {
+                    List<ExportRow> rows = new ArrayList<>();
+                    while (r.next()) {
+                        String correction = r.getString("corrected_answer");
+                        // MySQL TEXT equality may ignore case or accents; review matching must be exact.
+                        if (correction.equals(r.getString("published_answer")))
+                            rows.add(new ExportRow(r.getLong("feedback_id"), new ReviewedAnswer(r.getString("question"), correction)));
+                    }
+                    return rows;
+                }, allowed.toArray());
+        List<ReviewedAnswer> result = new ArrayList<>();
+        // Recheck immutable provenance/existence after reading text. This is a boundary recheck,
+        // not an atomic snapshot of remote identity or later source deletions (at most 1000 checks).
+        for (ExportRow row : current) if (exportableSource(row.feedbackId())) result.add(row.answer());
+        exportAdministrator(actor);
+        return List.copyOf(result);
     }
+
+    private void exportAdministrator(Actor actor) {
+        Actor current = AssistantAccess.administrator(accounts, actor);
+        if (current.id() != actor.id() || !Objects.equals(current.accountId(), actor.accountId()))
+            throw AssistantAccess.fault("42000", 401, "账号已变化，请重新登录");
+    }
+
+    private boolean exportableSource(long feedbackId) {
+        try {
+            sources.requirePublishable(feedbackId);
+            return true;
+        } catch (ApplicationFault fault) {
+            // Provenance denial excludes one row; unavailable policy/storage must fail the export.
+            if (fault.httpStatus() == 403) return false;
+            throw fault;
+        }
+    }
+
+    private record ExportCandidate(long knowledgeId, long feedbackId) { }
+    private record ExportRow(long feedbackId, ReviewedAnswer answer) { }
 
     public record ReviewedAnswer(String question, String answer) { }
 

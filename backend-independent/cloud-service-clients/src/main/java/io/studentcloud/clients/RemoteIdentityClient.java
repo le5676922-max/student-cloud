@@ -14,7 +14,10 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
 
-/** 4xx are business denials, not dependency outages; neither is converted into an authenticated fallback. */
+/** 调用平台服务验证会话、账号与空间状态，失败时不放行身份。
+ *
+ * 4xx are business denials, not dependency outages; neither is converted into an authenticated fallback.
+ */
 public final class RemoteIdentityClient implements AccountDirectory,SessionAuthenticator,WorkspaceDirectory {
     private final RestClient http;
     private final CircuitBreakerFactory<?,?> breakers;

@@ -5,7 +5,10 @@ import io.studentcloud.common.ApiResponse;
 import io.studentcloud.content.learning.LearningLibraryService;
 import org.springframework.web.bind.annotation.*;
 
-/** Protected by the service-runtime internal credential filter. Account IDs never grant broader visibility. */
+/**
+ * 供内部服务按指定账号的资料访问权限检索学习库文本。
+ * Protected by the service-runtime internal credential filter. Account IDs never grant broader visibility.
+ */
 @RestController
 public class InternalLearningController {
     private final LearningLibraryService library;

@@ -13,7 +13,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Human-reviewed retrieval knowledge, never automatic publication or model-parameter training. */
+/** 管理人工审核知识的发布、检索、版本替代与撤回。
+ *
+ * Human-reviewed retrieval knowledge, never automatic publication or model-parameter training.
+ */
 public final class ReviewedKnowledgeService {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;

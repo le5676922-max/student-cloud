@@ -11,7 +11,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import tools.jackson.databind.ObjectMapper;
 
-/** Bound manifests, including ignored JSON properties, before deserialization. */
+/**
+ * 在反序列化前限制分片上传清单请求的正文大小与并发数量。
+ * Bound manifests, including ignored JSON properties, before deserialization.
+ */
 @Component @Order(12)
 public final class ResumableMetadataBodyFilter extends OncePerRequestFilter {
     private static final int MAX_BODY=32768;

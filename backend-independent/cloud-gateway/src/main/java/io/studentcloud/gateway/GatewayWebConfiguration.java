@@ -9,6 +9,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.reactive.CorsWebFilter;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 
+/** 配置网关允许的前端来源及跨域请求规则。 */
 @Configuration(proxyBeanMethods = false)
 public class GatewayWebConfiguration {
     @Bean CorsWebFilter browserCors(@Value("${student-cloud.gateway.allowed-origins}") String configured) {

@@ -23,6 +23,25 @@ Java 21、Spring Boot **4.1.2**、Spring Cloud **2025.1.4**；使用 Gateway、L
 
 16个 Maven 子模块包括：4个运行服务，以及 `cloud-common`、纯契约 `cloud-account-api`、身份实现 `cloud-account`、`cloud-drive`、`cloud-object-storage`、`cloud-drive-application`、`cloud-course`、`cloud-assistant`、`cloud-tasks`、`cloud-support`、`cloud-service-runtime` 和 `cloud-service-clients`。
 
+IDEA 左侧的目录是 Maven 模块，只有上表的三个业务服务和网关需要分别启动。其余模块作为依赖打入所属服务：
+
+| 依赖模块 | 功能 |
+| --- | --- |
+| `cloud-common` | 统一响应与业务错误 |
+| `cloud-account-api` | 账号、会话、角色与空间的共享查询契约 |
+| `cloud-account` | 登录注册、邮箱验证、成员邀请与空间管理 |
+| `cloud-drive` | 文件路径、文件记录与本地存储基础能力 |
+| `cloud-object-storage` | 阿里云 OSS、S3 兼容协议驱动 |
+| `cloud-drive-application` | 文件操作、授权、容量、续传与回收站编排 |
+| `cloud-course` | 共享课程、邀请、资料与上传审批 |
+| `cloud-assistant` | 个人记忆、回答反馈与审核知识 |
+| `cloud-tasks` | 任务状态、租约、幂等与事务通知 |
+| `cloud-support` | 人工客服会话、消息与通知 |
+| `cloud-service-runtime` | 业务服务共用的HTTP鉴权、过滤器及健康检查 |
+| `cloud-service-clients` | 服务间调用、实例发现及远程身份查询 |
+
+父级 `pom.xml` 的每个模块前已标注功能，生产 Java 文件的类型及关键接口也提供简短中文注释。
+
 开发期聚合 `cloud-server` 已移除。启动扫描限于各服务自己的包，Maven Enforcer 在构建时拒绝旧后端依赖和跨服务持久化实现；网关禁止嵌入业务或 JDBC。test scope 的身份夹具不进入生产 JAR。
 
 ## 配置和运行
@@ -48,8 +67,24 @@ Java 21、Spring Boot **4.1.2**、Spring Cloud **2025.1.4**；使用 Gateway、L
 - OSS/S3/MinIO 协议连接的目录、读取、新建目录与50MiB内不覆盖上传；只读/写入探针分开，支持回读与精确探针清理、成员私有根及额度、持久写入状态和管理员主动核查。远程复制、移动、重命名、删除、回收和分享保持关闭。
 - 个人课程TXT/MD/PDF/DOCX资料本地提取、源摘要与权限复核、相关片段检索、本轮主动同意私有上下文。
 - 共享课程邀请、人数上限/到期/撤销、课程资料与创建者批准持续上传；普通管理员可加入其他人创建的课程。
-- 小芽的模型问答、42条角色适用的项目说明、审核知识检索、明确保存的长期记忆，以及待确认预览、持久任务、结果核查和只生成预览的定时规则。
+- 小芽的模型问答、按角色过滤的项目帮助、审核知识检索、明确保存的长期记忆，以及待确认预览、持久任务、结果核查和只生成预览的定时规则。
 - “没有解决”反馈、管理员修订、AI润色草稿、人工审核发布、版本历史与撤回；私有来源禁止直接共享发布。
+
+## 在 IDEA 中定位知识库
+
+如果只打开 `backend-independent`，展开以下目录就能看到随服务发布的产品帮助：
+
+```text
+cloud-intelligence-service/
+└─ src/main/resources/ai/knowledge/project-help.json
+```
+
+- [产品帮助条目](cloud-intelligence-service/src/main/resources/ai/knowledge/project-help.json)：包含角色、问法、操作说明和源码依据，由智能服务加载。
+- [产品帮助检索](cloud-intelligence-service/src/main/java/io/studentcloud/intelligence/ai/ProjectKnowledgeService.java)与[对话编排](cloud-intelligence-service/src/main/java/io/studentcloud/intelligence/ai/ChatService.java)：解释如何查知识并生成回答。
+- [详细知识手册](../docs/knowledge/README.md)：位于整个仓库的 `docs/knowledge`，是本后端目录的同级文档区域，不是另一个 Maven 模块。
+- 管理员审核发布的知识保存在智能服务数据库 `sc_reviewed_knowledge`；个人课程资料文字索引保存在内容服务数据库 `sc_learning_material`。它们不会显示为顶层 `knowledge` 文件夹。
+
+当前检索以本地词法匹配和来源/授权复核为基础。任意课程的自动Wiki编译、embedding和模型微调的设计说明不等于这些能力已经完成。
 
 ## 文件预览的范围
 

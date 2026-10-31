@@ -11,7 +11,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Explicit personal memories only; no chat-history collection or external model calls. */
+/** 管理本人明确保存的长期记忆、开关和版本，不自动收集聊天历史。
+ *
+ * Explicit personal memories only; no chat-history collection or external model calls.
+ */
 public final class MemoryService {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;

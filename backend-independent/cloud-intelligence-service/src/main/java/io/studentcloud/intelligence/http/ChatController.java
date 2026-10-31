@@ -15,6 +15,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+/** 接收助手对话和临时附件请求，向前端返回回答及关联操作计划。 */
 @RestController
 @RequestMapping("/api/ai/chat")
 public final class ChatController {

@@ -8,7 +8,10 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.EnumSet;
 
-/** Exact local accounting with a fixed scan budget; unreadable/unknown usage never means zero. */
+/**
+ * 在扫描预算内统计本地目录占用量，并拒绝无法可靠计量的内容。
+ * Exact local accounting with a fixed scan budget; unreadable/unknown usage never means zero.
+ */
 final class LocalUsageMeter {
     private LocalUsageMeter() { }
     static long bytes(Path root) throws IOException {

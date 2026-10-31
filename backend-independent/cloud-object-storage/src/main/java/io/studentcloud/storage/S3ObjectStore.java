@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/** 通过 S3 SDK 实现对象查询、读取、条件写入与探针清理。 */
 final class S3ObjectStore extends AbstractSdkObjectStore {
     private final S3Client client;
 

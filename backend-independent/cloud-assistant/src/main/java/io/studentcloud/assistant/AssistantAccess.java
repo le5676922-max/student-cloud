@@ -10,6 +10,7 @@ import java.util.Objects;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 
+/** 统一校验助手业务的当前身份、管理员资格及输入边界。 */
 final class AssistantAccess {
     private AssistantAccess() { }
 

@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.web.bind.annotation.*;
 
+/** 接收回答反馈，并提供全局管理员修订、润色、发布及导出知识的接口。 */
 @RestController
 public class AnswerFeedbackController {
     private final AnswerFeedbackService feedback;

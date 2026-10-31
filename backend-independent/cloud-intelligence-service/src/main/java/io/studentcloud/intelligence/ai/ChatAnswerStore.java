@@ -7,7 +7,10 @@ import java.util.Objects;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** Only finished answers are stored. Feedback uses this record, never client-supplied answer text as authority. */
+/** 保存本轮完整回答及来源隐私标记，为反馈核对和发布校验提供依据。
+ *
+ * Only finished answers are stored. Feedback uses this record, never client-supplied answer text as authority.
+ */
 public final class ChatAnswerStore {
     private final JdbcTemplate jdbc;
     private final Clock clock;

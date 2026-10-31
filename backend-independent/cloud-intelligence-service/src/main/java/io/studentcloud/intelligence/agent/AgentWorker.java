@@ -14,7 +14,10 @@ import java.util.UUID;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Durable local consumer. The content service fences and deduplicates every filesystem command. */
+/** 消费已确认文件任务，并将内容服务的真实执行结果写回任务账本。
+ *
+ * Durable local consumer. The content service fences and deduplicates every filesystem command.
+ */
 @Component
 public final class AgentWorker {
     private final TaskService tasks;

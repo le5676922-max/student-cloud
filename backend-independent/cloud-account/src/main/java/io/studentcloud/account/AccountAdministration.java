@@ -20,6 +20,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
+ * 按当前管理员权限管理空间账号并隔离成员所属范围。
  * Authenticated management operations for the independently owned account/workspace model.
  * The caller ID must originate in AccountService.authenticate; this class rechecks its current
  * database role and enabled state for every operation. It is not a public registration service.
@@ -46,7 +47,7 @@ public final class AccountAdministration {
         this.activationGate=Objects.requireNonNull(activationGate);
     }
 
-    /** Creates a dedicated workspace and its ordinary administrator in one database transaction. */
+    /** 由全局管理员在同一事务内创建空间及其管理员。 Creates a dedicated workspace and its ordinary administrator in one database transaction. */
     public AccountView createWorkspaceAdministrator(Actor caller, String username, String email, String password, String workspaceName) {
         String normalizedUsername = username(username);
         String normalizedEmail = email(email);
@@ -74,11 +75,20 @@ public final class AccountAdministration {
         }
     }
 
-    /** A workspace administrator can create only USER accounts in their current enabled workspace. */
+    /** 供内部调用在当前空间创建普通成员。 A workspace administrator can create only USER accounts in their current enabled workspace. */
     public AccountView createMember(Actor caller, String username, String email, String password) {
         return createMember(caller,username,email,password,null);
     }
 
+    /** 拒绝旧版直接建号入口并要求成员通过邀请注册。 Legacy HTTP account creation is retired; internal fixtures keep the explicit createMember API. */
+    public void rejectDirectMemberCreation(Actor caller) {
+        transactions.executeWithoutResult(status->{
+            requireCaller(caller,Role.TENANT_ADMIN);
+            throw new ApplicationFault("MEMBER_INVITATION_REQUIRED",410,"请通过空间邀请码邀请成员，由成员验证邮箱并自行设置密码");
+        });
+    }
+
+    /** 供内部调用创建当前空间成员并保存可选昵称。 */
     public AccountView createMember(Actor caller, String username, String email, String password,String nickname) {
         String normalizedUsername = username(username);
         String normalizedEmail = email==null || email.isBlank()?null:email(email);
@@ -97,6 +107,7 @@ public final class AccountAdministration {
         }
     }
 
+    /** 按字面搜索条件分页读取当前空间的普通成员。 */
     public List<AccountView> listWorkspaceMembers(Actor caller, int offset, int limit, String search) {
         requirePage(offset, limit);
         String filter = search == null ? "" : textOrEmpty(search, 120).toLowerCase(Locale.ROOT);
@@ -111,6 +122,7 @@ public final class AccountAdministration {
         }));
     }
 
+    /** 调整成员状态并撤销受影响会话，启用前检查加入审批。 */
     public void setMemberEnabled(Actor caller, long memberId, boolean enabled) {
         transactions.executeWithoutResult(status -> {
             AccountView administrator = requireCaller(caller, Role.TENANT_ADMIN);
@@ -128,7 +140,7 @@ public final class AccountAdministration {
         });
     }
 
-    /** Same owner scope and literal search semantics as listWorkspaceMembers. */
+    /** 统计当前空间符合相同搜索条件的成员总数。 Same owner scope and literal search semantics as listWorkspaceMembers. */
     public long countWorkspaceMembers(Actor caller, String search) {
         String filter = search == null ? "" : textOrEmpty(search, 120).toLowerCase(Locale.ROOT);
         String like = "%" + filter.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";
@@ -142,20 +154,29 @@ public final class AccountAdministration {
         return Objects.requireNonNull(count);
     }
 
-    /** Reset never reveals the existing password. Every successful reset revokes all old sessions. */
+    /** 拒绝管理员代设成员密码的旧版接口。 Kept as an explicit rejection for old clients; an administrator must never choose a member's password. */
     public void resetMemberPassword(Actor caller, long memberId, String newPassword) {
-        requirePassword(newPassword);
         transactions.executeWithoutResult(status -> {
             AccountView administrator = requireCaller(caller, Role.TENANT_ADMIN);
             requireMember(administrator.workspaceId(), memberId);
-            String encoded = passwords.hash(newPassword);
-            if (jdbc.update("UPDATE sc_account SET password_hash=?,session_version=session_version+1 "
-                            + "WHERE id=? AND workspace_id=? AND role='USER'", encoded, memberId, administrator.workspaceId()) != 1)
-                throw changed();
-            jdbc.update("DELETE FROM sc_session WHERE account_id=?", memberId);
+            throw new ApplicationFault("MEMBER_PASSWORD_RESET_REQUIRES_EMAIL",410,"管理员不能代设成员密码，请改为发送密码重置邮件");
         });
     }
 
+    /** 确认本空间成员的绑定邮箱后在事务外触发重置邮件。 Resolve the bound mailbox under fresh owner scope, then deliver outside the database transaction. */
+    public void sendMemberPasswordResetEmail(Actor caller,long memberId,java.util.function.Consumer<String> delivery) {
+        Objects.requireNonNull(delivery);
+        String mailbox=transactions.execute(status->{
+            AccountView administrator=requireCaller(caller,Role.TENANT_ADMIN);
+            AccountView member=requireMember(administrator.workspaceId(),memberId);
+            if(member.email()==null || member.email().isBlank())
+                throw new ApplicationFault("MEMBER_EMAIL_REQUIRED",400,"该成员尚未绑定邮箱，无法发送密码重置邮件");
+            return EmailCodeService.normalizeEmail(member.email());
+        });
+        delivery.accept(Objects.requireNonNull(mailbox));
+    }
+
+    /** 供全局管理员分页读取空间管理员账号。 */
     public List<AccountView> listWorkspaceAdministrators(Actor caller, int offset, int limit) {
         requirePage(offset, limit);
         return Objects.requireNonNull(transactions.execute(status -> {
@@ -165,6 +186,7 @@ public final class AccountAdministration {
         }));
     }
 
+    /** 供全局管理员统计空间管理员账号总数。 */
     public long countWorkspaceAdministrators(Actor caller) {
         Long count = transactions.execute(status -> {
             requireCaller(caller, Role.ADMIN);

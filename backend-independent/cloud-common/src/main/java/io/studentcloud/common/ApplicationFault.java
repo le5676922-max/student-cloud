@@ -1,6 +1,9 @@
 package io.studentcloud.common;
 
-/** A public, non-sensitive business failure; transport adapters map its status and code. */
+/** 表达可安全返回给客户端的业务错误及HTTP状态。
+ *
+ * A public, non-sensitive business failure; transport adapters map its status and code.
+ */
 public final class ApplicationFault extends RuntimeException {
     private final String code;
     private final int httpStatus;

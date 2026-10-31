@@ -11,7 +11,10 @@ import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
 
-/** Browser-provided service credentials or claimed actor headers are never trusted or forwarded. */
+/** 清除浏览器伪造的服务凭据与身份头，保护公网入口边界。
+ *
+ * Browser-provided service credentials or claimed actor headers are never trusted or forwarded.
+ */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class PublicBoundaryFilter implements WebFilter {

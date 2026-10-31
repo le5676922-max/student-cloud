@@ -6,7 +6,10 @@ import io.studentcloud.drive.application.*;
 import java.io.InputStream;
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
-/** Keeps HTTP contracts stable while local and object-store use cases remain independently testable. */
+/**
+ * 按挂载存储引擎将云盘请求分派到本地或远程实现。
+ * Keeps HTTP contracts stable while local and object-store use cases remain independently testable.
+ */
 public final class DriveFacade implements DriveOperations {
  private final JdbcTemplate jdbc;private final MountService local;private final RemoteDriveService remote;
  public DriveFacade(JdbcTemplate jdbc,MountService local,RemoteDriveService remote){this.jdbc=jdbc;this.local=local;this.remote=remote;}

@@ -16,6 +16,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+/** 从登录凭证解析并校验当前账号，为后续接口绑定可信身份。 */
 @Component
 @Order(10)
 public class AuthenticationFilter extends OncePerRequestFilter {

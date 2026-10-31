@@ -7,12 +7,13 @@ import java.util.Base64;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
-/** Self-describing, bounded PBKDF2 encoding independent of any legacy password representation. */
+/** 使用随机盐和有界迭代的 PBKDF2 编码与校验密码。 Self-describing, bounded PBKDF2 encoding independent of any legacy password representation. */
 final class PasswordHasher {
     private static final int ITERATIONS = 310_000;
     private static final int MAX_ITERATIONS = 1_000_000;
     private static final SecureRandom RANDOM = new SecureRandom();
 
+    /** 为有效新密码生成包含盐与迭代次数的哈希编码。 */
     String hash(String password) {
         if (!validNewPassword(password)) throw new IllegalArgumentException("Password must contain 8 to 128 characters");
         byte[] salt = new byte[16];
@@ -21,6 +22,7 @@ final class PasswordHasher {
                 + "$" + Base64.getEncoder().encodeToString(derive(password, salt, ITERATIONS));
     }
 
+    /** 校验编码格式和计算预算后以恒定时间比较密码摘要。 */
     boolean verify(String password, String encoded) {
         if (password == null || password.length() > 128 || encoded == null || encoded.length() > 256) return false;
         String[] parts = encoded.split("\\$", -1);

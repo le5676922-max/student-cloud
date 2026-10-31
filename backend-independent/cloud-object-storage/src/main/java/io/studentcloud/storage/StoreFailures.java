@@ -11,7 +11,10 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 import java.net.SocketTimeoutException;
 import java.util.Set;
 
-/** Never attaches an SDK exception as a public cause: those may contain endpoint, key and signed headers. */
+/**
+ * 将对象存储 SDK 异常转换为公开错误，并区分写入是否可能已发布。
+ * Never attaches an SDK exception as a public cause: those may contain endpoint, key and signed headers.
+ */
 final class StoreFailures {
     private static final Set<String> AUTH = Set.of("AccessDenied", "AccessForbidden", "InvalidAccessKeyId", "SignatureDoesNotMatch",
             "InvalidSecurityToken", "SecurityTokenExpired", "InvalidToken", "AccessKeyIdAndSecurityTokenNotMatch");

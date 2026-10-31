@@ -12,7 +12,10 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-/** Acquired before multipart parsing so concurrent request bodies cannot exhaust temporary storage. */
+/** 在解析上传正文前限制并发，防止临时文件和内存被耗尽。
+ *
+ * Acquired before multipart parsing so concurrent request bodies cannot exhaust temporary storage.
+ */
 @Component
 @Order(20)
 public class UploadBudgetFilter extends OncePerRequestFilter {

@@ -14,9 +14,10 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 
-/** Platform owns identity and human support only; content and AI migrations are absent from its classpath. */
+/** 为平台拥有的身份、注册和人工服务数据执行版本迁移。 Platform owns identity and human support only; content and AI migrations are absent from its classpath. */
 @Configuration(proxyBeanMethods=false)
 public class PlatformMigrations {
+    /** 注册平台 SQL 脚本及其带校验和的 Flyway 迁移。 */
     @Bean(name="platformSchema",initMethod="migrate") Flyway platformSchema(DataSource database) {
         return Flyway.configure().dataSource(database).locations("classpath:db/platform-migrations")
                 .baselineOnMigrate(false).cleanDisabled(true)

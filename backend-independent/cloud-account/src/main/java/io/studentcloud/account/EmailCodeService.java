@@ -23,6 +23,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
+ * 管理按用途隔离的一次性邮箱验证码与发送预算。
  * One-use, purpose-bound email proofs. Delivery never holds a database transaction; consumption
  * participates in the account mutation's transaction, so a failed mutation does not burn its code.
  */
@@ -53,12 +54,12 @@ public final class EmailCodeService {
 
     public boolean available() { return sender.available(); }
 
-    /** Reserve first, deliver outside SQL, then activate exactly that generation. */
+    /** 预留发送预算并在邮件投递成功后激活本代验证码。 Reserve first, deliver outside SQL, then activate exactly that generation. */
     public void request(String email, EmailPurpose purpose) {
         request(email,purpose,true,false);
     }
 
-    /** The reset endpoint budgets all valid mailboxes alike and never reveals a delivery outcome. */
+    /** 对合法邮箱统一计费并隐藏密码重置邮件的投递结果。 The reset endpoint budgets all valid mailboxes alike and never reveals a delivery outcome. */
     public void requestPasswordReset(String email,boolean deliver) {
         request(email,EmailPurpose.RESET_PASSWORD,deliver,true);
     }
@@ -114,7 +115,7 @@ public final class EmailCodeService {
             throw new ApplicationFault("EMAIL_CODE_CHANGED", 409, "验证码已更新或过期，请重新获取并使用最新邮件");
     }
 
-    /** A failed attempt commits before a public error is thrown; an outer rollback cannot erase it. */
+    /** 在独立事务中校验验证码并持久记录失败次数。 A failed attempt commits before a public error is thrown; an outer rollback cannot erase it. */
     public Proof verify(String email, EmailPurpose purpose, String code) {
         requireAvailable();
         String normalized = normalizeEmail(email);
@@ -135,7 +136,7 @@ public final class EmailCodeService {
         return proof;
     }
 
-    /** Must run on this datasource inside the account creation/reset transaction. */
+    /** 在账号变更事务中一次性核销已验证的邮箱凭据。 Must run on this datasource inside the account creation/reset transaction. */
     public void consume(Proof proof) {
         if (!TransactionSynchronizationManager.isActualTransactionActive()
                 || jdbc.getDataSource() == null || !TransactionSynchronizationManager.hasResource(jdbc.getDataSource()))
@@ -148,7 +149,7 @@ public final class EmailCodeService {
                 proof.email, proof.purpose.name(), proof.generation) != 1) throw invalidCode();
     }
 
-    /** No hash, code or generation accessor: this object is a local capability, never a browser DTO. */
+    /** 封装仅本服务可核销的邮箱验证凭据。 No hash, code or generation accessor: this object is a local capability, never a browser DTO. */
     public static final class Proof {
         private final EmailCodeService issuer;
         private final String email;
@@ -162,6 +163,7 @@ public final class EmailCodeService {
         public EmailPurpose purpose() { return purpose; }
     }
 
+    /** 校验邮箱结构并统一大小写和国际化域名表示。 */
     public static String normalizeEmail(String email) {
         if (email == null || email.length() > 274 || email.chars().anyMatch(Character::isISOControl)) throw invalidEmail();
         String value = email.trim().toLowerCase(Locale.ROOT);

@@ -9,7 +9,10 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebExceptionHandler;
 import reactor.core.publisher.Mono;
 
-/** Uniform errors contain no backend hostname, internal route, exception text or credentials. */
+/** 将网关异常转换为统一响应，隐藏后端地址、凭据与异常细节。
+ *
+ * Uniform errors contain no backend hostname, internal route, exception text or credentials.
+ */
 @Component
 @Order(-2)
 public class GatewayFailures implements WebExceptionHandler {

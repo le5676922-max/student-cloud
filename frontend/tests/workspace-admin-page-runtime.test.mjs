@@ -43,6 +43,25 @@ const template = compileTemplate({
 	compilerOptions: { bindingMetadata: compiled.bindings },
 })
 assert.deepEqual(template.errors, [])
+const registrationDescriptor = parse(
+	await readFile(
+		new URL(
+			'../src/components/auth/WorkspaceRegistrationAdmin.vue',
+			import.meta.url
+		),
+		'utf8'
+	)
+).descriptor
+const registrationScript = compileScript(registrationDescriptor, {
+	id: 'workspace-registration-page-runtime',
+})
+const registrationTemplate = compileTemplate({
+	source: registrationDescriptor.template.content,
+	filename: 'WorkspaceRegistrationAdmin.vue',
+	id: 'workspace-registration-page-runtime',
+	compilerOptions: { bindingMetadata: registrationScript.bindings },
+})
+assert.deepEqual(registrationTemplate.errors, [])
 const transform = (code) =>
 	code
 		.replace(
@@ -102,12 +121,18 @@ async function mount({
 	initialPage = 1,
 	readMembers,
 	create = async () => ({ data: { id: 30 } }),
+	createInvitation = async () => ({
+		data: { id: 40, code: 'INVITE-LOCAL-ONLY' },
+	}),
 	resetPassword = async () => ({ data: {} }),
 } = {}) {
 	const calls = {
 			summary: [],
 			members: [],
 			create: [],
+			invitations: [],
+			joinRequests: [],
+			invitationCreate: [],
 			enabled: [],
 			password: [],
 		},
@@ -146,6 +171,7 @@ async function mount({
 	}
 	const modules = {
 		vue,
+		'@vueuse/core': { useClipboard: () => ({ copy: async () => {} }) },
 		'~/stores/storage-config': () => store,
 		'~/utils/latest-request.mjs': { createLatestRequest },
 		'element-plus': {
@@ -155,15 +181,24 @@ async function mount({
 			},
 			ElMessageBox: { confirm: async () => true },
 		},
-		'~/components/auth/WorkspaceRegistrationAdmin.vue': {
-			render: () => vue.h('div', { 'data-registration': true }),
-		},
 		'~/components/auth/WorkspaceMemberPermissions.vue': PermissionEditor,
 		'~/components/auth/WorkspaceCloudAccess.vue': {
 			render: () => vue.h('div', { 'data-cloud-access': true }),
 		},
 		'~/api/home/workspace-admin': {
-			resetWorkspaceMemberPasswordReq: (...args) => {
+			getWorkspaceInvitationsReq: async () => {
+				calls.invitations.push(true)
+				return { data: [] }
+			},
+			getWorkspaceJoinRequestsReq: async () => {
+				calls.joinRequests.push(true)
+				return { data: [] }
+			},
+			createWorkspaceInvitationReq: (data) => {
+				calls.invitationCreate.push(data)
+				return createInvitation(data)
+			},
+			sendWorkspaceMemberPasswordResetEmailReq: (...args) => {
 				calls.password.push(args)
 				return resetPassword(...args)
 			},
@@ -201,6 +236,19 @@ async function mount({
 			},
 		},
 	}
+	const RegistrationComponent = new Function(
+		'modules',
+		transform(registrationScript.content).replace('export default', 'return')
+	)(modules)
+	RegistrationComponent.render = new Function(
+		'modules',
+		transform(registrationTemplate.code).replace(
+			'export function render',
+			'return function render'
+		)
+	)(modules)
+	modules['~/components/auth/WorkspaceRegistrationAdmin.vue'] =
+		RegistrationComponent
 	const Component = new Function(
 		'modules',
 		transform(compiled.content).replace('export default', 'return')
@@ -255,6 +303,19 @@ async function mount({
 					placeholder: props.placeholder,
 					maxlength: props.maxlength,
 					onInput: (event) => emit('update:modelValue', event.target.value),
+				}),
+	})
+	app.component('el-input-number', {
+		props: ['modelValue'],
+		emits: ['update:modelValue'],
+		setup:
+			(props, { emit }) =>
+			() =>
+				vue.h('input', {
+					type: 'number',
+					value: props.modelValue,
+					onInput: (event) =>
+						emit('update:modelValue', Number(event.target.value)),
 				}),
 	})
 	app.component('el-alert', {
@@ -497,42 +558,100 @@ test('saving blocks drawer dismissal from both parent and child, while a success
 	}
 })
 
-test('opening and canceling member creation performs no creation request', async () => {
+test('inviting members lazily opens the invitation panel and requires explicit confirmation to create an invitation without an administrator-chosen password', async () => {
 	const app = await mount()
 	try {
-		await click(buttonText(app.host, '新增成员'))
-		assert.ok(app.host.querySelector('[data-create-dialog]'))
-		assert.equal(app.calls.create.length, 0)
-		await click(
-			buttonText(app.host.querySelector('[data-create-dialog]'), '取消')
+		const panel = app.host.querySelector('details.registration-panel')
+		assert.equal(panel.open, false)
+		assert.equal(app.calls.invitations.length, 0)
+		assert.equal(app.calls.joinRequests.length, 0)
+		const invite = buttonText(
+			app.host.querySelector('.member-toolbar-actions'),
+			'邀请成员'
 		)
+		await click(invite)
+		assert.equal(panel.open, true)
+		assert.ok(panel.id)
+		assert.equal(invite.getAttribute('aria-controls'), panel.id)
+		assert.equal(invite.getAttribute('aria-expanded'), 'true')
+		assert.equal(document.activeElement, panel.querySelector('summary'))
+		assert.equal(app.calls.invitations.length, 1)
+		assert.equal(app.calls.joinRequests.length, 1)
+		assert.ok(buttonText(panel, '创建邀请码'))
 		assert.equal(app.host.querySelector('[data-create-dialog]'), null)
+		assert.equal(app.host.querySelector('input[type="password"]'), null)
+		assert.equal(buttonText(app.host, '新增成员'), undefined)
+		assert.equal(app.calls.invitationCreate.length, 0)
+		assert.equal(app.calls.create.length, 0)
+		await click(buttonText(panel, '创建邀请码'))
+		const dialog = app.host.querySelector('[data-create-dialog]')
+		assert.equal(dialog.querySelector('input[type="password"]'), null)
+		assert.equal(app.calls.invitationCreate.length, 0)
+		await click(buttonText(dialog, '取消'))
+		assert.equal(app.host.querySelector('[data-create-dialog]'), null)
+		assert.equal(app.calls.invitationCreate.length, 0)
+		await click(buttonText(panel, '创建邀请码'))
+		await click(
+			buttonText(app.host.querySelector('[data-create-dialog]'), '创建')
+		)
+		assert.deepEqual(app.calls.invitationCreate, [
+			{ expiresInDays: 7, maxUses: 20 },
+		])
+		assert.equal(
+			app.host.querySelector('#workspace-created-invitation').value,
+			'INVITE-LOCAL-ONLY'
+		)
 		assert.equal(app.calls.create.length, 0)
 	} finally {
 		app.dispose()
 	}
 })
 
-test('member creation requires an explicit action and then reloads the first member page', async () => {
-	const app = await mount()
+test('changing identity closes the invitation panel, clears the old result, and ignores a late invitation response', async () => {
+	const pending = deferred()
+	let created = 0
+	const app = await mount({
+		createInvitation: () =>
+			++created === 1
+				? Promise.resolve({ data: { id: 40, code: 'OLD-IDENTITY-CODE' } })
+				: pending.promise,
+	})
 	try {
-		await click(buttonText(app.host, '新增成员'))
-		const dialog = app.host.querySelector('[data-create-dialog]')
-		await inputValue(
-			dialog.querySelector('[data-label="用户名"] input'),
-			'new-member'
+		const panel = app.host.querySelector('details.registration-panel')
+		await click(buttonText(app.host, '邀请成员'))
+		await click(buttonText(panel, '创建邀请码'))
+		await click(
+			buttonText(app.host.querySelector('[data-create-dialog]'), '创建')
 		)
-		await inputValue(
-			dialog.querySelector('[data-label="初始密码"] input'),
-			'synthetic-password'
+		assert.equal(
+			app.host.querySelector('#workspace-created-invitation').value,
+			'OLD-IDENTITY-CODE'
 		)
-		assert.equal(app.calls.create.length, 0)
-		await click(buttonText(dialog, '创建'))
-		assert.deepEqual(app.calls.create, [
-			{ username: 'new-member', nickname: '', password: 'synthetic-password' },
-		])
-		assert.equal(app.calls.members.at(-1).page, 1)
-		assert.equal(app.bindings.draft.password, '')
+		app.store.loginInfo.tenantId = 10
+		await flush()
+		assert.equal(panel.open, false)
+		assert.equal(app.bindings.registrationLoaded.value, false)
+		assert.equal(app.host.querySelector('.workspace-registration-panels'), null)
+		assert.equal(app.host.querySelector('[data-create-dialog]'), null)
+		assert.equal(
+			buttonText(app.host, '邀请成员').getAttribute('aria-expanded'),
+			'false'
+		)
+		await click(buttonText(app.host, '邀请成员'))
+		assert.equal(app.host.querySelector('#workspace-created-invitation'), null)
+		await click(buttonText(panel, '创建邀请码'))
+		await click(
+			buttonText(app.host.querySelector('[data-create-dialog]'), '创建')
+		)
+		app.store.loginInfo.tenantId = 11
+		await flush()
+		pending.resolve({ data: { id: 41, code: 'LATE-OLD-IDENTITY-CODE' } })
+		await flush()
+		assert.equal(panel.open, false)
+		assert.equal(app.host.querySelector('[data-create-dialog]'), null)
+		await click(buttonText(app.host, '邀请成员'))
+		assert.equal(app.host.querySelector('#workspace-created-invitation'), null)
+		assert.deepEqual(app.notices, [])
 	} finally {
 		app.dispose()
 	}
@@ -621,52 +740,46 @@ test('leaving the page aborts outstanding metadata and member requests', async (
 	assert.equal(app.bindings.members.value.items.length, 0)
 })
 
-test('password reset requires confirmation, blocks duplicate submission and clears sensitive drafts on success', async () => {
+test('member reset sends email after confirmation without collecting an administrator-chosen password', async () => {
 	const response = deferred()
-	const app = await mount({ resetPassword: () => response.promise })
+	const app = await mount({
+		rows: [member(10, { email: 'member@example.invalid' })],
+		resetPassword: () => response.promise,
+	})
 	try {
-		await click(buttonText(app.host, '重置密码'))
+		await click(buttonText(app.host, '发送重置邮件'))
 		assert.equal(app.calls.password.length, 0)
 		const dialog = app.host.querySelector('[data-create-dialog]')
-		await inputValue(
-			dialog.querySelector('[data-label="新密码"] input'),
-			'new-test-password'
-		)
-		await inputValue(
-			dialog.querySelector('[data-label="再次输入"] input'),
-			'different'
-		)
-		assert.equal(buttonText(dialog, '确认重置').disabled, true)
-		await inputValue(
-			dialog.querySelector('[data-label="再次输入"] input'),
-			'new-test-password'
-		)
-		await click(buttonText(dialog, '确认重置'))
+		assert.equal(dialog.querySelector('input[type="password"]'), null)
+		assert.match(dialog.textContent, /member@example\.invalid/)
+		assert.match(dialog.textContent, /成员自行/)
+		await click(buttonText(dialog, '确认发送'))
 		assert.equal(app.calls.password.length, 1)
+		assert.equal(app.calls.password[0].length, 2)
+		assert.equal(app.calls.password[0][0], 10)
 		assert.equal(buttonText(dialog, '取消').disabled, true)
 		await app.bindings.submitPasswordReset()
 		assert.equal(app.calls.password.length, 1)
 		response.resolve({ data: {} })
 		await flush()
 		assert.equal(app.host.querySelector('[data-create-dialog]'), null)
-		assert.equal(app.bindings.passwordDraft.password, '')
-		assert.deepEqual(app.notices, ['密码已重置，成员需要重新登录'])
+		assert.deepEqual(app.notices, ['重置邮件已发送，新密码由成员自行设置'])
 	} finally {
 		app.dispose()
 	}
 })
 
-test('canceling or switching identity clears password and old members without sending a reset', async () => {
-	const app = await mount()
+test('canceling or switching identity closes email confirmation without sending a reset', async () => {
+	const app = await mount({
+		rows: [member(10, { email: 'member@example.invalid' })],
+	})
 	try {
-		await click(buttonText(app.host, '重置密码'))
-		app.bindings.passwordDraft.password = 'discard-this-password'
+		await click(buttonText(app.host, '发送重置邮件'))
 		await click(
 			buttonText(app.host.querySelector('[data-create-dialog]'), '取消')
 		)
 		assert.equal(app.calls.password.length, 0)
-		assert.equal(app.bindings.passwordDraft.password, '')
-		await click(buttonText(app.host, '重置密码'))
+		await click(buttonText(app.host, '发送重置邮件'))
 		app.store.loginInfo.isLogin = false
 		await flush()
 		assert.equal(app.bindings.members.value.items.length, 0)
@@ -679,19 +792,62 @@ test('canceling or switching identity clears password and old members without se
 
 test('losing identity during reset aborts request and ignores a late success message', async () => {
 	const response = deferred(),
-		app = await mount({ resetPassword: () => response.promise })
+		app = await mount({
+			rows: [member(10, { email: 'member@example.invalid' })],
+			resetPassword: () => response.promise,
+		})
 	try {
-		await click(buttonText(app.host, '重置密码'))
-		app.bindings.passwordDraft.password =
-			app.bindings.passwordDraft.confirmPassword = 'new-test-password'
-		await flush()
-		await click(buttonText(app.host, '确认重置'))
+		await click(buttonText(app.host, '发送重置邮件'))
+		await click(
+			buttonText(app.host.querySelector('[data-create-dialog]'), '确认发送')
+		)
 		app.store.loginInfo.role = 'USER'
-		assert.equal(app.calls.password[0][2].signal.aborted, true)
+		assert.equal(app.calls.password[0][1].signal.aborted, true)
 		response.resolve({ data: {} })
 		await flush()
 		assert.deepEqual(app.notices, [])
-		assert.equal(app.bindings.passwordDraft.password, '')
+		assert.equal(app.bindings.passwordMember.value, null)
+	} finally {
+		app.dispose()
+	}
+})
+
+test('members without a bound mailbox cannot trigger reset email or fall back to setting a password', async () => {
+	const app = await mount({ rows: [member(10, { email: '' })] })
+	try {
+		const button = buttonText(app.host, '发送重置邮件')
+		assert.equal(button.disabled, true)
+		await click(button)
+		assert.equal(app.calls.password.length, 0)
+		assert.equal(app.host.querySelector('[data-create-dialog]'), null)
+	} finally {
+		app.dispose()
+	}
+})
+
+test('SMTP unavailability stays visible and does not claim the member password was changed', async () => {
+	const app = await mount({
+		rows: [member(10, { email: 'member@example.invalid' })],
+		resetPassword: async () => {
+			throw {
+				response: {
+					data: {
+						code: 'MAIL_UNAVAILABLE',
+						msg: '邮箱服务尚未启用，请联系全局管理员配置SMTP',
+					},
+				},
+			}
+		},
+	})
+	try {
+		await click(buttonText(app.host, '发送重置邮件'))
+		await click(
+			buttonText(app.host.querySelector('[data-create-dialog]'), '确认发送')
+		)
+		assert.match(app.host.querySelector('[role="alert"]').textContent, /SMTP/)
+		assert.equal(app.calls.password.length, 1)
+		assert.deepEqual(app.notices, [])
+		assert.ok(app.host.querySelector('[data-create-dialog]'))
 	} finally {
 		app.dispose()
 	}
@@ -718,7 +874,7 @@ test('drawer and table layout keeps an independent scroll area, compact identity
 	assert.match(style, /prefers-reduced-motion: reduce/)
 	assert.match(
 		descriptor.template.content,
-		/label="操作"[^>]*width="230"[^>]*fixed="right"/
+		/label="操作"[^>]*width="280"[^>]*fixed="right"/
 	)
 	assert.match(descriptor.template.content, /row-key="id"/)
 	assert.doesNotMatch(

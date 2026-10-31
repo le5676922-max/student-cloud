@@ -21,7 +21,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/**
+/** 维护数据库任务状态机、幂等创建、租约与事务通知记录。
+ *
  * Database-backed task state machine. This module does not start a scheduler or execute tools.
  * A successful claim only grants a bounded lease; workers must recheck authorization and fence
  * external side effects separately. State fencing alone cannot stop a stale filesystem write.

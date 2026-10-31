@@ -31,7 +31,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Independent workspace approvals. Global local-storage approval is separate from daily member grants. */
+/**
+ * 处理成员云盘开通与本地存储申请的审批，并维护成员授权。
+ * Independent workspace approvals. Global local-storage approval is separate from daily member grants.
+ */
 public final class WorkspaceCloudService {
     private static final Set<String> PERMISSIONS = Set.of("list", "read", "mkdir", "upload", "copy", "move", "rename", "delete");
     private static final String CLOUD_COLUMNS = "id,requester_id,mount_id,workspace_id,status,decided_by,reason,created_at,decided_at";

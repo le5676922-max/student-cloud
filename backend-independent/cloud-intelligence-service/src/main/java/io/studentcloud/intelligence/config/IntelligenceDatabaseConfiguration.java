@@ -8,7 +8,10 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/** Creates only the intelligence datastore; no account/course datasource or credentials are accepted. */
+/** 创建智能服务专属数据源并初始化其迁移，不接入其他服务业务表。
+ *
+ * Creates only the intelligence datastore; no account/course datasource or credentials are accepted.
+ */
 @Configuration(proxyBeanMethods=false)
 @EnableConfigurationProperties(IntelligenceDatabaseConfiguration.Settings.class)
 public class IntelligenceDatabaseConfiguration {

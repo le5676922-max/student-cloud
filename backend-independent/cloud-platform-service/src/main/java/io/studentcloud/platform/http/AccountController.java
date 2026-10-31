@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+/** 提供平台安装、账号登录、会话检查及本人密码修改接口。 */
 @RestController
 public class AccountController {
     private final AccountService accounts;
@@ -37,11 +38,13 @@ public class AccountController {
     @GetMapping("/api/install/status")
     public ApiResponse<Boolean> installed() { return ApiResponse.success(accounts.installationStatus()); }
 
+    /** 初始化站点并返回首个全局管理员的公开资料。 */
     @PostMapping("/api/install")
     public ApiResponse<Map<String, Object>> install(@Valid @RequestBody InstallRequest input) {
         return ApiResponse.success(view(accounts.install(input.siteName(), input.username(), input.password())));
     }
 
+    /** 校验凭据并以禁止缓存的响应返回会话令牌。 */
     @PostMapping("/user/login")
     public ResponseEntity<ApiResponse<Map<String, Object>>> login(@Valid @RequestBody LoginRequest input) {
         var login = accounts.login(input.username(), input.password());
@@ -51,6 +54,7 @@ public class AccountController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(ApiResponse.success(data));
     }
 
+    /** 检查当前会话并返回登录身份或未登录标记。 */
     @GetMapping("/user/login/check")
     public ResponseEntity<ApiResponse<Map<String, Object>>> check(HttpServletRequest request) {
         Map<String, Object> identity;
@@ -62,12 +66,14 @@ public class AccountController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(ApiResponse.success(identity));
     }
 
+    /** 撤销请求携带的当前登录令牌。 */
     @PostMapping("/user/logout")
     public ApiResponse<Void> logout(HttpServletRequest request) {
         accounts.logout(RequestTokens.extract(request));
         return ApiResponse.success(null);
     }
 
+    /** 使用认证身份校验原密码并修改本人密码。 */
     @PostMapping("/user/updatePwd")
     public ApiResponse<Void> password(@Valid @RequestBody PasswordRequest input, HttpServletRequest request) {
         accounts.changePassword(AuthenticationFilter.actor(request).id(), input.oldPassword(), input.newPassword());

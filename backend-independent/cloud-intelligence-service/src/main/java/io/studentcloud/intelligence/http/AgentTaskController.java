@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import org.springframework.web.bind.annotation.*;
 
+/** 提供当前账号的文件预览、确认、取消、重试和任务结果接口。 */
 @RestController
 @RequestMapping("/api/ai/tasks")
 public final class AgentTaskController {

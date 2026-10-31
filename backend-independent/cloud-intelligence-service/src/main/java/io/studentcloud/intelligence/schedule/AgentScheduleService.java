@@ -21,7 +21,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Owns weekly preview triggers only. It never confirms or executes a file-operation plan. */
+/** 维护本人周期整理规则和触发记录，不自动确认或执行计划。
+ *
+ * Owns weekly preview triggers only. It never confirms or executes a file-operation plan.
+ */
 @Service
 public final class AgentScheduleService {
     public static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");

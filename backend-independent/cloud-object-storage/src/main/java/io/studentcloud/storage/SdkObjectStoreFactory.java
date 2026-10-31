@@ -7,7 +7,10 @@ import io.studentcloud.drive.object.ObjectStoreFactory;
 import java.net.URI;
 import java.time.Duration;
 
-/** SDK boundary only. The application must authorize the actor and approve/resolution-check the endpoint first. */
+/**
+ * 校验连接参数并按存储供应商创建带传输限制的 SDK 适配器。
+ * SDK boundary only. The application must authorize the actor and approve/resolution-check the endpoint first.
+ */
 public final class SdkObjectStoreFactory implements ObjectStoreFactory {
     static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(3);
     static final Duration API_TIMEOUT = Duration.ofSeconds(30);

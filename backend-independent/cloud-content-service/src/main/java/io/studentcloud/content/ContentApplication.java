@@ -6,7 +6,10 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Import;
 
-/** File and course microservice; owns neither identity tables nor the assistant database. */
+/**
+ * 启动承载云盘、课程资料与学习库接口的内容微服务。
+ * File and course microservice; owns neither identity tables nor the assistant database.
+ */
 @SpringBootApplication(scanBasePackages = "io.studentcloud.content",
         excludeName = "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration")
 @Import({ServiceRuntimeConfiguration.class, IdentityClientConfiguration.class})

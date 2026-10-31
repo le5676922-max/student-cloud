@@ -9,12 +9,6 @@ export const getWorkspaceMembersReq = (page, search = '', config = {}) =>
 		data: { page, search },
 		config,
 	})
-export const createWorkspaceMemberReq = (data) =>
-	axios({
-		url: '/api/workspace-admin/members',
-		method: 'post',
-		data,
-	})
 export const setWorkspaceMemberEnabledReq = (id, value) =>
 	axios({
 		url: `/api/workspace-admin/members/${id}/enabled?value=${value}`,
@@ -28,11 +22,10 @@ export const getWorkspaceMemberPermissionsReq = (id, config = {}) =>
 		config,
 	})
 
-export const resetWorkspaceMemberPasswordReq = (id, data, config = {}) =>
+export const sendWorkspaceMemberPasswordResetEmailReq = (id, config = {}) =>
 	axios({
-		url: `/api/workspace-admin/members/${id}/password`,
+		url: `/api/workspace-admin/members/${id}/password-reset-email`,
 		method: 'post',
-		data,
 		config: { showDefaultMsg: false, ...config },
 	})
 export const saveWorkspaceMemberPermissionsReq = (id, data, config = {}) =>

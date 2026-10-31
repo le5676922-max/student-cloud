@@ -9,7 +9,10 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
-/** Content-owned aggregates only. Identity is resolved once through its owning port, never SQL joins. */
+/**
+ * 按管理员的可见范围汇总文件业务指标与日期趋势。
+ * Content-owned aggregates only. Identity is resolved once through its owning port, never SQL joins.
+ */
 @Service
 public final class FileBusinessStatistics {
     private static final ZoneId ZONE=ZoneId.of("Asia/Shanghai");

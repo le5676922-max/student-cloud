@@ -14,7 +14,10 @@ import org.springframework.web.reactive.socket.server.upgrade.ReactorNettyReques
 import reactor.core.publisher.Mono;
 import reactor.netty.http.server.WebsocketServerSpec;
 
-/** A gateway upgrades the browser before opening its upstream socket; denial must close the upgraded peer explicitly. */
+/** 代理人工客服WebSocket连接，并处理上游拒绝和连接关闭。
+ *
+ * A gateway upgrades the browser before opening its upstream socket; denial must close the upgraded peer explicitly.
+ */
 @Configuration(proxyBeanMethods=false)
 public class SupportWebSocketConfiguration {
     @Bean @Primary WebSocketService supportGatewayWebSocketService() {

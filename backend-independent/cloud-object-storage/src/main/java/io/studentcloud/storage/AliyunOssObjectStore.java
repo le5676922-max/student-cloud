@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 
+/** 通过阿里云 OSS SDK 实现对象查询、读取、不覆盖写入与探针清理。 */
 final class AliyunOssObjectStore extends AbstractSdkObjectStore {
     private final OSS client;
 

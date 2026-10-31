@@ -35,7 +35,10 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Explicit authorization followed by the independent kernel, with no legacy storage or session state. */
+/**
+ * 校验挂载授权与配额后，执行本地云盘文件操作和回收站管理。
+ * Explicit authorization followed by the independent kernel, with no legacy storage or session state.
+ */
 public final class MountService implements DriveOperations {
     public static final int MAX_ENTRIES = 10_000;
     public static final long MAX_TRANSFER_BYTES = 50L * 1024 * 1024;
@@ -201,6 +204,7 @@ public final class MountService implements DriveOperations {
         if (path.isRoot()) throw fault("DRIVE_INVALID", 400, "请指定文件名称");
         requireDirectory(allowed, path.parent());
         if (allowed.store().stat(path).isPresent()) throw fault("DRIVE_CONFLICT", 409, "目标已存在同名文件，不会覆盖");
+        requireQuota(allowed, size);
     }
 
     public FileRecord mkdir(Actor actor, String key, DrivePath path) {
@@ -298,11 +302,7 @@ public final class MountService implements DriveOperations {
                 Access current = access(actor, key, operations, true);
                 if (!before.stamp().equals(current.stamp())) throw fault("DRIVE_CHANGED", 409, "目录或授权已变化，请刷新后重试");
                 long growth = incoming.run(current);
-                Long quota = current.stamp().quota();
-                if (growth > 0 && quota != null) {
-                    long used = LocalUsageMeter.bytes(visibleRoot(current));
-                    if (growth > quota || used > quota-growth) throw fault("DRIVE_QUOTA_EXCEEDED", 409, "个人云盘可用容量不足");
-                }
+                requireQuota(current, growth);
                 T result=action.run(current);
                 if(catalog!=null)catalog.invalidateMount(current.stamp().mountId());
                 return result;
@@ -428,6 +428,13 @@ public final class MountService implements DriveOperations {
     }
     private static TrashRow trashRow(ResultSet r)throws SQLException{
         return new TrashRow(new TrashView(r.getString("id"),r.getString("file_name"),r.getString("original_path"),r.getBoolean("is_directory"),r.getLong("byte_size"),r.getString("status"),r.getLong("created_at"),r.getLong("expires_at")),r.getLong("actor_id"),r.getObject("workspace_id",Long.class),r.getLong("mount_id"),r.getString("scope_hash"),r.getString("grant_root"));
+    }
+
+    /** A measured check, not a reservation: mutations must repeat it while holding their publication lock. */
+    private static void requireQuota(Access access,long growth)throws IOException {
+        Long quota=access.stamp().quota();
+        if(growth>0&&quota!=null&&(growth>quota||LocalUsageMeter.bytes(visibleRoot(access))>quota-growth))
+            throw fault("DRIVE_QUOTA_EXCEEDED",409,"个人云盘可用容量不足");
     }
 
     private static Path visibleRoot(Access access) {

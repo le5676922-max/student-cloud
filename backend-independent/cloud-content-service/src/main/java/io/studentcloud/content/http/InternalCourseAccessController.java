@@ -9,7 +9,10 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Internal credential guard is installed by ServiceRuntimeConfiguration before this endpoint. */
+/**
+ * 供内部服务核验指定账号是否有权读取课程。
+ * Internal credential guard is installed by ServiceRuntimeConfiguration before this endpoint.
+ */
 @RestController
 public class InternalCourseAccessController {
     private final SharedCourseService courses;

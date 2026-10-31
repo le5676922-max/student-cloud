@@ -210,6 +210,22 @@ class MountServiceTest {
         assertEquals(1, Files.size(mounted.resolve("members/u3/new/b")));
     }
 
+    @Test void knownQuotaOverflowFailsPreflightAndDoesNotReadTheUploadStream() throws IOException {
+        MountView view=mount();
+        grant(member,view.id(),"/members/u3","list,upload",5L);
+        Path root=mounted.resolve("members/u3");
+        Files.write(root.resolve("existing.bin"),new byte[]{1,2,3,4});
+        Files.createDirectory(root.resolve("nested"));
+        var fault=assertThrows(ApplicationFault.class,()->service.prepareUpload(member,"drive",p("/nested/new.bin"),2));
+        assertEquals("DRIVE_QUOTA_EXCEEDED",fault.code());
+        java.io.InputStream unread=new java.io.InputStream(){
+            @Override public int read(){fail("Known quota overflow must fail before reading or staging the stream");return -1;}
+        };
+        assertEquals("DRIVE_QUOTA_EXCEEDED",assertThrows(ApplicationFault.class,()->service.upload(member,"drive",p("/nested/new.bin"),unread,2)).code());
+        service.prepareUpload(member,"drive",p("/nested/new.bin"),1);
+        assertFalse(Files.exists(root.resolve("nested/new.bin")));
+    }
+
     @Test void directoryCopiesChargeTheWholeTreeAgainstPersonalQuota() throws IOException {
         MountView view = mount();
         grant(member, view.id(), "/members/u3", "list,read,upload,mkdir,copy,delete", 10L);

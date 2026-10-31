@@ -7,11 +7,13 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/** 校验平台专用数据库地址并创建受限连接池。 */
 @Configuration(proxyBeanMethods=false)
 @EnableConfigurationProperties(PlatformDatabaseConfiguration.DatabaseSettings.class)
 public class PlatformDatabaseConfiguration {
     @ConfigurationProperties("student-cloud.database")
     public record DatabaseSettings(String url,String username,String password,int maximumPoolSize) { }
+    /** 仅为允许的平台数据库创建 Hikari 数据源。 */
     @Bean(destroyMethod="close") HikariDataSource dataSource(DatabaseSettings settings) {
         String url=settings.url();
         boolean accepted=url!=null && url.matches("jdbc:h2:mem:student_cloud_platform(?:_[A-Za-z0-9]+)?(?:;MODE=MySQL)?(?:;DB_CLOSE_DELAY=-1)?(?:;DB_CLOSE_ON_EXIT=FALSE)?");

@@ -16,7 +16,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Weekly automation endpoints create reviewable plans only; they never enqueue execution tasks. */
+/** 提供周期整理规则接口，周期触发只创建待确认预览。
+ *
+ * Weekly automation endpoints create reviewable plans only; they never enqueue execution tasks.
+ */
 @RestController
 @RequestMapping("/api/ai/schedules")
 public final class AgentScheduleController {

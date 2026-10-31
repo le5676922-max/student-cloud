@@ -14,6 +14,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 
+/** 注册内容服务的数据库迁移，并在依赖服务装配前初始化表结构。 */
 @Configuration(proxyBeanMethods = false)
 public class ContentMigrations {
     @Bean(name = "independentSchema", initMethod = "migrate")

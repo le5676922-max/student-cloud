@@ -6,6 +6,7 @@ import io.studentcloud.runtime.http.AuthenticationFilter;
 import jakarta.servlet.http.*;
 import org.springframework.web.bind.annotation.*;
 
+/** 提供管理端文件业务统计概览，并禁止缓存统计响应。 */
 @RestController
 public final class FileBusinessStatisticsController {
     private final FileBusinessStatistics statistics;

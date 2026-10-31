@@ -14,7 +14,10 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.*;
 
-/** Private preview bytes are authenticated and rendered locally, never by an external document viewer. */
+/**
+ * 校验文件访问权限与预览格式后，输出受并发限制的预览内容。
+ * Private preview bytes are authenticated and rendered locally, never by an external document viewer.
+ */
 @RestController
 public final class PreviewController {
     static final long MAX_BINARY_BYTES=PreviewContentPolicy.MAX_BINARY_BYTES;

@@ -31,7 +31,7 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.adapter.NativeWebSocketSession;
 
-/** Ephemeral, single-node notification transport. Durable content stays in authenticated HTTP APIs. */
+/** 管理单节点人工服务通知连接、一次性票据和实时身份复核。 Ephemeral, single-node notification transport. Durable content stays in authenticated HTTP APIs. */
 @Component
 public final class SupportSocketHub implements AutoCloseable {
     static final String BINDING = SupportSocketHub.class.getName() + ".binding";
@@ -64,13 +64,14 @@ public final class SupportSocketHub implements AutoCloseable {
         delivery.setRemoveOnCancelPolicy(true);
     }
 
+    /** 启动连接清理、会话复核与排队通知投递任务。 */
     @PostConstruct public void start() {
         delivery.scheduleWithFixedDelay(this::tick, 200, 200, TimeUnit.MILLISECONDS);
     }
 
     public boolean allowedOrigin(String origin) { return origin != null && origins.contains(origin); }
 
-    /** Only opaque session references are retained, never bearer tokens or publicly accessible hashes. */
+    /** 为有效会话签发绑定来源且受配额限制的短期连接票据。 Only opaque session references are retained, never bearer tokens or publicly accessible hashes. */
     public synchronized Map<String,Object> issue(Actor supplied, String credential, String origin) {
         if (!allowedOrigin(origin)) throw rejected("客服连接来源无效", 403);
         AccountService.SessionReference authorization = accounts.bindSession(credential);
@@ -97,7 +98,7 @@ public final class SupportSocketHub implements AutoCloseable {
         return Map.of("path", "/ws/support", "ticket", raw, "expiresAt", expiry);
     }
 
-    /** Removal is atomic even when multiple upgrade requests race with the same ticket. */
+    /** 原子核销连接票据并重新确认其会话身份。 Removal is atomic even when multiple upgrade requests race with the same ticket. */
     synchronized Binding redeem(String raw, String origin) {
         if (closed.get() || !allowedOrigin(origin) || raw == null || !raw.matches("[A-Za-z0-9_-]{43}")) throw rejected("客服连接凭据无效", 401);
         Ticket ticket = tickets.remove(hash(raw));
@@ -107,6 +108,7 @@ public final class SupportSocketHub implements AutoCloseable {
         return new Binding(current.id(), current.role(), ticket.authorization, clock.millis());
     }
 
+    /** 在总量和账号配额内登记已认证的通知连接。 */
     synchronized void connected(WebSocketSession session, Binding binding) {
         long own = sockets.values().stream().filter(value -> value.actorId == binding.actorId).count();
         if (closed.get() || sockets.size() >= MAX_CONNECTIONS || own >= MAX_PER_ACCOUNT) {
@@ -127,7 +129,7 @@ public final class SupportSocketHub implements AutoCloseable {
         } catch (RuntimeException invalid) { closeSession(session, CloseStatus.POLICY_VIOLATION); }
     }
 
-    /** Called only after the durable service transaction has successfully returned. No chat body is broadcast. */
+    /** 为可访问会话的连接排队发送变更标识通知。 Called only after the durable service transaction has successfully returned. No chat body is broadcast. */
     public void changed(SupportConversation conversation) {
         for (Binding binding : sockets.values()) {
             if (binding.initialRole == Role.ADMIN || binding.actorId == conversation.requesterId()) {
@@ -142,6 +144,7 @@ public final class SupportSocketHub implements AutoCloseable {
         }
     }
 
+    /** 校验并限流客户端心跳以更新连接活跃时间。 */
     void heartbeat(WebSocketSession session, String content) {
         Binding binding = sockets.get(session.getId());
         if (binding == null) { closeSession(session, CloseStatus.POLICY_VIOLATION); return; }
@@ -159,6 +162,7 @@ public final class SupportSocketHub implements AutoCloseable {
 
     void disconnected(WebSocketSession session) { sockets.remove(session.getId()); }
 
+    /** 复核会话状态并异步投递通知或清理失效连接。 */
     private void tick() {
         if (closed.get()) return;
         try {
@@ -236,6 +240,7 @@ public final class SupportSocketHub implements AutoCloseable {
     private static ApplicationFault rejected(String message, int status) { return new ApplicationFault("42000", status, message); }
     private static ApplicationFault busy() { return rejected("客服实时连接已满，请稍后重试", 429); }
 
+    /** 停止通知调度并释放连接、票据和限流记录。 */
     @Override @PreDestroy public void close() {
         if (!closed.compareAndSet(false, true)) return;
         delivery.shutdownNow();

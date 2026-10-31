@@ -3,6 +3,7 @@ import io.studentcloud.content.application.AgentCommandService;
 import io.studentcloud.common.ApiResponse;
 import java.util.List;
 import org.springframework.web.bind.annotation.*;
+/** 提供服务内部使用的文件命令预览、确认执行与重复文件检查接口。 */
 @RestController @RequestMapping("/internal/content/agent")
 public class InternalAgentController {
     private final AgentCommandService commands;

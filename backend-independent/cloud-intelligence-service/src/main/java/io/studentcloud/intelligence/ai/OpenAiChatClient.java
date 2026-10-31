@@ -16,7 +16,10 @@ import java.nio.ByteBuffer;
 import java.io.ByteArrayOutputStream;
 import java.util.concurrent.*;
 
-/** Bounded OpenAI-compatible chat completions. No automatic tool calls or hidden retried writes. */
+/** 调用兼容接口的聊天模型，限制并发、请求大小、响应大小及等待时间。
+ *
+ * Bounded OpenAI-compatible chat completions. No automatic tool calls or hidden retried writes.
+ */
 public final class OpenAiChatClient {
     private static final int MAX_RESPONSE_BYTES = 128 * 1024;
     private final URI endpoint;

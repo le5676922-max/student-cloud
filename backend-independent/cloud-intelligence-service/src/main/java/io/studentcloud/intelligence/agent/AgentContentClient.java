@@ -16,7 +16,10 @@ import org.springframework.http.client.JdkClientHttpRequestFactory;
 import java.net.http.HttpClient;
 import java.time.Duration;
 
-/** The content service alone owns filesystem authorization and idempotent writes. */
+/** 通过内部接口请求内容服务预览、执行和核查文件任务。
+ *
+ * The content service alone owns filesystem authorization and idempotent writes.
+ */
 @Component
 public final class AgentContentClient {
     private final RestClient client;

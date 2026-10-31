@@ -22,9 +22,11 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Platform-owned public enrollment and administrator-owned invitations; never a cross-service transaction. */
+/** 管理注册入驻、空间邀请码和成员加入审批。 Platform-owned public enrollment and administrator-owned invitations; never a cross-service transaction. */
 public final class WorkspaceEnrollmentService {
     private static final SecureRandom RANDOM = new SecureRandom();
+    // Bound simultaneous usable codes, not the lifetime history of a workspace.
+    private static final String LIVE_INVITATION = "revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?) AND (max_uses IS NULL OR use_count<max_uses)";
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final Clock clock;
@@ -45,7 +47,7 @@ public final class WorkspaceEnrollmentService {
     public record JoinRequestView(String id, String accountId, String email, String nickname, String status,
                                   long createdAt) { }
 
-    /** Called only within the transaction that inserts this inactive account and consumes its email proof. */
+    /** 按邀请码直接加入空间或按名称提交待审批申请。 Called only within the transaction that inserts this inactive account and consumes its email proof. */
     public Enrollment enrollMember(String joinType, String joinValue, long newAccountId) {
         requireTransaction();
         freshAccount(newAccountId, Role.USER);
@@ -66,7 +68,7 @@ public final class WorkspaceEnrollmentService {
         return new Enrollment(workspace.id(), workspace.name(), true);
     }
 
-    /** Ordinary administrator self-registration creates an enabled workspace without an approval step. */
+    /** 为新注册的空间管理员创建并启用独立空间。 Ordinary administrator self-registration creates an enabled workspace without an approval step. */
     public Enrollment newWorkspace(long newAccountId, String requestedName) {
         requireTransaction();
         freshAccount(newAccountId, Role.TENANT_ADMIN);
@@ -81,15 +83,16 @@ public final class WorkspaceEnrollmentService {
         return new Enrollment(workspaceId, name, false);
     }
 
+    /** 在当前空间的配额内创建邀请码并仅此一次返回原文。 */
     public CreatedInvitation createInvitation(Actor caller, Integer expiresInDays, Integer maxUses) {
         if (expiresInDays != null && (expiresInDays < 1 || expiresInDays > 30)) throw invalid("邀请有效天数须在1至30之间，或留空长期有效");
         if (maxUses != null && (maxUses < 1 || maxUses > 10_000)) throw invalid("邀请人数须在1至10000之间，或留空不限人数");
         return transactions.execute(status -> {
             Current current = administrator(caller);
             workspace(current.workspaceId(), true);
-            if (count("SELECT COUNT(*) FROM sc_workspace_invitation WHERE workspace_id=?", current.workspaceId()) >= 200)
-                throw conflict("此空间的邀请记录已达到200条，请联系平台维护");
             long now = clock.millis();
+            if (count("SELECT COUNT(*) FROM sc_workspace_invitation WHERE workspace_id=? AND " + LIVE_INVITATION, current.workspaceId(), now) >= 200)
+                throw conflict("此空间已有200个有效邀请码，请先停用不再使用的邀请");
             if (count("SELECT COUNT(*) FROM sc_workspace_invitation WHERE workspace_id=? AND created_at>=?", current.workspaceId(), now - 60_000) >= 5)
                 throw fault("41005", 429, "请稍后再创建邀请码");
             Long expiresAt = expiresInDays == null ? null : Math.addExact(now, expiresInDays * 86_400_000L);
@@ -101,16 +104,19 @@ public final class WorkspaceEnrollmentService {
         });
     }
 
+    /** 优先列出仍可使用的邀请码元数据。 */
     public List<InvitationView> listInvitations(Actor caller) {
         return transactions.execute(status -> {
             Current current = administrator(caller);
-            return jdbc.query("SELECT id,expires_at,max_uses,use_count,revoked_at,created_at FROM sc_workspace_invitation WHERE workspace_id=? ORDER BY id DESC LIMIT 200",
+            // An older usable code must stay visible and revocable even after newer history fills the list.
+            return jdbc.query("SELECT id,expires_at,max_uses,use_count,revoked_at,created_at FROM sc_workspace_invitation WHERE workspace_id=? ORDER BY CASE WHEN " + LIVE_INVITATION + " THEN 0 ELSE 1 END,id DESC LIMIT 200",
                     (r, index) -> new InvitationView(Long.toString(r.getLong("id")), r.getObject("expires_at", Long.class),
                             r.getObject("max_uses", Integer.class), r.getInt("use_count"), r.getObject("revoked_at", Long.class) != null,
-                            r.getLong("created_at")), current.workspaceId());
+                            r.getLong("created_at")), current.workspaceId(), clock.millis());
         });
     }
 
+    /** 停用属于当前管理员空间的指定邀请码。 */
     public void revokeInvitation(Actor caller, long invitationId) {
         transactions.executeWithoutResult(status -> {
             Current current = administrator(caller);
@@ -122,7 +128,7 @@ public final class WorkspaceEnrollmentService {
         });
     }
 
-    /** Private applicants are visible only to this workspace's enabled ordinary administrator. */
+    /** 读取当前空间尚未处理的成员加入申请。 Private applicants are visible only to this workspace's enabled ordinary administrator. */
     public List<JoinRequestView> joinRequests(Actor caller) {
         return transactions.execute(status -> {
             Current current = administrator(caller);
@@ -132,6 +138,7 @@ public final class WorkspaceEnrollmentService {
         });
     }
 
+    /** 审核本空间加入申请并同步成员启用状态。 */
     public void reviewJoinRequest(Actor caller, long requestId, boolean approve) {
         transactions.executeWithoutResult(status -> {
             Current current = administrator(caller);
@@ -156,7 +163,7 @@ public final class WorkspaceEnrollmentService {
         });
     }
 
-    /** The regular enable-account endpoint must call this before enabling a registered member. */
+    /** 阻止普通启用入口绕过成员加入审批。 The regular enable-account endpoint must call this before enabling a registered member. */
     public void assertMemberActivationAllowed(Actor caller, long memberId) {
         requireTransaction();
         Current current = administrator(caller);

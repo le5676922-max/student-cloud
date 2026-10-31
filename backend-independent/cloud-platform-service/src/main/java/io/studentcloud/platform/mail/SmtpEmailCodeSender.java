@@ -8,7 +8,7 @@ import java.util.Properties;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 
-/** Explicit SMTP adapter. Disabled by default; it never reads prior project passwords or logs mail content. */
+/** 通过显式配置的 SMTP 服务投递注册和重置密码验证码。 Explicit SMTP adapter. Disabled by default; it never reads prior project passwords or logs mail content. */
 public final class SmtpEmailCodeSender implements EmailCodeSender {
     private final boolean enabled;
     private final JavaMailSenderImpl sender;
@@ -37,6 +37,7 @@ public final class SmtpEmailCodeSender implements EmailCodeSender {
         properties.setProperty("mail.debug","false");
     }
     @Override public boolean available(){return enabled;}
+    /** 构造对应用途的验证码邮件并将投递失败转换为业务错误。 */
     @Override public void send(String email,EmailPurpose purpose,String code) {
         if(!enabled) throw new ApplicationFault("MAIL_UNAVAILABLE",503,"邮件服务尚未启用");
         var message=new SimpleMailMessage();message.setFrom(from);message.setTo(EmailCodeService.normalizeEmail(email));

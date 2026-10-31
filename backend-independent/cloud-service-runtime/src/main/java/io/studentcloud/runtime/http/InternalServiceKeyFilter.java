@@ -13,7 +13,10 @@ import org.springframework.core.annotation.Order;
 import org.springframework.web.filter.OncePerRequestFilter;
 import tools.jackson.databind.ObjectMapper;
 
-/** Internal operations require a separate server credential even if a public bearer is supplied. */
+/** 验证内部服务专用凭据，拒绝用普通用户会话代替内部身份。
+ *
+ * Internal operations require a separate server credential even if a public bearer is supplied.
+ */
 @Order(5)
 public final class InternalServiceKeyFilter extends OncePerRequestFilter {
     private final byte[] key;

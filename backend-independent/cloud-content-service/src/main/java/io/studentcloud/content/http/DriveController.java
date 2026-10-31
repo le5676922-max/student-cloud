@@ -27,7 +27,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-/** Independently implemented storage HTTP adapter. Legacy UI adapters can reuse these use cases. */
+/**
+ * 将云盘目录、元数据、文件读写与变更请求交给存储应用服务。
+ * Independently implemented storage HTTP adapter. Legacy UI adapters can reuse these use cases.
+ */
 @RestController
 public class DriveController {
     private final DriveOperations mounts;

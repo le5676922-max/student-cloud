@@ -23,7 +23,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Current-admin storage routes backed only by independent platform-owned mount tables. */
+/**
+ * 提供存储源配置管理、工作空间云盘查询与成员授权接口。
+ * Current-admin storage routes backed only by independent platform-owned mount tables.
+ */
 @RestController
 public final class StorageAdministrationController {
     private final StorageAdministrationService storage;

@@ -21,7 +21,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Private course objects with explicit database reservations; network I/O is outside transactions. */
+/**
+ * 校验课程访问权限与存储配额，协调资料文件和数据库状态的发布及删除。
+ * Private course objects with explicit database reservations; network I/O is outside transactions.
+ */
 public final class CourseMaterialService {
     public static final long MAX_FILE_BYTES = 50L * 1024 * 1024;
     private static final long MAX_OWNER_BYTES = 2L * 1024 * 1024 * 1024;

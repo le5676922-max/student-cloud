@@ -9,7 +9,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
-/** Geometry only. No material libraries, textures, scripts, filesystem paths or linked resources. */
+/**
+ * 校验基础三维模型的几何数据与数量范围，拒绝外部资源引用。
+ * Geometry only. No material libraries, textures, scripts, filesystem paths or linked resources.
+ */
 final class BasicModelPreviewPolicy {
     private static final int MAX_VERTICES=100_000,MAX_TRIANGLES=100_000,MAX_LINE=4096;
     private static final double MAX_VALUE=1_000_000_000d;

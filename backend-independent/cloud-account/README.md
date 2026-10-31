@@ -34,11 +34,11 @@
 `AccountAdministration(JdbcTemplate, PlatformTransactionManager, Clock)` 提供以下独立管理操作：
 
 - `createWorkspaceAdministrator`：全局管理员事务创建空间及普通管理员；自动生成唯一 `SC` 账号 ID。
-- `createMember` / `listWorkspaceMembers`：普通管理员只创建、查询本空间的普通成员；分页最多 100 条，支持账号 ID、用户名及邮箱的受限搜索。前端成员列表由 `WorkspaceMemberQuery` 返回 `{items,total,page}`，批量读取昵称与加入状态，避免 N+1 查询。
-- `setMemberEnabled` / `resetMemberPassword`：仅处理本空间 `USER`；状态变化或密码重置递增会话版本并撤销旧会话，不返回密码编码。
+- `listWorkspaceMembers`：普通管理员只查询本空间的普通成员；分页最多 100 条，支持账号 ID、用户名及邮箱的受限搜索。前端成员列表由 `WorkspaceMemberQuery` 返回 `{items,total,page}`，批量读取昵称与加入状态，避免 N+1 查询。旧 `POST /api/workspace-admin/members` 在正常授权后返回 410；`createMember` 仅保留供内部测试夹具调用，业务成员通过邮箱验证和邀请码自行注册。
+- `setMemberEnabled`：仅处理本空间 `USER`；状态变化递增会话版本并撤销旧会话。`sendMemberPasswordResetEmail` 只向本空间成员已绑定邮箱发送找回验证码，不改变密码、会话版本或旧会话；成员在公开找回流程验证邮箱并自行设置新密码后才撤销旧会话。旧 `/members/{id}/password` 在正常授权和成员作用域校验后返回 410，管理员不能代设成员密码。
 - `listWorkspaceAdministrators`：全局管理员查看各空间普通管理员；全局管理员不能调用成员日常管理方法。
 
-每次操作重新查询并锁定调用者数据库行，复查当前角色、账号和空间启用状态；不能仅信任旧的 `Actor.role`。管理入口中的 `Actor` 必须由可信认证服务提供。管理员手工创建成员可不填邮箱；填写时须规范化且唯一，不能因此标记为已验证。公开注册必须验证邮箱，不能由客户端指定全局管理员角色。用户名禁止冒用系统 `SC` 加十六进制的保留别名。
+每次操作重新查询并锁定调用者数据库行，复查当前角色、账号和空间启用状态；不能仅信任旧的 `Actor.role`。管理入口中的 `Actor` 必须由可信认证服务提供。成员重置邮件接口 `POST /api/workspace-admin/members/{id}/password-reset-email` 不接收请求体，不返回验证码；无绑定邮箱返回 400，SMTP 未配置、停用或投递失败返回 503，并复用公开找回的邮箱冷却、每日限额和一次性证明。发送邮件在数据库事务外执行。已有无邮箱成员不会被自动迁移或分配管理员已知的新密码。公开注册必须验证邮箱，不能由客户端指定全局管理员角色。用户名禁止冒用系统 `SC` 加十六进制的保留别名。
 
 ### 公开注册、验证码与找回
 

@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Set;
 import org.springframework.web.bind.annotation.*;
 
+/** 提供成员云盘开通、本地存储申请和授权审批的 HTTP 接口。 */
 @RestController
 public class CloudAccessController {
     private final WorkspaceCloudService clouds;

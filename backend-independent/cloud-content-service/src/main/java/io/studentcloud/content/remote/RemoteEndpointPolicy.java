@@ -7,7 +7,10 @@ import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 
-/** Accept provider API origins, or an exact operator-controlled origin. No endpoint redirects. */
+/**
+ * 校验远程存储 API 地址是否属于允许的官方端点或配置的受信来源。
+ * Accept provider API origins, or an exact operator-controlled origin. No endpoint redirects.
+ */
 final class RemoteEndpointPolicy {
     private final Set<URI> allowed=new HashSet<>();
     private final boolean configured;

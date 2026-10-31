@@ -12,6 +12,7 @@ import org.springframework.context.annotation.DependsOn;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
+/** 装配 SMTP 投递、邮箱验证和空间入驻注册流程。 */
 @Configuration(proxyBeanMethods=false)
 @EnableConfigurationProperties(MailSettings.class)
 public class RegistrationConfiguration {

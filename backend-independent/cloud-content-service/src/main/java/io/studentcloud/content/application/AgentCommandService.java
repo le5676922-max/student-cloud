@@ -16,7 +16,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
-/** Confirmed, owner-bound commands; no network/IO under the durable claim transaction. */
+/**
+ * 为智能助手生成文件操作预览，校验确认令牌并记录幂等执行结果。
+ * Confirmed, owner-bound commands; no network/IO under the durable claim transaction.
+ */
 public final class AgentCommandService {
     private final JdbcTemplate jdbc;private final TransactionTemplate tx;private final Clock clock;
     private final AccountDirectory accounts;private final DriveOperations mounts;private final ObjectMapper json;

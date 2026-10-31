@@ -19,8 +19,8 @@ class ProjectKnowledgeServiceTest {
         try (var input = getClass().getResourceAsStream("/ai/knowledge/project-help.json")) {
             var data = new ObjectMapper().readTree(input);
             assertEquals(1, data.path("schemaVersion").asInt());
-            assertEquals("2026-10-27-independent-remote-v2", data.path("revision").asText());
-            assertEquals(42, data.path("entries").size());
+            assertEquals("2026-10-30-agent-foundation-v1", data.path("revision").asText());
+            assertEquals(48, data.path("entries").size());
             var ids = new HashSet<String>();
             for (var entry : data.path("entries")) {
                 assertTrue(ids.add(entry.path("id").asText()));

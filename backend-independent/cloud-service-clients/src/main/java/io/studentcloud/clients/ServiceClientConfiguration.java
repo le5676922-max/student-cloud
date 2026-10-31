@@ -19,7 +19,10 @@ import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.timelimiter.TimeLimiterConfig;
 import java.util.concurrent.*;
 
-/** Explicit clients; only a pure contract is shared with identity, never its persistence. */
+/** 配置服务间HTTP客户端、固定实例发现、负载均衡及调用保护。
+ *
+ * Explicit clients; only a pure contract is shared with identity, never its persistence.
+ */
 @Configuration(proxyBeanMethods=false)
 public class ServiceClientConfiguration {
     @Bean(destroyMethod="shutdownNow") ExecutorService serviceClientExecutor() {

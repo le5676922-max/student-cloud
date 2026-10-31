@@ -18,6 +18,7 @@ import uuid
 import hashlib
 import base64
 from remote_storage_fixture import ObjectStorageFixture, verify_remote
+from local_smtp_fixture import LocalSmtpFixture
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.client import HTTPException
 from urllib.error import HTTPError
@@ -39,6 +40,8 @@ def main():
     scratch.mkdir(parents=True)
     (scratch / 'managed').mkdir(); (scratch / 'courses').mkdir();(scratch/'uploads').mkdir()
     children = []; model_calls = []; passed = []; container = 'student-cloud-qa-' + run_id
+    smtp_fixture = None
+    member_email, peer_email = 'qa-member@example.invalid', 'qa-peer@example.invalid'
     windows = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
     password = secrets.token_urlsafe(24); internal = secrets.token_hex(32)
     database_passwords = {service: secrets.token_hex(24) for service in ('platform', 'content', 'intelligence')}
@@ -96,7 +99,9 @@ def main():
         except HTTPError as error:
             actual, body = error.code, error.read()
         if actual != status:
-            raise AssertionError(f'{path.split("?")[0]}: HTTP {actual}, expected {status}; ' + body[:240].decode('utf-8', 'replace'))
+            # Authentication/registration errors must never echo credentials or proofs.
+            detail = '' if path.startswith('/user/') else '; ' + body[:240].decode('utf-8', 'replace')
+            raise AssertionError(f'{path.split("?")[0]}: HTTP {actual}, expected {status}' + detail)
         if raw: return body
         result = json.loads(body) if body else {}
         if status == 200: assert result.get('code', '0') == '0', 'Business error: ' + path
@@ -114,7 +119,20 @@ def main():
     def mark(label):
         passed.append(label); print('PASS: ' + label, flush=True)
 
-    def login(name): return call('/user/login', {'username': name, 'password': password})['token']
+    def login(name, own_password=None):
+        return call('/user/login', {'username': name, 'password': own_password or password})['token']
+
+    def register_member(email, nickname, invitation_code):
+        own_password = secrets.token_urlsafe(24)
+        call('/user/registration/email-code', {'email': email, 'purpose': 'REGISTER'})
+        code = smtp_fixture.wait_for_code(email)
+        registered = call('/user/register', {
+            'email': email, 'emailCode': code, 'password': own_password,
+            'confirmPassword': own_password, 'nickname': nickname,
+            'registrationType': 'USER', 'joinType': 'INVITE', 'joinValue': invitation_code,
+        })
+        assert registered['status'] == 'ACTIVE' and registered['role'] == 'USER'
+        return login(email, own_password)
 
     def wait_task(plan, token):
         until = time.monotonic() + 20
@@ -125,6 +143,7 @@ def main():
         raise AssertionError('Confirmed task did not finish')
 
     try:
+        smtp_fixture = LocalSmtpFixture([member_email, peer_email])
         docker('run', '--detach', '--name', container, '--label', 'student-cloud.qa=' + run_id,
                '--memory', '768m', '--env-file', str(credential_file), '--publish', '127.0.0.1::3306',
                '--tmpfs', '/var/lib/mysql:rw,size=384m', args.mysql_image,
@@ -151,13 +170,14 @@ def main():
             for name in list(env):
                 if name.startswith(('SC_', 'SPRING_DATASOURCE_', 'SPRING_APPLICATION_JSON')): env.pop(name)
             env.update(SC_INTERNAL_KEY=internal, SC_BIND_ADDRESS='127.0.0.1', SC_PORT=str(ports[service]),
-                       SC_MAIL_ENABLED='false', SC_ALLOWED_ORIGINS='http://127.0.0.1:5173',
+                       SC_ALLOWED_ORIGINS='http://127.0.0.1:5173',
                        SC_PLATFORM_URI=f'http://127.0.0.1:{ports["platform"]}',
                        SC_CONTENT_URI=f'http://127.0.0.1:{ports["content"]}',
                        SC_INTELLIGENCE_URI=f'http://127.0.0.1:{ports["intelligence"]}',
                        SC_PLATFORM_WS_URI=f'ws://127.0.0.1:{ports["platform"]}',
                        SC_MANAGED_STORAGE_ROOT=str(scratch / 'managed'), SC_COURSE_STORAGE_ROOT=str(scratch / 'courses'),SC_UPLOAD_STAGING_ROOT=str(scratch/'uploads'),SC_CONTENT_NODE_ID='fixture-content',
                        SC_AI_BASE_URL=f'http://127.0.0.1:{model.server_port}/v1', SC_AI_MODEL='synthetic', SC_AI_API_KEY='fixture-not-a-provider-key')
+            env.update(smtp_fixture.environment())
             if service=='content':env.update(SC_STORAGE_MASTER_KEY=storage_master,SC_STORAGE_ALLOWED_ENDPOINTS=remote_fixture.origin)
             if service != 'gateway':
                 env.update(SC_DB_URL=f'jdbc:mysql://127.0.0.1:{mysql_port}/student_cloud_{service}?characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false',
@@ -183,8 +203,16 @@ def main():
         call('/api/install', {'siteName': 'Workflow fixture', 'username': 'qa-root', 'password': password}); admin = login('qa-root')
         owner = call('/api/platform/workspace-administrators', {'username': 'qa-owner', 'email': 'owner@example.invalid', 'password': password, 'workspaceName': 'QA Space'}, admin)
         owner_token = login('qa-owner')
-        member = call('/api/workspace-admin/members', {'username': 'qa-member', 'password': password}, owner_token); token = login('qa-member')
-        peer = call('/api/workspace-admin/members', {'username': 'qa-peer', 'password': password}, owner_token); peer_token = login('qa-peer')
+        workspace_invitation = call('/api/workspace-admin/invitations', {'expiresInDays': 1, 'maxUses': 2}, owner_token)
+        token = register_member(member_email, 'QA member', workspace_invitation['code'])
+        peer_token = register_member(peer_email, 'QA peer', workspace_invitation['code'])
+        roster = call('/api/workspace-admin/members?' + urlencode({'page': 1, 'limit': 20}), token=owner_token)
+        assert roster['total'] == 2
+        member = next(row for row in roster['items'] if row['email'] == member_email)
+        peer = next(row for row in roster['items'] if row['email'] == peer_email)
+        assert member['id'] != peer['id'] and member['membershipStatus'] == peer['membershipStatus'] == 'ACTIVE'
+        del workspace_invitation
+        mark('members verify loopback email, self-register with an invitation and log in by mailbox')
         call('/api/storage/list', status=401)
         mark('installation, real sessions and anonymous rejection')
         verify_remote(call,multipart,mark,remote_fixture,admin,owner_token,token,peer_token,owner,member,peer)
@@ -330,6 +358,7 @@ def main():
         (scratch / 'results.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
         print('RESULT_DIR: ' + str(scratch), flush=True)
     finally:
+        if smtp_fixture is not None: smtp_fixture.close()
         for process in children:
             if process.poll() is None: process.terminate()
         for process in children:

@@ -11,7 +11,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Versioned public product help; contains no user files, private feedback or runtime secrets. */
+/** 加载内置产品帮助，并按当前角色与提问相关性返回知识条目。
+ *
+ * Versioned public product help; contains no user files, private feedback or runtime secrets.
+ */
 public final class ProjectKnowledgeService {
     private final List<Entry> entries;
 

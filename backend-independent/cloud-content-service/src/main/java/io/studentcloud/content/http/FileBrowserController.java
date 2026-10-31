@@ -23,7 +23,10 @@ import java.util.Map;
 import java.util.Set;
 import org.springframework.web.bind.annotation.*;
 
-/** Browser contract over the independent local-storage use cases. All paths are grant-relative. */
+/**
+ * 为文件浏览界面提供存储源、目录条目与批量文件操作接口。
+ * Browser contract over the independent local-storage use cases. All paths are grant-relative.
+ */
 @RestController
 public class FileBrowserController {
     private static final DateTimeFormatter DISPLAY_TIME=DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.of("Asia/Shanghai"));

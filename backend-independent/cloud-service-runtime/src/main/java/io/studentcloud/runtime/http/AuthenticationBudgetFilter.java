@@ -15,7 +15,10 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-/** Bounded single-instance protection during development; not a distributed rate limiter. */
+/** 在单实例内限制高频认证请求，不作为分布式限流保证。
+ *
+ * Bounded single-instance protection during development; not a distributed rate limiter.
+ */
 @Component
 @Order(5)
 public class AuthenticationBudgetFilter extends OncePerRequestFilter {

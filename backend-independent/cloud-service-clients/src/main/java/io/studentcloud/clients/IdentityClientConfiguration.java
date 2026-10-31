@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.web.client.RestClient;
 
+/** 装配远程身份查询端口，避免业务服务依赖账号持久化实现。 */
 @Configuration(proxyBeanMethods=false)
 @Import(ServiceClientConfiguration.class)
 public class IdentityClientConfiguration {

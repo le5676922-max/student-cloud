@@ -631,7 +631,7 @@
 								class="ai-agent-context-choice"
 							>
 								<input v-model="allowPrivateContext" type="checkbox" />
-								使用当前课程资料（相关片段发送给模型）
+								本轮使用私有资料与相关记忆（内容发送给模型）
 							</label>
 							<button
 								type="button"

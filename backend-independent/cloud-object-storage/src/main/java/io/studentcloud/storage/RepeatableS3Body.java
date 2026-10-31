@@ -10,7 +10,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 
-/** SDK signing and Apache transport may each open the body even with retries disabled. */
+/**
+ * 将上传流暂存为可重复读取的文件，供 S3 签名与传输使用。
+ * SDK signing and Apache transport may each open the body even with retries disabled.
+ */
 final class RepeatableS3Body implements AutoCloseable {
     private final Path file;
 

@@ -9,7 +9,10 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.web.bind.annotation.*;
 
-/** Inspection is explicit and does not replay writes or relax reservations on ambiguous evidence. */
+/**
+ * 提供远程存储待确认写入的查询与状态核验接口。
+ * Inspection is explicit and does not replay writes or relax reservations on ambiguous evidence.
+ */
 @RestController
 public final class RemoteWriteAdministrationController {
     private final RemoteStorageAdministration connections;

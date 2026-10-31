@@ -98,22 +98,20 @@ class AccountAdministrationTest {
     }
 
     @Test
-    void resetAndDisableRevokeExistingSessionsAndPasswordResetNeverTargetsAdministrator() {
+    void administratorsCannotAssignPasswordsAndDisableStillRevokesExistingSessions() {
         Actor owner = owner("password");
         var member = administration.createMember(owner, "password-member", "password-member@example.com", PASSWORD);
         var old = accounts.login(member.email(), PASSWORD);
         long version = jdbc.queryForObject("SELECT session_version FROM sc_account WHERE id=?", Long.class, member.id());
-        administration.resetMemberPassword(owner, member.id(), "Replacement-password-456");
-        assertEquals(version + 1, jdbc.queryForObject("SELECT session_version FROM sc_account WHERE id=?", Long.class, member.id()));
-        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM sc_session WHERE account_id=?", Integer.class, member.id()));
-        assertThrows(ApplicationFault.class, () -> accounts.authenticate(old.token()));
-        assertThrows(ApplicationFault.class, () -> accounts.login(member.email(), PASSWORD));
-        var fresh = accounts.login(member.email(), "Replacement-password-456");
+        assertEquals(410,assertThrows(ApplicationFault.class,()->administration.resetMemberPassword(owner, member.id(), "Replacement-password-456")).httpStatus());
+        assertEquals(version, jdbc.queryForObject("SELECT session_version FROM sc_account WHERE id=?", Long.class, member.id()));
+        assertEquals(member.id(),accounts.authenticate(old.token()).id());
+        var fresh = accounts.login(member.email(), PASSWORD);
         administration.setMemberEnabled(owner, member.id(), false);
         assertThrows(ApplicationFault.class, () -> accounts.authenticate(fresh.token()));
         administration.setMemberEnabled(owner, member.id(), true);
         assertThrows(ApplicationFault.class, () -> accounts.authenticate(fresh.token()));
-        assertNotNull(accounts.login(member.accountId(), "Replacement-password-456").token());
+        assertNotNull(accounts.login(member.accountId(), PASSWORD).token());
         assertThrows(ApplicationFault.class, () -> administration.resetMemberPassword(owner, global.id(), "Cannot-reset-global-123"));
     }
 

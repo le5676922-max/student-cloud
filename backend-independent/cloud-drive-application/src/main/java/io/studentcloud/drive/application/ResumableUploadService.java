@@ -1,6 +1,7 @@
 package io.studentcloud.drive.application;
 
 import io.studentcloud.account.Actor;
+import io.studentcloud.account.AccountDirectory;
 import io.studentcloud.common.ApplicationFault;
 import io.studentcloud.drive.DrivePath;
 import io.studentcloud.drive.LocalFileStore;
@@ -16,15 +17,22 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** Node-bound durable chunks. Publication uncertainty is a durable terminal barrier to replay. */
+/**
+ * 管理持久化分片会话、暂存配额与合并发布，并记录发布结果的不确定状态。
+ * Node-bound durable chunks. Publication uncertainty is a durable terminal barrier to replay.
+ */
 public final class ResumableUploadService {
     public static final int CHUNK_SIZE=4*1024*1024;
     public static final long TTL=86_400_000L;
     private static final long ACTOR_BYTES=100L*1024*1024, GLOBAL_BYTES=1024L*1024*1024;
+    private static final int MAX_ACTIVE_SESSIONS=1000,MAX_ACTOR_CREATIONS=1000;
+    // A durable terminal receipt is not an active resource. Unknown publication and leftover bytes are.
+    private static final String ACTIVE_RESOURCE="(state IN ('OPEN','COMPLETING') OR staging_reserved>0)";
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
     private final Clock clock;
     private final DriveOperations mounts;
+    private final AccountDirectory accounts;
     private final Path staging;
     private final String rootIdentity,node;
     // Striping bounds memory and enforces at most two requests for every actor, even with many identities.
@@ -39,9 +47,10 @@ public final class ResumableUploadService {
     private record Chunk(int index,String hash,String file) { }
 
     public ResumableUploadService(JdbcTemplate jdbc,PlatformTransactionManager transactions,Clock clock,DriveOperations mounts,
-                                  Path staging,Path managedRoot,Path courseRoot,String node) {
+                                  AccountDirectory accounts,Path staging,Path managedRoot,Path courseRoot,String node) {
         this.jdbc=Objects.requireNonNull(jdbc);this.tx=new TransactionTemplate(transactions);this.tx.setTimeout(20);
         this.clock=Objects.requireNonNull(clock);this.mounts=Objects.requireNonNull(mounts);
+        this.accounts=Objects.requireNonNull(accounts);
         if(node==null||!node.matches("[a-zA-Z0-9_-]{1,64}"))throw new IllegalArgumentException("Configure a stable content node id");
         this.node=node;
         for(int i=0;i<actors.length;i++)actors[i]=new Semaphore(2);
@@ -88,11 +97,15 @@ public final class ResumableUploadService {
                     return prior;
                 }
                 if(!preflight)throw initializationChanged();
-                Long count=jdbc.queryForObject("SELECT COUNT(*) FROM sc_upload_session WHERE owner_id=? AND state IN ('OPEN','COMPLETING')",Long.class,actor.id());
+                Long count=jdbc.queryForObject("SELECT COUNT(*) FROM sc_upload_session WHERE owner_id=? AND "+ACTIVE_RESOURCE,Long.class,actor.id());
                 Long bytes=jdbc.queryForObject("SELECT COALESCE(SUM(staging_reserved),0) FROM sc_upload_session WHERE owner_id=?",Long.class,actor.id());
                 Long all=jdbc.queryForObject("SELECT COALESCE(SUM(staging_reserved),0) FROM sc_upload_session",Long.class);
-                Long records=jdbc.queryForObject("SELECT COUNT(*) FROM sc_upload_session",Long.class);
-                if(count>=3||size>ACTOR_BYTES-bytes||size>GLOBAL_BYTES-all||records>=1000)throw fault(429,"UPLOAD_BUDGET","未完成上传已达到数量或暂存预算，请完成或取消已有任务");
+                Long active=jdbc.queryForObject("SELECT COUNT(*) FROM sc_upload_session WHERE "+ACTIVE_RESOURCE,Long.class);
+                if(count>=3||size>ACTOR_BYTES-bytes||size>GLOBAL_BYTES-all||active>=MAX_ACTIVE_SESSIONS)throw fault(429,"UPLOAD_BUDGET","未完成上传已达到数量或暂存预算，请完成或取消已有任务");
+                // Bound churn and retained receipts per owner without allowing one account's history to
+                // consume every other account's active slot. The shared SQL lock makes restart/instances agree.
+                Long recent=jdbc.queryForObject("SELECT COUNT(*) FROM sc_upload_session WHERE owner_id=? AND created_at>?",Long.class,actor.id(),clock.millis()-TTL);
+                if(recent>=MAX_ACTOR_CREATIONS)throw fault(429,"UPLOAD_CREATION_BUDGET","此账号24小时内创建上传任务过多，请稍后重试；已有任务仍可继续或取消");
                 String id=UUID.randomUUID().toString();Path folder=staging.resolve(id);
                 try {
                     Files.createDirectory(folder);
@@ -109,7 +122,7 @@ public final class ResumableUploadService {
     }
 
     private List<Row> candidates(Actor actor,String key,long size,String manifest,boolean lock){
-        return jdbc.query("SELECT * FROM sc_upload_session WHERE owner_id=? AND node_id=? AND mount_key=? AND manifest_hash=? AND byte_size=? AND expires_at>? AND state IN ('OPEN','COMPLETING') ORDER BY created_at DESC LIMIT 4"+(lock?" FOR UPDATE":""),this::row,
+        return jdbc.query("SELECT * FROM sc_upload_session WHERE owner_id=? AND node_id=? AND mount_key=? AND manifest_hash=? AND byte_size=? AND (expires_at>? OR state='COMPLETING') AND state IN ('OPEN','COMPLETING') ORDER BY created_at DESC LIMIT 4"+(lock?" FOR UPDATE":""),this::row,
                 actor.id(),node,key,manifest,size,clock.millis());
     }
     private static boolean matches(Row prior,Actor actor,DrivePath target,String authorization){
@@ -184,14 +197,25 @@ public final class ResumableUploadService {
 
     /** Cancellation drops private chunks only; an uncertain publication and any target are preserved. */
     public View cancel(Actor actor,String id){
-        return budget(actor,()->{
-            Row row=owned(actor,id);authorize(actor,row);
+        Actor current=cancellationActor(actor);
+        return budget(current,()->{
+            // Current account ownership authorizes private cleanup independently of the old mount grant.
+            Row row=owned(current,id);
             if(row.state().equals("COMPLETING"))throw fault(409,"UPLOAD_PUBLICATION_PENDING","保存结果待核查，请检查目标文件，不要重复提交");
             if(row.state().equals("COMPLETED")||row.state().equals("EXPIRED"))return view(row);
+            requireOpen(row);
             String token=claim(row);
             try{clearFolder(row);jdbc.update("UPDATE sc_upload_session SET state='EXPIRED',staging_reserved=0,attempt_token=NULL,attempt_until=0 WHERE id=? AND attempt_token=?",id,token);return view(find(id));}
             finally{release(id,token);}
         });
+    }
+
+    private Actor cancellationActor(Actor supplied){
+        if(supplied==null||supplied.id()<1)throw fault(401,"42000","请先登录");
+        Actor current=accounts.current(supplied);
+        if(current==null||current.id()!=supplied.id()||!Objects.equals(current.accountId(),supplied.accountId())||!Objects.equals(current.workspaceId(),supplied.workspaceId()))
+            throw fault(401,"42000","账号或空间已变化，请重新登录");
+        return current;
     }
 
     /** Bounded sweep of this node's expired records; no target directory is ever deleted. */
@@ -201,12 +225,12 @@ public final class ResumableUploadService {
         var completed=jdbc.query("SELECT * FROM sc_upload_session WHERE node_id=? AND state='COMPLETED' AND staging_reserved>0 ORDER BY created_at LIMIT 16",this::row,node);
         for(Row row:completed)tx.execute(status->{Row current=locked(row.id());if(!current.state().equals("COMPLETED"))return null;
             clearFolder(current);jdbc.update("UPDATE sc_upload_session SET staging_reserved=0 WHERE id=?",row.id());return null;});
-        var expired=jdbc.query("SELECT * FROM sc_upload_session WHERE node_id=? AND id>? AND expires_at<=? AND (attempt_token IS NULL OR attempt_until<?) ORDER BY id LIMIT 32",this::row,node,cleanupCursor,clock.millis(),clock.millis());
+        var expired=jdbc.query("SELECT * FROM sc_upload_session WHERE node_id=? AND id>? AND expires_at<=? AND state<>'COMPLETING' AND (attempt_token IS NULL OR attempt_until<?) ORDER BY id LIMIT 32",this::row,node,cleanupCursor,clock.millis(),clock.millis());
         if(expired.isEmpty())cleanupCursor="";
         for(Row row:expired){
             cleanupCursor=row.id();
             // Hold the same record lock as claims while deleting. A later request cannot take over mid-cleanup.
-            try{tx.execute(status->{Row current=locked(row.id());if(current.expires()>clock.millis()||current.attemptUntil()>clock.millis())return null;
+            try{tx.execute(status->{Row current=locked(row.id());if(current.state().equals("COMPLETING")||current.expires()>clock.millis()||current.attemptUntil()>clock.millis())return null;
                 Path directory=checkedRoot().resolve(current.id());
                 if(Files.exists(directory,LinkOption.NOFOLLOW_LINKS)){
                     clearFolder(current);
@@ -222,7 +246,7 @@ public final class ResumableUploadService {
         checkedRoot();if(id==null||!id.matches("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"))throw invalid();
         Row row=find(id);if(row.owner()!=actor.id()||!Objects.equals(row.workspace(),actor.workspaceId()))throw fault(404,"UPLOAD_NOT_FOUND","上传任务不存在");
         if(!row.node().equals(node))throw fault(409,"UPLOAD_NODE_CHANGED","此任务属于另一内容节点，请返回原节点续传");
-        if(row.expires()<=clock.millis())throw fault(410,"UPLOAD_EXPIRED","上传任务已过期，请重新选择文件");
+        if(row.expires()<=clock.millis()&&!row.state().equals("COMPLETING"))throw fault(410,"UPLOAD_EXPIRED","上传任务已过期，请重新选择文件");
         return row;
     }
     private void authorize(Actor actor,Row row){
