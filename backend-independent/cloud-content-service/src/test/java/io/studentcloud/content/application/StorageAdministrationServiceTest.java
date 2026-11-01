@@ -71,6 +71,24 @@ class StorageAdministrationServiceTest {
         assertFalse(production.list(tenant).toString().contains(root.toString()));
     }
 
+    @Test void permissionEditorPreservesPrivateRootsAfterManagementRoleExchange() throws Exception {
+        var root=Files.createDirectory(managed.resolve("role-exchange"));
+        long id=service.save(global,config("role-exchange",root,true));
+        Files.createDirectories(root.resolve("members/u2"));Files.createDirectories(root.resolve("admins/u3"));
+        Files.writeString(root.resolve("admins/u3/keep.txt"),"owner-private");
+        jdbc.update("INSERT INTO sc_drive_grant(user_id,mount_id,root_path,permissions,quota_bytes,enabled,revision,created_at) VALUES(2,?,'/members/u2','list,read,upload',NULL,TRUE,1,1)",id);
+        jdbc.update("INSERT INTO sc_drive_grant(user_id,mount_id,root_path,permissions,quota_bytes,enabled,revision,created_at) VALUES(3,?,'/admins/u3','list,read',100,TRUE,1,1)",id);
+        var rows=(List<Map<String,Object>>)service.memberPermissions(tenant,3).get("storages");
+        assertEquals("/admins/u3",rows.getFirst().get("allowedRootPath"));
+        service.saveMemberPermissions(tenant,3,new StorageAdministrationService.MemberPermissionsInput(List.of("list"),List.of(
+                new StorageAdministrationService.MemberStorageInput(id,"/admins/u3",true,List.of("list","read"),20L))));
+        assertEquals("/admins/u3",jdbc.queryForObject("SELECT root_path FROM sc_drive_grant WHERE user_id=3 AND mount_id=?",String.class,id));
+        assertEquals("owner-private",Files.readString(root.resolve("admins/u3/keep.txt")));
+        assertStatus(403,()->service.saveMemberPermissions(tenant,3,new StorageAdministrationService.MemberPermissionsInput(List.of(),List.of(
+                new StorageAdministrationService.MemberStorageInput(id,"/members/u3",true,List.of("list"),20L)))));
+        assertFalse(Files.exists(root.resolve("members/u3")));
+    }
+
     @Test void localOnlyConnectionProbeHonorsReadWriteChoiceAndCleansOnlyItsOwnProbe() throws Exception {
         var root=Files.createDirectory(managed.resolve("probe"));
         var existing=Files.writeString(root.resolve(".student-cloud-preflight-existing.tmp"),"existing data");

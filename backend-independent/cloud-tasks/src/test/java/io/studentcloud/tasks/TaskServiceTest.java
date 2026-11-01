@@ -195,6 +195,32 @@ class TaskServiceTest {
         assertEquals(TaskState.FAILED, tasks.fail(lease, "INVALID_INPUT", false, Duration.ZERO).state());
     }
 
+    @Test
+    void typedConsumersCannotClaimOrExhaustAnotherCategoryEvenBehindManyQueuedJobs() {
+        for (int i = 0; i < 20; i++) tasks.create(request("index-" + i, "{}"));
+        var organize = tasks.create(new CreateTask(10, 20, TaskType.FILE_ORGANIZE, "{}", "organize"));
+        var lease = tasks.claim("agent", 30, java.util.Set.of(TaskType.FILE_ORGANIZE)).orElseThrow();
+        assertEquals(organize.id(), lease.id());
+        assertTrue(tasks.claim("agent", 30, java.util.Set.of(TaskType.FILE_ORGANIZE)).isEmpty());
+        assertEquals(20, jdbc.queryForObject("SELECT COUNT(*) FROM sc_job WHERE task_type='DOCUMENT_INDEX' AND state='QUEUED' AND attempt_count=0", Integer.class));
+        var index = tasks.claim("indexer", 5, java.util.Set.of(TaskType.DOCUMENT_INDEX)).orElseThrow();
+        jdbc.update("UPDATE sc_job SET attempt_count=max_attempts WHERE job_id=?", index.id());
+        clock.advance(Duration.ofSeconds(5));
+        tasks.claim("agent", 30, java.util.Set.of(TaskType.FILE_ORGANIZE));
+        assertEquals(TaskState.RUNNING, tasks.get(10, index.id()).state());
+        tasks.claim("indexer", 30, java.util.Set.of(TaskType.DOCUMENT_INDEX));
+        assertEquals(TaskState.FAILED, tasks.get(10, index.id()).state());
+    }
+
+    @Test
+    void typedClaimRejectsAnEmptyOrNullAllowlistWithoutChangingAnyJob() {
+        var index = tasks.create(request("no-allowlist", "{}"));
+        assertThrows(ApplicationFault.class, () -> tasks.claim("agent", 30, java.util.Set.of()));
+        assertThrows(ApplicationFault.class, () -> tasks.claim("agent", 30, null));
+        assertEquals(TaskState.QUEUED, tasks.get(10, index.id()).state());
+        assertEquals(0, tasks.get(10, index.id()).attempts());
+    }
+
     private static CreateTask request(String key, String payload) {
         return new CreateTask(10, 20, TaskType.DOCUMENT_INDEX, payload, key);
     }

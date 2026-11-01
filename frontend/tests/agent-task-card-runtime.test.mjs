@@ -280,7 +280,7 @@ test('runtime repeated RUNNING props and parent updates do not restart polling',
 test('runtime retry aborts on unmount and cannot emit a late created preview', async () => {
 	const response = deferred()
 	const card = mountCard(sample('FAILED'), { request: () => response.promise })
-	const running = card.button('重新预览失败项').props.onClick()
+	const running = card.button('重新预览未完成步骤').props.onClick()
 	assert.equal(card.requests.length, 1)
 	const signal = card.requests[0][3].signal
 	card.app.unmount()

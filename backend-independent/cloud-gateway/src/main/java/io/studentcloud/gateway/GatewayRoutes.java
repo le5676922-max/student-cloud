@@ -47,6 +47,10 @@ public class GatewayRoutes {
                                 "/api/workspace-admin/members/*/permissions",
                                 "/api/workspace-admin/members/*/drives/*/grant")
                         .uri("lb://cloud-content"))
+                .route("workspace-ownership-transfers", r -> r.path("/api/workspace-admin/ownership-transfers", "/api/workspace-admin/ownership-transfers/**")
+                        .uri("lb://cloud-platform"))
+                .route("document-research", r -> r.path("/api/ai/documents/capabilities", "/api/ai/documents/search", "/api/ai/documents/answer")
+                        .uri("lb://cloud-intelligence"))
                 .route("intelligence-streams", r -> r.path("/api/ai/chat/stream", "/api/ai/chat/stream/**", "/api/ai/chat/files/stream/**", "/api/ai/agent/stream")
                         .metadata("response-timeout", -1).uri("lb://cloud-intelligence"))
                 .route("intelligence", r -> r.path("/api/ai/**", "/api/tasks", "/api/tasks/**",

@@ -25,7 +25,8 @@ public class PlatformMigrations {
                         new Schema("3","email_challenges","db/independent-email-schema.sql"),
                         new Schema("4","workspace_enrollment","db/independent-enrollment-schema.sql"),
                         new Schema("5","public_profiles","db/independent-public-profile-schema.sql"),
-                        new Schema("6","platform_administration","db/independent-platform-administration-schema.sql")).load();
+                        new Schema("6","platform_administration","db/independent-platform-administration-schema.sql"),
+                        new Schema("7","workspace_ownership_transfer","db/independent-workspace-ownership-transfer-schema.sql")).load();
     }
     private record Schema(String version,String description,String path) implements JavaMigration {
         @Override public MigrationVersion getVersion() { return MigrationVersion.fromVersion(version); }

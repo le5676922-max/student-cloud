@@ -139,12 +139,23 @@ public final class AgentPlanService {
 
     public View retry(Actor actor, String planId) {
         View current = get(actor, planId);
-        if (!List.of("FAILED", "PARTIAL", "INTERRUPTED").contains(current.status()))
-            throw new ApplicationFault("AGENT_RETRY_NOT_ALLOWED", 409, "当前任务无需重试");
+        if (!List.of("FAILED", "PARTIAL").contains(current.status()) || current.results().isEmpty())
+            throw retryDenied();
         Actor currentActor=accounts.current(actor);
         Plan original = owned(currentActor, planId, false);
-        return preview(actor, original.storageKey, rawSteps(original.stepsJson));
+        var steps=rawSteps(original.stepsJson);
+        int failed=-1;
+        // 只承认按序的已确认执行前缀；乱序/重复/缺口或未知发布不能用于自动恢复。
+        for(int i=0;i<current.results().size();i++){
+            var result=current.results().get(i);
+            if(i>=steps.size() || result.index()!=i || !steps.get(i).op().equals(result.op()) || failed>=0)throw retryDenied();
+            if(!result.success())failed=i;
+        }
+        if(failed<0)throw retryDenied();
+        // 已完成步骤绝不再发给工具；失败及尚未执行的后缀重新授权、预览并等待本人再次确认。
+        return preview(currentActor, original.storageKey, List.copyOf(steps.subList(failed,steps.size())));
     }
+    private static ApplicationFault retryDenied(){return new ApplicationFault("AGENT_RETRY_NOT_ALLOWED",409,"仅可重新预览已确认失败及未执行的步骤；结果不明请先核查，不要重复执行");}
 
     private View view(Plan plan) {
         List<AgentContentClient.Step> steps = rawSteps(plan.stepsJson);

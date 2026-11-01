@@ -64,6 +64,8 @@ const registrationTemplate = compileTemplate({
 assert.deepEqual(registrationTemplate.errors, [])
 const transform = (code) =>
 	code
+		// Vite owns env replacement; enabled new features have their own runtime tests.
+		.replace(/import\.meta\.env/g, '({})')
 		.replace(
 			/import\s+\{([\s\S]*?)\}\s+from\s+['"]([^'"]+)['"]/g,
 			(_match, names, module) =>
@@ -173,6 +175,7 @@ async function mount({
 		vue,
 		'@vueuse/core': { useClipboard: () => ({ copy: async () => {} }) },
 		'~/stores/storage-config': () => store,
+		'~/components/auth/OwnershipTransfer.vue': { render: () => null },
 		'~/utils/latest-request.mjs': { createLatestRequest },
 		'element-plus': {
 			ElMessage: {

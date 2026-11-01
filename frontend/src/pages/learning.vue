@@ -289,10 +289,17 @@
 				></template
 			>
 		</el-dialog>
+		<DocumentResearchPanel v-if="documentResearchEnabled" :enabled="documentResearchEnabled" :identity-key="researchIdentity" />
 	</main>
 </template>
 
 <script setup>
+import DocumentResearchPanel from '~/components/ai/DocumentResearchPanel.vue'
+import { uploadAccountIdentity } from '~/composables/file/upload-lifecycle.mjs'
+import useStorageConfigStore from '~/stores/storage-config'
+const documentResearchEnabled = import.meta.env.VITE_DOCUMENT_RESEARCH_ENABLED === 'true'
+const researchStore = useStorageConfigStore()
+const researchIdentity = computed(() => uploadAccountIdentity(researchStore.loginInfo))
 import { ElMessage, ElMessageBox } from 'element-plus'
 import LearningIndexOverview from '~/components/learning/LearningIndexOverview.vue'
 import { filterLearningIndex } from '~/utils/learning-index-overview.mjs'

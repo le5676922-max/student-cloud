@@ -70,6 +70,31 @@ class WorkspaceCloudServiceTest {
         assertEquals("保存课程作业",workspace.listMyRequests(member).getFirst().reason());
     }
 
+    @Test void transferredAdministratorCanUpdateAndReapproveTheFormerOwnersOriginalGrant() throws IOException {
+        Actor member = new Actor(3, "SC3", "member", null, Role.USER, 1L);
+        jdbc.update("INSERT INTO sc_account(id,account_id,username,password_hash,role,workspace_id,enabled,session_version,created_at) VALUES(3,'SC3','member','unused','USER',1,TRUE,1,1)");
+        var approved = workspace.approveLocal(global, workspace.requestLocal(tenant, "transfer").id());
+        workspace.approveCloud(tenant, workspace.requestCloud(member, approved.mountId()).id(), 100L, java.util.Set.of("list", "read", "upload"));
+        Path root = Path.of(jdbc.queryForObject("SELECT physical_root FROM sc_drive_mount WHERE id=?", String.class, approved.mountId()));
+        Files.writeString(root.resolve("admins/u2/keep.txt"), "private owner data");
+        jdbc.update("UPDATE sc_account SET role='USER' WHERE id=2");
+        jdbc.update("UPDATE sc_account SET role='TENANT_ADMIN' WHERE id=3");
+
+        workspace.updateMemberGrant(member, 2, approved.mountId(), 30L, java.util.Set.of("list", "read"));
+        assertEquals("/admins/u2", jdbc.queryForObject("SELECT root_path FROM sc_drive_grant WHERE user_id=2 AND mount_id=?", String.class, approved.mountId()));
+        assertEquals(30L, jdbc.queryForObject("SELECT quota_bytes FROM sc_drive_grant WHERE user_id=2 AND mount_id=?", Long.class, approved.mountId()));
+        workspace.updateMemberGrant(member, 2, approved.mountId(), 30L, java.util.Set.of());
+        workspace.approveCloud(member, workspace.requestCloud(tenant, approved.mountId()).id(), 40L, java.util.Set.of("list", "read"));
+        assertEquals("/admins/u2", jdbc.queryForObject("SELECT root_path FROM sc_drive_grant WHERE user_id=2 AND mount_id=?", String.class, approved.mountId()));
+        assertEquals("/members/u3", jdbc.queryForObject("SELECT root_path FROM sc_drive_grant WHERE user_id=3 AND mount_id=?", String.class, approved.mountId()));
+        assertEquals("private owner data", Files.readString(root.resolve("admins/u2/keep.txt")));
+        assertFalse(Files.exists(root.resolve("members/u2")));
+        assertFalse(Files.exists(root.resolve("admins/u3")));
+        try (var read = mounts.readWithMetadata(tenant, mounts.listMounts(tenant).getFirst().key(), io.studentcloud.drive.DrivePath.of("/keep.txt"))) {
+            assertEquals("private owner data", new String(read.input().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+        }
+    }
+
     @Test void approvalCannotAllocateBelowAnExistingMountAndCompensatesOnlyItsOwnEmptyDirectories() throws IOException {
         Path space = Files.createDirectory(managed.resolve("space-1"));
         Files.writeString(space.resolve("keep"), "existing data");

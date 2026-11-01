@@ -26,7 +26,7 @@
 		<p v-if="warning" class="task-warning" role="alert">{{ warning }}</p>
 		<p v-if="pollError" class="task-warning" role="alert">{{ pollError }}</p>
 		<p v-if="retryCreated" class="task-notice" role="status">
-			已生成失败项的新预览，请在<router-link to="/agent-tasks"
+			已生成未完成步骤的新预览，请在<router-link to="/agent-tasks"
 				>任务页</router-link
 			>核对后确认。
 		</p>
@@ -87,7 +87,7 @@
 				size="small"
 				:disabled="busy || confirming"
 				@click="retryFailed"
-				>重新预览失败项</el-button
+				>重新预览未完成步骤</el-button
 			>
 			<el-button
 				v-if="allowRepeat && repeatContext"

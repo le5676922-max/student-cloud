@@ -4,6 +4,11 @@ import io.studentcloud.account.*;
 import io.studentcloud.common.ApplicationFault;
 import io.studentcloud.drive.*;
 import io.studentcloud.drive.application.MountService;
+import io.studentcloud.drive.application.DriveOperations;
+import io.studentcloud.drive.application.StorageOperationJournal;
+import io.studentcloud.drive.application.JournaledDriveOperations;
+import java.lang.reflect.Proxy;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.file.*;
 import java.time.Clock;
 import java.util.*;
@@ -23,6 +28,7 @@ class AgentCommandServiceTest {
     Actor member=new Actor(3,"member","member",null,Role.USER,1L);
     Map<Long,Actor> identities=new HashMap<>();
     JdbcTemplate jdbc;MountService mounts;AgentCommandService commands;Path privateRoot;
+    AccountDirectory accounts;DataSourceTransactionManager tx;
     io.studentcloud.content.learning.LearningLibraryService learning;
     @BeforeEach void setup() throws Exception {
         Path managed=Files.createDirectory(temporary.resolve("managed"));
@@ -31,10 +37,10 @@ class AgentCommandServiceTest {
         Files.createDirectories(physical.resolve("admins/u2"));
         Files.writeString(privateRoot.resolve("notes.txt"),"original");
         var database=new JdbcDataSource();database.setURL("jdbc:h2:mem:agentcmd_"+UUID.randomUUID()+";MODE=MySQL;DB_CLOSE_DELAY=-1");
-        new ResourceDatabasePopulator(new ClassPathResource("db/independent-drives-schema.sql"),new ClassPathResource("db/independent-agent-commands-schema.sql"),new ClassPathResource("db/independent-learning-schema.sql")).execute(database);
-        jdbc=new JdbcTemplate(database);var tx=new DataSourceTransactionManager(database);
+        new ResourceDatabasePopulator(new ClassPathResource("db/independent-drives-schema.sql"),new ClassPathResource("db/independent-agent-commands-schema.sql"),new ClassPathResource("db/independent-learning-schema.sql"),new ClassPathResource("db/independent-storage-operations-schema.sql")).execute(database);
+        jdbc=new JdbcTemplate(database);tx=new DataSourceTransactionManager(database);
         identities.put(1L,new Actor(1,"root","root",null,Role.ADMIN,null));identities.put(2L,owner);identities.put(3L,member);
-        AccountDirectory accounts=new AccountDirectory(){
+        accounts=new AccountDirectory(){
             public Actor account(long id){var actor=identities.get(id);if(actor==null)throw new ApplicationFault("42000",401,"账号不可用");return actor;}
             public boolean workspaceEnabled(long id){return id==1;}
         };
@@ -79,6 +85,29 @@ class AgentCommandServiceTest {
         jdbc.update("UPDATE sc_agent_command SET status='RUNNING',idempotency_key='crashed',started_at=?",System.currentTimeMillis()-200_000);
         assertEquals("INDETERMINATE",commands.execute(3,1L,plan.previewToken(),"crashed").status());
         assertFalse(Files.exists(privateRoot.resolve("new")));
+    }
+    @Test void publicationThenStorageFaultNeverBecomesRetryablePartialEvenWithCompletedPrefix()throws Exception {
+        for(String code:List.of("OPERATION_INDETERMINATE","DRIVE_IO_FAILED","DRIVE_DATABASE_UNAVAILABLE","NEW_ADAPTER_FAILURE")) {
+            var calls=new java.util.concurrent.atomic.AtomicInteger();
+            DriveOperations faulting=(DriveOperations)Proxy.newProxyInstance(getClass().getClassLoader(),new Class<?>[]{DriveOperations.class},(p,m,a)->{
+                try {
+                    Object value=m.invoke(mounts,a);
+                    if(m.getName().equals("mkdir")){calls.incrementAndGet();throw new ApplicationFault(code,409,"private-provider-detail; retry-this-write");}
+                    return value;
+                }catch(InvocationTargetException wrapped){throw wrapped.getCause();}
+            });
+            DriveOperations tested=code.equals("OPERATION_INDETERMINATE")?new JournaledDriveOperations(faulting,new StorageOperationJournal(jdbc,tx,Clock.systemUTC(),accounts,mounts),true):faulting;
+            var service=new AgentCommandService(jdbc,tx,Clock.systemUTC(),accounts,tested,new ObjectMapper(),learning);
+            String suffix=code.toLowerCase(Locale.ROOT);
+            var plan=service.preview(3,1L,"test-drive",List.of(new AgentCommandService.Step("COPY","/notes.txt","/completed-"+suffix),new AgentCommandService.Step("MKDIR",null,"/published-"+suffix)));
+            var result=service.execute(3,1L,plan.previewToken(),"uncertain-"+suffix);
+            assertEquals("INDETERMINATE",result.status(),code+" may have published and must never become retryable PARTIAL");
+            assertTrue(result.results().getFirst().success());assertFalse(result.results().getLast().success());
+            assertFalse(result.results().getLast().message().contains("private-provider-detail"));
+            assertTrue(Files.isDirectory(privateRoot.resolve("published-"+suffix)));
+            assertEquals("INDETERMINATE",service.execute(3,1L,plan.previewToken(),"uncertain-"+suffix).status());
+            assertEquals(1,calls.get(),"Unknown storage effects must not be replayed");
+        }
     }
     @Test void bulkOrganizePreviewsAndExecutesFolderCreationBeforeMovingFiles() throws Exception {
         var plan=commands.previewBulk(3,1L,"test-drive","ORGANIZE_FILES","/");

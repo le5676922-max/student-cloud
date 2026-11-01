@@ -162,6 +162,11 @@ public final class PlatformAdministrationService {
         String nickname=input.nickname()==null?null:text(input.nickname(),100,"昵称不能超过 100 字符");
         return Objects.requireNonNull(transactions.execute(status->{
             requireAdmin(supplied);
+            // Match ownership transfer's lock order: workspace before account. A global status edit
+            // must not race a handover or disable two remaining administrators independently.
+            var scopes=jdbc.queryForList("SELECT workspace_id FROM sc_account WHERE id=?",Long.class,input.id());
+            if(scopes.size()==1&&scopes.getFirst()!=null)
+                jdbc.queryForObject("SELECT id FROM sc_workspace WHERE id=? FOR UPDATE",Long.class,scopes.getFirst());
             List<Member> targets=jdbc.query("SELECT a.id,a.account_id,a.username,a.email,a.role,a.workspace_id,a.enabled,a.created_at,p.nickname,r.status "
                     + "FROM sc_account a LEFT JOIN sc_public_profile p ON p.account_id=a.id LEFT JOIN sc_workspace_join_request r ON r.account_id=a.id AND r.workspace_id=a.workspace_id "
                     + "WHERE a.id=? FOR UPDATE",(r,n)->new Member(r.getLong("id"),r.getString("account_id"),r.getString("username"),r.getString("nickname"),r.getString("email"),r.getString("role"),r.getObject("workspace_id",Long.class),r.getBoolean("enabled"),membership(r.getString("status")),r.getLong("created_at")),input.id());
@@ -176,6 +181,10 @@ public final class PlatformAdministrationService {
             boolean enable=input.enable()==null?target.enable():input.enable();
             if("ADMIN".equals(target.role())) enable=true;
             if(enable!=target.enable()){
+                if(!enable&&"TENANT_ADMIN".equals(target.role())){
+                    var remaining=jdbc.queryForList("SELECT id FROM sc_account WHERE workspace_id=? AND role='TENANT_ADMIN' AND enabled=TRUE ORDER BY id FOR UPDATE",Long.class,target.tenantId());
+                    if(remaining.size()<=1)throw new ApplicationFault("WORKSPACE_LAST_ADMIN",409,"不能停用空间最后一位可用管理员，请先完成管理交接或添加接任管理员");
+                }
                 if(enable && target.tenantId()!=null && !Boolean.TRUE.equals(jdbc.queryForObject("SELECT enabled FROM sc_workspace WHERE id=?",Boolean.class,target.tenantId()))) throw missingWorkspace();
                 jdbc.update("UPDATE sc_account SET enabled=?,session_version=session_version+1 WHERE id=?",enable,target.id());
                 if(!enable)jdbc.update("DELETE FROM sc_session WHERE account_id=?",target.id());

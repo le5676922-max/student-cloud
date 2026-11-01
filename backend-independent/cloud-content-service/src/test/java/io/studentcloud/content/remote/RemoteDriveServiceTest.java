@@ -87,6 +87,27 @@ class RemoteDriveServiceTest {
         assertStatus(403,()->service.list(member,"remote-drive",path("/")));
     }
 
+    @Test void ownershipRoleChangesKeepRemotePrivateRootsAndRejectPeerRoots()throws Exception{
+        provider.put("course/admins/u2/old-admin.txt","old admin");
+        provider.put("course/members/u3/new-admin.txt","new admin");
+        identities.put(2L,new Actor(2,"SC2","tenant",null,Role.USER,20L));
+        identities.put(3L,new Actor(3,"SC3","member",null,Role.TENANT_ADMIN,20L));
+        assertEquals(List.of(10L),service.listMounts(tenant).stream().map(m->m.id()).toList());
+        assertEquals(List.of(10L),service.listMounts(member).stream().map(m->m.id()).toList());
+        try(var read=service.readWithMetadata(tenant,"remote-drive",path("/old-admin.txt"))){assertEquals("old admin",new String(read.input().readAllBytes(),StandardCharsets.UTF_8));}
+        try(var read=service.readWithMetadata(member,"remote-drive",path("/new-admin.txt"))){assertEquals("new admin",new String(read.input().readAllBytes(),StandardCharsets.UTF_8));}
+        service.upload(tenant,"remote-drive",path("/after.txt"),bytes("data"),4);
+        assertArrayEquals("data".getBytes(StandardCharsets.UTF_8),provider.objects.get("course/admins/u2/after.txt"));
+        assertTrue(service.stat(tenant,"remote-drive",path("/new-admin.txt")).isEmpty());
+        assertTrue(service.stat(member,"remote-drive",path("/old-admin.txt")).isEmpty());
+        jdbc.update("UPDATE sc_drive_grant SET root_path='/members/u3' WHERE user_id=2");
+        assertTrue(service.listMounts(tenant).isEmpty());
+        assertStatus(403,()->service.list(tenant,"remote-drive",path("/")));
+        jdbc.update("UPDATE sc_drive_grant SET root_path='/admins/u2' WHERE user_id=3");
+        assertTrue(service.listMounts(member).isEmpty());
+        assertStatus(403,()->service.list(member,"remote-drive",path("/")));
+    }
+
     @Test void mountListingUsesOneFreshIdentityWithoutDecryptingCredentialsOrOpeningProviders(){
         metadataMount(11,"second-drive",20L,true,false);
         jdbc.update("INSERT INTO sc_drive_grant(user_id,mount_id,root_path,permissions,quota_bytes,enabled,revision,created_at) VALUES(3,11,'/members/u3','list,read,mkdir,upload,unknown',NULL,TRUE,1,1)");

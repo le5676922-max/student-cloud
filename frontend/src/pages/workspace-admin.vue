@@ -34,6 +34,7 @@
 				</router-link>
 			</nav>
 		</header>
+		<OwnershipTransfer v-if="ownershipTransferEnabled" resource-type="workspace" :enabled="ownershipTransferEnabled" />
 		<el-alert
 			v-if="error"
 			:title="error"
@@ -281,6 +282,8 @@
 </template>
 
 <script setup>
+import OwnershipTransfer from '~/components/auth/OwnershipTransfer.vue'
+const ownershipTransferEnabled = import.meta.env.VITE_OWNERSHIP_TRANSFER_ENABLED === 'true'
 import {
 	computed,
 	defineAsyncComponent,

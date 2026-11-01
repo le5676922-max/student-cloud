@@ -205,7 +205,7 @@ public final class CourseMaterialService {
     }
 
     private void requireCreator(Actor actor, long courseId) {
-        if (!courses.requireRead(actor, courseId).creator()) throw new ApplicationFault("40300", 403, "只有课程创建者可以管理资料");
+        courses.requireManage(actor,courseId);
     }
 
     private void budgetLock() { jdbc.queryForObject("SELECT id FROM sc_course_storage_budget WHERE id=1 FOR UPDATE", Integer.class); }

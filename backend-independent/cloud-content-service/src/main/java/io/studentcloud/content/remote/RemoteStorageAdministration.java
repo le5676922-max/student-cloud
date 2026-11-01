@@ -2,6 +2,7 @@ package io.studentcloud.content.remote;
 import io.studentcloud.account.*;
 import io.studentcloud.common.ApplicationFault;
 import io.studentcloud.drive.object.*;
+import io.studentcloud.drive.application.PersonalDriveRoot;
 import java.io.*;
 import java.time.Clock;
 import java.util.*;
@@ -79,7 +80,7 @@ public final class RemoteStorageAdministration implements RemoteConnections {
     if(jdbc.update("UPDATE sc_remote_storage SET storage_type=?,provider=?,endpoint=?,bucket_name=?,region=?,base_prefix=?,path_style=?,credentials_ciphertext=?,config_version=config_version+1,write_verified=?,validated_at=? WHERE mount_id=? AND config_version=?",c.type(),c.connection().provider().name(),c.connection().endpoint().toString(),c.connection().bucket(),c.connection().region(),c.prefix(),c.connection().pathStyle(),cipher.encrypt(id,c.secrets()),enabled&&write,enabled?clock.millis():null,id,expected)!=1)throw changed();
     jdbc.update("UPDATE sc_drive_mount SET name=?,mount_key=?,engine=?,enabled=?,revision=revision+1 WHERE id=?",name,finalKey,c.connection().provider().name(),enabled,id);
    }
-   for(Actor admin:admins){if(admin.role()!=Role.TENANT_ADMIN||!Objects.equals(admin.workspaceId(),workspace))throw changed();jdbc.update("INSERT INTO sc_drive_grant(user_id,mount_id,root_path,permissions,enabled,revision,created_at) VALUES(?,?,?,?,TRUE,1,?) ON DUPLICATE KEY UPDATE permissions=VALUES(permissions),revision=revision+1",admin.id(),mountId,"/admins/u"+admin.id(),enabled&&write?GRANT:"list,read",clock.millis());}
+   for(Actor admin:admins){if(admin.role()!=Role.TENANT_ADMIN||!Objects.equals(admin.workspaceId(),workspace))throw changed();var oldRoots=jdbc.queryForList("SELECT root_path FROM sc_drive_grant WHERE user_id=? AND mount_id=? FOR UPDATE",String.class,admin.id(),mountId);if(oldRoots.size()>1||!oldRoots.isEmpty()&&!PersonalDriveRoot.belongsTo(oldRoots.getFirst(),admin.id()))throw forbidden();jdbc.update("INSERT INTO sc_drive_grant(user_id,mount_id,root_path,permissions,enabled,revision,created_at) VALUES(?,?,?,?,TRUE,1,?) ON DUPLICATE KEY UPDATE permissions=VALUES(permissions),revision=revision+1",admin.id(),mountId,"/admins/u"+admin.id(),enabled&&write?GRANT:"list,read",clock.millis());}
    return mountId;
   });}catch(org.springframework.dao.DuplicateKeyException e){throw fault(409,"STORAGE_KEY_CONFLICT","存储别名已存在，请使用其他别名");}
  }

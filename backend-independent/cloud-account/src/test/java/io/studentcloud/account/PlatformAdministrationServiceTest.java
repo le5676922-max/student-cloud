@@ -86,6 +86,7 @@ class PlatformAdministrationServiceTest {
     @Test void administratorEditsCannotChangeTenantRoleOrWorkspaceAndOwnPasswordNeedsOldProof() {
         var workspace=admin.saveWorkspace(global,new PlatformAdministrationService.TenantInput(null,"Edit Scope",true));
         var ta=admin.createWorkspaceAdministrator(global,new PlatformAdministrationService.AdministratorInput("ta-edit",null,PASSWORD,"Old Nickname",workspace.id(),"TENANT_ADMIN"));
+        admin.createWorkspaceAdministrator(global,new PlatformAdministrationService.AdministratorInput("ta-successor",null,PASSWORD,null,workspace.id(),"TENANT_ADMIN"));
         var changed=admin.saveAdministrator(global,new PlatformAdministrationService.AdministratorInput(ta.id(),"ta-edit-renamed",null,"",null,"New Nickname",null,"ADMIN",false));
         assertEquals("New Nickname",changed.nickname());assertEquals("TENANT_ADMIN",changed.role());assertEquals(workspace.id(),changed.tenantId());assertFalse(changed.enable());
         assertEquals("TENANT_ADMIN",jdbc.queryForObject("SELECT role FROM sc_account WHERE id=?",String.class,ta.id()));
@@ -97,6 +98,19 @@ class PlatformAdministrationServiceTest {
         assertEquals("ADMIN",self.role());
         assertThrows(ApplicationFault.class,()->accounts.authenticate(accounts.login("global-fixture",PASSWORD).token()));
         assertNotNull(accounts.login("global-fixture","Replacement-password-123").token());
+    }
+
+    @Test void finalEnabledWorkspaceAdministratorCannotBeDisabledWithoutAReplacement(){
+        var workspace=admin.saveWorkspace(global,new PlatformAdministrationService.TenantInput(null,"Managed workspace",true));
+        var last=admin.createWorkspaceAdministrator(global,new PlatformAdministrationService.AdministratorInput("last-owner",null,PASSWORD,null,workspace.id(),"TENANT_ADMIN"));
+        var attempt=new PlatformAdministrationService.AdministratorInput(last.id(),"last-owner",null,"",null,null,null,"TENANT_ADMIN",false);
+        var rejected=assertThrows(ApplicationFault.class,()->admin.saveAdministrator(global,attempt));
+        assertEquals(409,rejected.httpStatus());assertTrue(admin.user(global,last.id()).enable());
+        var replacement=admin.createWorkspaceAdministrator(global,new PlatformAdministrationService.AdministratorInput("replacement-owner",null,PASSWORD,null,workspace.id(),"TENANT_ADMIN"));
+        assertFalse(admin.saveAdministrator(global,attempt).enable());
+        assertTrue(admin.user(global,replacement.id()).enable());
+        var disableReplacement=new PlatformAdministrationService.AdministratorInput(replacement.id(),"replacement-owner",null,"",null,null,null,"TENANT_ADMIN",false);
+        assertEquals(409,assertThrows(ApplicationFault.class,()->admin.saveAdministrator(global,disableReplacement)).httpStatus());
     }
 
     private Actor taActor(PlatformAdministrationService.Member member){return new Actor(member.id(),member.accountId(),member.username(),member.email(),Role.TENANT_ADMIN,member.tenantId());}

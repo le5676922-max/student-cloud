@@ -30,7 +30,8 @@ public class IntelligenceMigrations {
                         new Script("4", "intelligence_agent_plans", "db/independent-agent-schema.sql"),
                         new Script("5", "intelligence_agent_schedules", "db/independent-agent-schedules-schema.sql"),
                         new Script("6", "intelligence_answer_provenance", "db/independent-answer-provenance-schema.sql"),
-                        new Script("7", "intelligence_agent_plan_budget", "db/independent-agent-plan-budget-schema.sql"))
+                        new Script("7", "intelligence_agent_plan_budget", "db/independent-agent-plan-budget-schema.sql"),
+                        new Script("8", "intelligence_document_projection", "db/independent-document-projection-schema.sql"))
                 .load();
     }
 

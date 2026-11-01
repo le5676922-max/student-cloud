@@ -1,5 +1,6 @@
 package io.studentcloud.content.remote;
 import io.studentcloud.account.*;
+import io.studentcloud.drive.application.PersonalDriveRoot;
 import io.studentcloud.common.ApplicationFault;
 import io.studentcloud.drive.*;
 import io.studentcloud.drive.application.*;
@@ -30,14 +31,14 @@ public final class RemoteDriveService implements DriveOperations {
  public RemoteDriveService(JdbcTemplate jdbc,PlatformTransactionManager manager,Clock clock,AccountDirectory accounts,RemoteConnections configs,ObjectStoreFactory factory,Path staging){this.jdbc=jdbc;tx=new TransactionTemplate(manager);tx.setTimeout(10);this.clock=clock;this.accounts=accounts;this.configs=configs;this.factory=factory;stage=staging==null?null:staging.toAbsolutePath().normalize();}
  public List<MountView> listMounts(Actor supplied){
   Actor actor=accounts.current(supplied);boolean global=actor.role()==Role.ADMIN;
-  String fixedRoot=(actor.role()==Role.TENANT_ADMIN?"/admins/u":"/members/u")+actor.id();
+  String memberRoot="/members/u"+actor.id(), adminRoot="/admins/u"+actor.id();
   var rows=jdbc.queryForList("SELECT m.id,m.mount_key,m.name,m.workspace_id,m.owner_id,m.engine,m.enabled,m.revision,r.write_verified,g.root_path grant_root,g.permissions grant_permissions "
     +"FROM sc_drive_mount m JOIN sc_remote_storage r ON r.mount_id=m.id LEFT JOIN sc_drive_grant g ON g.mount_id=m.id AND g.user_id=? "
-    +"WHERE m.engine IN('S3','ALIYUN_OSS') AND (?=TRUE OR (m.enabled=TRUE AND m.revision>=1 AND m.workspace_id=? AND g.enabled=TRUE AND g.revision>=1 AND g.root_path=? AND (g.quota_bytes IS NULL OR g.quota_bytes>=0))) ORDER BY m.id LIMIT 201",
-    actor.id(),global,actor.workspaceId(),fixedRoot);
+    +"WHERE m.engine IN('S3','ALIYUN_OSS') AND (?=TRUE OR (m.enabled=TRUE AND m.revision>=1 AND m.workspace_id=? AND g.enabled=TRUE AND g.revision>=1 AND g.root_path IN (?,?) AND (g.quota_bytes IS NULL OR g.quota_bytes>=0))) ORDER BY m.id LIMIT 201",
+    actor.id(),global,actor.workspaceId(),memberRoot,adminRoot);
   if(rows.size()>200)throw budget();var result=new ArrayList<MountView>();
   for(var row:rows){
-   if(!global&&!fixedRoot.equals(row.get("grant_root")))continue;
+   if(!global&&!PersonalDriveRoot.belongsTo((String)row.get("grant_root"),actor.id()))continue;
    Set<String> permissions=new HashSet<>();
    if(global)permissions.addAll(KNOWN);
    else if(row.get("grant_permissions") instanceof String csv&&csv.length()<=1024){permissions.addAll(Arrays.asList(csv.split(",")));permissions.retainAll(KNOWN);}
@@ -169,7 +170,7 @@ public final class RemoteDriveService implements DriveOperations {
   return Map.of("id",id,"status",status,"result",confirmed?"CONFIRMED":"PENDING","message",confirmed?"远端对象已确认属于本次写入，写入冻结已解除。":"尚未取得匹配本次写入的完整证据，冻结状态已保留；请勿重复提交。");
  }
  private Access access(Actor supplied,String key,Set<String> required){noTransaction();Actor a=accounts.current(supplied);if(key==null||!key.matches("[a-z0-9][a-z0-9_-]{2,63}"))throw invalid();var rows=jdbc.queryForList("SELECT * FROM sc_drive_mount WHERE mount_key=? AND engine IN('S3','ALIYUN_OSS')",key);if(rows.size()!=1)throw denied();var m=rows.getFirst();if(!yes(m.get("enabled")))throw denied();long id=number(m,"id");var config=configs.load(id);String root="/";Set<String> permissions=KNOWN;Long quota=null;long grantRevision=0;
-  if(a.role()!=Role.ADMIN){if(a.workspaceId()==null||!a.workspaceId().equals(number(m,"workspace_id")))throw denied();var grants=jdbc.queryForList("SELECT * FROM sc_drive_grant WHERE user_id=? AND mount_id=? AND enabled=TRUE",a.id(),id);if(grants.size()!=1)throw denied();var grant=grants.getFirst();root=(String)grant.get("root_path");String fixed=(a.role()==Role.TENANT_ADMIN?"/admins/u":"/members/u")+a.id();if(!fixed.equals(root))throw denied();permissions=new HashSet<>(Arrays.asList(((String)grant.get("permissions")).split(",")));permissions.retainAll(KNOWN);quota=number(grant,"quota_bytes");grantRevision=number(grant,"revision");}
+  if(a.role()!=Role.ADMIN){if(a.workspaceId()==null||!a.workspaceId().equals(number(m,"workspace_id")))throw denied();var grants=jdbc.queryForList("SELECT * FROM sc_drive_grant WHERE user_id=? AND mount_id=? AND enabled=TRUE",a.id(),id);if(grants.size()!=1)throw denied();var grant=grants.getFirst();root=(String)grant.get("root_path");if(!PersonalDriveRoot.belongsTo(root,a.id()))throw denied();permissions=new HashSet<>(Arrays.asList(((String)grant.get("permissions")).split(",")));permissions.retainAll(KNOWN);quota=number(grant,"quota_bytes");grantRevision=number(grant,"revision");}
   if(!config.writeVerified())permissions=Set.of("list","read").stream().filter(permissions::contains).collect(java.util.stream.Collectors.toSet());if(!permissions.containsAll(required))throw denied();
   String prefix=config.basePrefix()+(root.equals("/")?"":root.substring(1)+"/");return new Access(a,id,number(m,"revision"),grantRevision,root,prefix,Set.copyOf(permissions),quota,config);
  }

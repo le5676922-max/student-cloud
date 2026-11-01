@@ -146,7 +146,7 @@ public final class WorkspaceCloudService {
             validateQuota(quota);
             requireDelegation(actor, mount, selected);
             List<String> current = jdbc.queryForList("SELECT root_path FROM sc_drive_grant WHERE user_id=? AND mount_id=? FOR UPDATE", String.class, userId, mountId);
-            if (current.size() != 1 || !DrivePath.of(current.getFirst()).value().equals(personalRoot(member)))
+            if (current.size() != 1 || !PersonalDriveRoot.belongsTo(DrivePath.of(current.getFirst()).value(),member.id()))
                 throw denied();
             if (!selected.isEmpty()) ensurePersonalDirectory(mount, member, created);
             requireUnchanged(actor, currentActor(supplied));
@@ -249,24 +249,33 @@ public final class WorkspaceCloudService {
         List<GrantRow> grants = jdbc.query("SELECT root_path,permissions,enabled FROM sc_drive_grant WHERE user_id=? AND mount_id=? FOR UPDATE",
                 (result, index) -> new GrantRow(result.getString("root_path"), permissionCsv(result.getString("permissions")), result.getBoolean("enabled")), tenant.id(), mount.id());
         if (grants.size() != 1 || !grants.getFirst().enabled()
-                || !DrivePath.of(grants.getFirst().root()).value().equals(personalRoot(tenant))
+                || !PersonalDriveRoot.belongsTo(DrivePath.of(grants.getFirst().root()).value(),tenant.id())
                 || !grants.getFirst().permissions().containsAll(selected)) throw denied();
     }
 
     private void saveGrant(Actor user, long mountId, Long quota, Set<String> permissions) {
         String values = permissions.stream().sorted().collect(java.util.stream.Collectors.joining(","));
+        String privateRoot=existingPersonalRoot(user,mountId);
         int updated = jdbc.update("UPDATE sc_drive_grant SET root_path=?,permissions=?,quota_bytes=?,enabled=?,revision=revision+1 WHERE user_id=? AND mount_id=?",
-                personalRoot(user), values, quota, !permissions.isEmpty(), user.id(), mountId);
+                privateRoot, values, quota, !permissions.isEmpty(), user.id(), mountId);
         if (updated == 0) jdbc.update("INSERT INTO sc_drive_grant(user_id,mount_id,root_path,permissions,quota_bytes,enabled,revision,created_at) VALUES(?,?,?,?,?,?,1,?)",
-                user.id(), mountId, personalRoot(user), values, quota, !permissions.isEmpty(), clock.millis());
+                user.id(), mountId, privateRoot, values, quota, !permissions.isEmpty(), clock.millis());
+    }
+
+    private String existingPersonalRoot(Actor user,long mountId){
+        var roots=jdbc.queryForList("SELECT root_path FROM sc_drive_grant WHERE user_id=? AND mount_id=? FOR UPDATE",String.class,user.id(),mountId);
+        if(roots.isEmpty())return personalRoot(user);
+        if(roots.size()!=1 || !PersonalDriveRoot.belongsTo(roots.getFirst(),user.id()))throw denied();
+        return roots.getFirst();
     }
 
     private void ensurePersonalDirectory(MountRow mount, Actor user, List<Path> created) {
         if(!"LOCAL".equals(mount.engine()))return; // Object roots are virtual prefixes, never host paths.
         Path root = validatedMountRoot(mount.physicalRoot());
         LocalFileStore store = kernel(root);
-        createOwnedDirectory(store, DrivePath.of(user.role() == Role.USER ? "/members" : "/admins"), root, created);
-        createOwnedDirectory(store, DrivePath.of(personalRoot(user)), root, created);
+        DrivePath privatePath=DrivePath.of(existingPersonalRoot(user,mount.id()));
+        createOwnedDirectory(store, privatePath.parent(), root, created);
+        createOwnedDirectory(store, privatePath, root, created);
     }
 
     private static void createOwnedDirectory(LocalFileStore store, DrivePath path, Path root, List<Path> created) {

@@ -33,7 +33,10 @@ public class ContentMigrations {
                         new Migration("10", "content_controlled_shares", "db/independent-shares-schema.sql"),
                         new Migration("11", "content_recycle_bin", "db/independent-recycle-schema.sql"),
                         new Migration("12", "content_remote_storage", "db/independent-remote-storage-schema.sql"),
-                        new Migration("13", "content_remote_writes", "db/independent-remote-writes-schema.sql"))
+                        new Migration("13", "content_remote_writes", "db/independent-remote-writes-schema.sql"),
+                        new Migration("14", "content_quota_ledger", "db/independent-quota-schema.sql"),
+                        new Migration("15", "content_storage_operations", "db/independent-storage-operations-schema.sql"),
+                        new Migration("16", "content_ownership_transfer", "db/independent-course-ownership-transfer-schema.sql"))
                 .load();
     }
 

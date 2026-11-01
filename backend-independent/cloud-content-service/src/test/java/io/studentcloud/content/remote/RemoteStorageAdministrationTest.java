@@ -50,6 +50,19 @@ class RemoteStorageAdministrationTest {
         assertEquals(403,assertThrows(ApplicationFault.class,()->service.detail(outsider,id)).httpStatus());
         assertEquals(403,assertThrows(ApplicationFault.class,()->service.list(member)).httpStatus());
     }
+    @Test void editingStoragePreservesAPromotedAdministratorsExistingMemberRootAndQuota(){
+        long id=service.save(admin,input("promoted",true));
+        jdbc.update("UPDATE sc_drive_grant SET root_path='/members/u2',quota_bytes=123 WHERE user_id=2 AND mount_id=?",id);
+        service.save(admin,edit(id));
+        assertEquals("/members/u2",jdbc.queryForObject("SELECT root_path FROM sc_drive_grant WHERE user_id=2 AND mount_id=?",String.class,id));
+        assertEquals(123L,jdbc.queryForObject("SELECT quota_bytes FROM sc_drive_grant WHERE user_id=2 AND mount_id=?",Long.class,id));
+    }
+    @Test void editingStorageCannotRefreshAGrantToAnotherPersonsRoot(){
+        long id=service.save(admin,input("invalid-personal",true));
+        jdbc.update("UPDATE sc_drive_grant SET root_path='/members/u3' WHERE user_id=2 AND mount_id=?",id);
+        assertEquals(403,assertThrows(ApplicationFault.class,()->service.save(admin,edit(id))).httpStatus());
+        assertEquals("/members/u3",jdbc.queryForObject("SELECT root_path FROM sc_drive_grant WHERE user_id=2 AND mount_id=?",String.class,id));
+    }
     @Test void editKeepsBlankSecretsUsesCasAndRequiresDisableBeforeChangingTheBucket(){
         long id=service.save(admin,input("oss-one",true));
         var update=edit(id);service.save(admin,update);assertEquals("secret-value",service.load(id).connection().secretKey());

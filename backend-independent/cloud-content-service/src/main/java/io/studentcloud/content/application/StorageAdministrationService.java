@@ -8,6 +8,7 @@ import io.studentcloud.common.ApplicationFault;
 import io.studentcloud.drive.DrivePath;
 import io.studentcloud.drive.LocalFileStore;
 import io.studentcloud.drive.application.MountService;
+import io.studentcloud.drive.application.PersonalDriveRoot;
 import io.studentcloud.drive.application.LocalStorageRequestView;
 import io.studentcloud.drive.application.WorkspaceCloudService;
 import java.io.IOException;
@@ -189,7 +190,7 @@ public final class StorageAdministrationService {
         Actor admin=requireTenantAdmin(supplied);Actor member=member(admin,userId);
         List<GrantRow> grants=ownGrantedMounts(admin);
         Set<String> allowedDefaults=new LinkedHashSet<>();List<Map<String,Object>> storageRows=new ArrayList<>();
-        for(GrantRow own:grants){allowedDefaults.addAll(own.permissions());GrantRow target=memberGrant(member.id(),own.mountId());String memberRoot=memberRoot(member.id());
+        for(GrantRow own:grants){allowedDefaults.addAll(own.permissions());GrantRow target=memberGrant(member.id(),own.mountId());String memberRoot=target==null?memberRoot(member.id()):target.root();if(!PersonalDriveRoot.belongsTo(memberRoot,member.id()))throw forbidden();
             var row=new LinkedHashMap<String,Object>();row.put("storageSourceId",own.mountId());row.put("storageSourceName",own.name());row.put("enable",target!=null&&target.enabled());row.put("rootPath",target==null?memberRoot:target.root());row.put("allowedRootPath",memberRoot);row.put("quotaBytes",target==null?null:target.quotaBytes());row.put("permissions",target==null?List.of():target.permissions());row.put("allowedPermissions",own.permissions().stream().sorted().toList());storageRows.add(row);}
         List<String> defaults=jdbc.query("SELECT permissions FROM sc_workspace_member_permission_defaults WHERE user_id=? AND workspace_id=?",(r,n)->permissionCsv(r.getString(1)).stream().sorted().toList(),member.id(),admin.workspaceId()).stream().findFirst().orElse(List.of());
         var result=new LinkedHashMap<String,Object>();result.put("userId",member.id());result.put("defaultPermissions",defaults);result.put("allowedDefaultPermissions",allowedDefaults.stream().sorted().toList());result.put("permissionOptions",PERMISSION_OPTIONS);result.put("storages",storageRows);return result;
@@ -211,7 +212,7 @@ public final class StorageAdministrationService {
                 if(locked.size()!=1)throw fault("DRIVE_PERMISSION_SCOPE",403,"不能授权本空间管理员未持有的存储源");
             }
             for(MemberStorageInput storage:storages){
-                String ownedRoot=memberRoot(member.id());if(!Objects.equals(ownedRoot,normalizeRoot(storage.rootPath())))throw fault("DRIVE_ROOT_SCOPE",403,"成员只能使用系统分配的个人目录");
+                var priorRoot=memberGrant(member.id(),storage.storageSourceId());String ownedRoot=priorRoot==null?memberRoot(member.id()):priorRoot.root();if(!PersonalDriveRoot.belongsTo(ownedRoot,member.id())||!Objects.equals(ownedRoot,normalizeRoot(storage.rootPath())))throw fault("DRIVE_ROOT_SCOPE",403,"成员只能使用系统分配的个人目录");
                 List<String> ownRows=jdbc.query("SELECT permissions FROM sc_drive_grant WHERE user_id=? AND mount_id=? AND enabled=TRUE FOR UPDATE",(r,n)->r.getString(1),admin.id(),storage.storageSourceId());
                 if(ownRows.size()!=1)throw fault("DRIVE_PERMISSION_SCOPE",403,"不能授权本空间管理员未持有的存储源");
                 Set<String> own=permissionCsv(ownRows.getFirst());Set<String> selected=Boolean.TRUE.equals(storage.enable())?validatedPermissions(storage.permissions()):Set.of();
@@ -236,7 +237,10 @@ public final class StorageAdministrationService {
             var store=new LocalFileStore(root,10000,MountService.MAX_TRANSFER_BYTES);
             store.createDirectory(DrivePath.of("/admins"));
             for(Actor administrator:administrators){
-                store.createDirectory(DrivePath.of(adminRoot(administrator.id())));
+                var roots=jdbc.queryForList("SELECT root_path FROM sc_drive_grant WHERE user_id=? AND mount_id=? FOR UPDATE",String.class,administrator.id(),mountId);
+                String privateRoot=roots.isEmpty()?adminRoot(administrator.id()):roots.getFirst();
+                if(roots.size()>1||!PersonalDriveRoot.belongsTo(privateRoot,administrator.id()))throw forbidden();
+                store.createDirectory(DrivePath.of(privateRoot).parent());store.createDirectory(DrivePath.of(privateRoot));
                 if(jdbc.queryForObject("SELECT COUNT(*) FROM sc_drive_grant WHERE user_id=? AND mount_id=?",Integer.class,administrator.id(),mountId)==0)
                     jdbc.update("INSERT INTO sc_drive_grant(user_id,mount_id,root_path,permissions,enabled,revision,created_at) VALUES(?,?,?,?,TRUE,1,?)",
                             administrator.id(),mountId,adminRoot(administrator.id()),permissionCsv(PERMISSIONS),clock.millis());
@@ -265,7 +269,7 @@ public final class StorageAdministrationService {
     private Actor requireAdmin(Actor supplied){Actor actor=current(supplied);if(actor.role()!=Role.ADMIN||actor.workspaceId()!=null)throw forbidden();return actor;}
     private Actor requireTenantAdmin(Actor supplied){Actor actor=current(supplied);if(actor.role()!=Role.TENANT_ADMIN||actor.workspaceId()==null)throw forbidden();return actor;}
     private Actor member(Actor admin,long id){Actor member=accounts.account(id);if(member.role()!=Role.USER||!Objects.equals(member.workspaceId(),admin.workspaceId()))throw forbidden();return member;}
-    private List<GrantRow> ownGrantedMounts(Actor admin){return jdbc.query("SELECT m.id,m.name,g.root_path,g.permissions,g.quota_bytes,g.enabled FROM sc_drive_mount m JOIN sc_drive_grant g ON g.mount_id=m.id WHERE m.workspace_id=? AND m.engine IN('LOCAL','S3','ALIYUN_OSS') AND m.enabled=TRUE AND g.user_id=? AND g.enabled=TRUE ORDER BY m.id LIMIT 200",(r,n)->{String root=normalizeRoot(r.getString("root_path"));if(!Objects.equals(root,adminRoot(admin.id())))throw forbidden();return new GrantRow(r.getLong("id"),r.getString("name"),root,permissionCsv(r.getString("permissions")),r.getObject("quota_bytes",Long.class),true);},admin.workspaceId(),admin.id());}
+    private List<GrantRow> ownGrantedMounts(Actor admin){return jdbc.query("SELECT m.id,m.name,g.root_path,g.permissions,g.quota_bytes,g.enabled FROM sc_drive_mount m JOIN sc_drive_grant g ON g.mount_id=m.id WHERE m.workspace_id=? AND m.engine IN('LOCAL','S3','ALIYUN_OSS') AND m.enabled=TRUE AND g.user_id=? AND g.enabled=TRUE ORDER BY m.id LIMIT 200",(r,n)->{String root=normalizeRoot(r.getString("root_path"));if(!PersonalDriveRoot.belongsTo(root,admin.id()))throw forbidden();return new GrantRow(r.getLong("id"),r.getString("name"),root,permissionCsv(r.getString("permissions")),r.getObject("quota_bytes",Long.class),true);},admin.workspaceId(),admin.id());}
     private GrantRow memberGrant(long userId,long mountId){return jdbc.query("SELECT m.id,m.name,g.root_path,g.permissions,g.quota_bytes,g.enabled FROM sc_drive_mount m LEFT JOIN sc_drive_grant g ON g.mount_id=m.id AND g.user_id=? WHERE m.id=? AND m.engine IN('LOCAL','S3','ALIYUN_OSS')",(r,n)->{String root=r.getString("root_path");return root==null?null:new GrantRow(r.getLong("id"),r.getString("name"),normalizeRoot(root),permissionCsv(r.getString("permissions")),r.getObject("quota_bytes",Long.class),r.getBoolean("enabled"));},userId,mountId).stream().filter(Objects::nonNull).findFirst().orElse(null);}
     private static Set<String> validatedPermissions(List<String> values){if(values==null)return Set.of();Set<String> result=new LinkedHashSet<>(values);if(result.size()!=values.size()||!PERMISSIONS.containsAll(result))throw invalid("权限项无效");return Set.copyOf(result);}
     private static Set<String> permissionCsv(String value){if(value==null||value.length()>1024)throw denied();if(value.isBlank())return Set.of();return validatedPermissions(Arrays.asList(value.split(",",-1)));}

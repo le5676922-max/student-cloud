@@ -8,6 +8,7 @@ import io.studentcloud.drive.application.MountService;
 import io.studentcloud.drive.application.DriveOperations;
 import io.studentcloud.drive.application.WorkspaceCloudService;
 import io.studentcloud.drive.application.FileCatalog;
+import io.studentcloud.drive.application.QuotaLedger;
 import java.nio.file.Path;
 import java.time.Clock;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,6 +23,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 public class StorageConfiguration {
     @Bean @DependsOn("independentSchema")
     FileCatalog fileCatalog(JdbcTemplate jdbc,PlatformTransactionManager tx,Clock clock){return new FileCatalog(jdbc,tx,clock);}
+    @Bean @DependsOn("independentSchema")
+    QuotaLedger quotaLedger(JdbcTemplate jdbc,PlatformTransactionManager tx,Clock clock){return new QuotaLedger(jdbc,tx,clock);}
     @Bean
     @DependsOn("independentSchema")
     io.studentcloud.content.learning.LearningLibraryService learningLibrary(JdbcTemplate jdbc,
@@ -31,8 +34,9 @@ public class StorageConfiguration {
     @Bean
     @DependsOn("independentSchema")
     MountService mounts(JdbcTemplate jdbc, PlatformTransactionManager transactions, Clock clock,
-                        @Value("${student-cloud.storage.managed-root:}") String configuredRoot, AccountDirectory accounts,FileCatalog catalog) {
-        return new MountService(jdbc, transactions, clock, configuredPath(configuredRoot), accounts,catalog);
+                        @Value("${student-cloud.storage.managed-root:}") String configuredRoot, AccountDirectory accounts,FileCatalog catalog,
+                        QuotaLedger ledger,@Value("${student-cloud.features.quota-ledger:false}") boolean ledgerEnabled) {
+        return new MountService(jdbc, transactions, clock, configuredPath(configuredRoot), accounts,catalog,ledgerEnabled?ledger:null);
     }
 
     @Bean

@@ -51,6 +51,7 @@ public final class MountService implements DriveOperations {
     private final Path managedRoot;
     private final Semaphore stagedUploads = new Semaphore(2);
     private FileCatalog catalog;
+    private QuotaLedger quotaLedger;
 
     public MountService(JdbcTemplate jdbc, PlatformTransactionManager transactionManager, Clock clock, Path managedRoot, AccountDirectory accounts) {
         this.jdbc = Objects.requireNonNull(jdbc);
@@ -64,6 +65,32 @@ public final class MountService implements DriveOperations {
     public MountService(JdbcTemplate jdbc,PlatformTransactionManager transactions,Clock clock,Path root,AccountDirectory accounts,FileCatalog catalog){
         this(jdbc,transactions,clock,root,accounts);this.catalog=Objects.requireNonNull(catalog);
     }
+    public MountService(JdbcTemplate jdbc,PlatformTransactionManager transactions,Clock clock,Path root,
+                        AccountDirectory accounts,FileCatalog catalog,QuotaLedger quotaLedger){
+        this(jdbc,transactions,clock,root,accounts,catalog);this.quotaLedger=quotaLedger;
+    }
+
+    /** 只返回当前授权主体的账本，不能由请求指定 ownerId 或宿主路径。 */
+    public QuotaLedger.View quota(Actor actor,String key){
+        return protect(()->{requireLedger();Access a=access(actor,key,Set.of("list"),false);
+            return quotaLedger.view(quotaScope(a),a.stamp().quota());});
+    }
+    public QuotaLedger.View reconcileQuota(Actor actor,String key){
+        return protect(()->{requireLedger();Access a=access(actor,key,Set.of("list"),false);return reconcileQuota(actor,key,a);});
+    }
+    private QuotaLedger.View reconcileQuota(Actor actor,String key,Access before)throws IOException{
+        return quotaLedger.reconcile(quotaScope(before),before.stamp().quota(),()->transactions.execute(tx->protect(()->{
+            jdbc.queryForObject("SELECT id FROM sc_drive_mount WHERE id=? FOR UPDATE",Long.class,before.stamp().mountId());
+            Access a=access(actor,key,Set.of("list"),false);
+            if(!before.stamp().equals(a.stamp()))throw fault("DRIVE_CHANGED",409,"授权已变化，请刷新");
+            // 包括隐藏回收内容；移入回收站不重复收费，也不提前释放实际字节。
+            return LocalUsageMeter.bytes(visibleRoot(a));
+        })));
+    }
+    private QuotaLedger.Scope quotaScope(Access a)throws IOException{
+        return new QuotaLedger.Scope(a.stamp().mountId(),a.stamp().userId(),vaultScope(a));
+    }
+    private void requireLedger(){if(quotaLedger==null)throw fault("QUOTA_UNAVAILABLE",501,"容量账本尚未启用");}
 
     public List<MountView> listMounts(Actor actor) {
         return protect(()->{configuredRoot();return listLocalMounts(actor);});
@@ -199,12 +226,12 @@ public final class MountService implements DriveOperations {
         if (!item.directory()) throw fault("DRIVE_INVALID", 400, "请选择文件夹");
     }
 
-    private static void validateUpload(Access allowed, DrivePath path, long size) throws IOException {
+    private void validateUpload(Access allowed, DrivePath path, long size) throws IOException {
         if (size < 0 || size > MAX_TRANSFER_BYTES) throw fault("DRIVE_INVALID", 400, "文件不能超过50MiB");
         if (path.isRoot()) throw fault("DRIVE_INVALID", 400, "请指定文件名称");
         requireDirectory(allowed, path.parent());
         if (allowed.store().stat(path).isPresent()) throw fault("DRIVE_CONFLICT", 409, "目标已存在同名文件，不会覆盖");
-        requireQuota(allowed, size);
+        if(quotaLedger==null)requireQuota(allowed, size);
     }
 
     public FileRecord mkdir(Actor actor, String key, DrivePath path) {
@@ -292,7 +319,20 @@ public final class MountService implements DriveOperations {
         return protect(() -> {
             Access before = access(actor, key, operations, true);
             if (expected != null && !expected.equals(before.stamp())) throw fault("DRIVE_CHANGED", 409, "目录或授权已变化，请刷新后重试");
-            return transactions.execute(status -> protect(() -> {
+            long planned=quotaLedger==null?0:incoming.run(before);
+            QuotaLedger.Scope scope=quotaLedger==null?null:quotaScope(before);
+            QuotaLedger.Reservation held=null;
+            if(quotaLedger!=null){
+                if(planned>0&&"UNKNOWN".equals(quotaLedger.view(scope,before.stamp().quota()).usageState()))reconcileQuota(actor,key,before);
+                held=quotaLedger.reserve(scope,before.stamp().quota(),"write-"+java.util.UUID.randomUUID(),planned);
+            }
+            // 零增长操作也可能删除字节；先独立提交估算标记，崩溃或后续 SQL 失败不再伪称精确。
+            if(quotaLedger!=null&&planned==0)quotaLedger.markEstimated(scope);
+            QuotaLedger.Reservation reservation=held;
+            boolean[] started={false};
+            long[] actualGrowth={planned};
+            try{
+            T completed=transactions.execute(status -> protect(() -> {
                 // Every mutation, including ADMIN, serializes on the mount across application instances.
                 jdbc.queryForObject("SELECT id FROM sc_drive_mount WHERE id=? FOR UPDATE", Long.class, before.stamp().mountId());
                 if (before.stamp().role() != Role.ADMIN) {
@@ -302,11 +342,24 @@ public final class MountService implements DriveOperations {
                 Access current = access(actor, key, operations, true);
                 if (!before.stamp().equals(current.stamp())) throw fault("DRIVE_CHANGED", 409, "目录或授权已变化，请刷新后重试");
                 long growth = incoming.run(current);
-                requireQuota(current, growth);
+                actualGrowth[0]=growth;
+                if(quotaLedger==null)requireQuota(current, growth);
+                else if(growth>planned)throw fault("DRIVE_CHANGED",409,"源文件大小已变化，请重新预览");
+                // 降额/授权修改在预留之后发生时仍即时阻止新增；不删除已有内容。
+                if(growth>0&&current.stamp().quota()!=null&&growth>current.stamp().quota())throw fault("DRIVE_QUOTA_EXCEEDED",409,"文件超过当前容量上限");
+                started[0]=true;
                 T result=action.run(current);
                 if(catalog!=null)catalog.invalidateMount(current.stamp().mountId());
                 return result;
             }));
+            if(reservation!=null)quotaLedger.settle(scope,reservation.id(),actualGrowth[0]);
+            else if(quotaLedger!=null)quotaLedger.markEstimated(scope);
+            return completed;
+            }catch(RuntimeException failed){
+                if(reservation!=null&&!started[0])quotaLedger.releaseConfirmedFailure(scope,reservation.id());
+                // 动过存储的失败可能已经发布；保留预留等待真实证据，不按超时虚减。
+                throw failed;
+            }
         });
     }
 
@@ -413,8 +466,11 @@ public final class MountService implements DriveOperations {
                     Path mountRoot=requireManagedRoot(Path.of(physical));Path visible=mountRoot.resolve(DrivePath.of(row.root()).relative());
                     var attr=Files.readAttributes(visible,java.nio.file.attribute.BasicFileAttributes.class,LinkOption.NOFOLLOW_LINKS);
                     if(!row.scope().equals(digest(mountRoot+"|"+row.root()+"|"+attr.fileKey()+"|"+attr.creationTime())))throw denied();
+                    QuotaLedger.Scope scope=quotaLedger==null?null:new QuotaLedger.Scope(row.mountId(),row.actorId(),row.scope());
+                    QuotaLedger.Reservation held=quotaLedger==null?null:quotaLedger.reserve(scope,null,"retention-"+id,0);
                     new LocalFileStore(visible,MAX_ENTRIES,MAX_TRANSFER_BYTES).purgeRecycled(id);
                     jdbc.update("UPDATE sc_drive_trash SET status='PURGED',updated_at=? WHERE id=? AND status='PURGING'",clock.millis(),id);
+                    if(held!=null)quotaLedger.settle(scope,held.id(),0);
                     cleaned++;
                 }
             }catch(IOException|RuntimeException failed){uncertain(id,"PURGING");uncertain(id,"TRASHED");}
@@ -474,8 +530,7 @@ public final class MountService implements DriveOperations {
                 }, actor.id(), mount.id());
         if (rows.size() != 1) throw denied();
         Grant grant = rows.getFirst();
-        if (actor.role() == Role.USER && !grant.root().equals("/members/u" + actor.id())) throw denied();
-        if (actor.role() == Role.TENANT_ADMIN && !grant.root().equals("/admins/u" + actor.id())) throw denied();
+        if (!PersonalDriveRoot.belongsTo(grant.root(),actor.id())) throw denied();
         return grant;
     }
 

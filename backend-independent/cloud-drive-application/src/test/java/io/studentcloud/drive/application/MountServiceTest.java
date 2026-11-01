@@ -155,6 +155,33 @@ class MountServiceTest {
         assertTrue(service.list(tenant, "drive", p("/")).isEmpty());
     }
 
+    @Test void ownershipRoleChangesKeepBothUsersOriginalPrivateRoots() throws IOException {
+        MountView view = mount();
+        grant(tenant, view.id(), "/admins/u2", "list,read,upload", null);
+        grant(member, view.id(), "/members/u3", "list,read,upload", null);
+        Files.writeString(mounted.resolve("admins/u2/old-admin.txt"), "old admin");
+        Files.writeString(mounted.resolve("members/u3/new-admin.txt"), "new admin");
+        jdbc.update("UPDATE sc_account SET role='USER' WHERE id=2");
+        jdbc.update("UPDATE sc_account SET role='TENANT_ADMIN' WHERE id=3");
+
+        assertEquals(1, service.listMounts(tenant).size());
+        assertEquals(1, service.listMounts(member).size());
+        try (ReadHandle data = service.readWithMetadata(tenant, "drive", p("/old-admin.txt"))) {
+            assertEquals("old admin", new String(data.input().readAllBytes(), StandardCharsets.UTF_8));
+        }
+        try (ReadHandle data = service.readWithMetadata(member, "drive", p("/new-admin.txt"))) {
+            assertEquals("new admin", new String(data.input().readAllBytes(), StandardCharsets.UTF_8));
+        }
+        service.upload(tenant, "drive", p("/after.txt"), new ByteArrayInputStream(new byte[]{1}), 1);
+        assertTrue(Files.isRegularFile(mounted.resolve("admins/u2/after.txt")));
+        assertTrue(service.stat(member, "drive", p("/old-admin.txt")).isEmpty());
+        assertTrue(service.stat(tenant, "drive", p("/new-admin.txt")).isEmpty());
+        jdbc.update("UPDATE sc_drive_grant SET root_path='/members/u3' WHERE user_id=2");
+        assertStatus(403, () -> service.list(tenant, "drive", p("/")));
+        jdbc.update("UPDATE sc_drive_grant SET root_path='/admins/u2' WHERE user_id=3");
+        assertStatus(403, () -> service.list(member, "drive", p("/")));
+    }
+
     @Test void personalRootReallyConfinesIoToMembersDirectory() throws IOException {
         MountView view = mount();
         grant(member, view.id(), "/members/u3", "list,read,upload,mkdir", null);
@@ -296,6 +323,63 @@ class MountServiceTest {
     }
 
     private MountView mount() { return service.createLocal(admin, "资料云盘", "drive", mounted, 1L); }
+    @Test void ledgerCountsExistingDataAndDoesNotDoubleChargeRecycleRestore() throws Exception {
+        enableLedger();
+        var mount=mount(); grant(member,mount.id(),"/members/u3","list,read,upload,delete,mkdir,copy",10L);
+        Files.writeString(mounted.resolve("members/u3/old.txt"),"old!");
+        assertEquals("UNKNOWN",service.quota(member,"drive").usageState());
+        service.upload(member,"drive",p("/new.txt"),bytes("new"),3);
+        assertEquals(7L,service.quota(member,"drive").usedBytes());
+        assertEquals(0,service.quota(member,"drive").reservedBytes());
+        var trash=service.recycle(member,"drive",p("/old.txt"));
+        assertEquals(7L,service.quota(member,"drive").usedBytes());
+        service.restoreRecycled(member,"drive",trash.id());
+        assertEquals(7L,service.quota(member,"drive").usedBytes());
+        trash=service.recycle(member,"drive",p("/old.txt"));service.reconcileQuota(member,"drive");service.purgeRecycled(member,"drive",trash.id());
+        assertEquals("ESTIMATED",service.quota(member,"drive").usageState());
+        assertEquals(3L,service.reconcileQuota(member,"drive").usedBytes());
+        assertStatus(403,()->service.quota(foreign,"drive"));
+        jdbc.update("UPDATE sc_drive_grant SET quota_bytes=2,revision=revision+1 WHERE user_id=3");
+        assertStatus(409,()->service.upload(member,"drive",p("/denied.txt"),bytes("x"),1));
+        assertEquals("new",Files.readString(mounted.resolve("members/u3/new.txt")));
+    }
+
+    @Test void ledgerRetainsReservationWhenSqlFailsAfterFilesystemPublication() throws Exception {
+        enableLedger();var mount=mount();grant(member,mount.id(),"/members/u3","list,read,upload",10L);
+        service.reconcileQuota(member,"drive");
+        jdbc.execute("DROP TABLE sc_file_catalog_mount");
+        assertThrows(ApplicationFault.class,()->service.upload(member,"drive",p("/published.txt"),bytes("yes"),3));
+        assertEquals("yes",Files.readString(mounted.resolve("members/u3/published.txt")));
+        assertEquals(3,service.quota(member,"drive").reservedBytes());
+        assertStatus(409,()->service.reconcileQuota(member,"drive"));
+    }
+
+    @Test void purgeWhoseSqlCompletionFailsCannotLeaveAnExactUsageClaim() throws Exception {
+        enableLedger();var mount=mount();grant(member,mount.id(),"/members/u3","list,read,upload,delete",10L);
+        service.upload(member,"drive",p("/notes"),bytes("yes"),3);
+        var trash=service.recycle(member,"drive",p("/notes"));service.reconcileQuota(member,"drive");
+        assertEquals("EXACT",service.quota(member,"drive").usageState());
+        jdbc.execute("DROP TABLE sc_file_catalog_mount");
+        assertThrows(ApplicationFault.class,()->service.purgeRecycled(member,"drive",trash.id()));
+        assertEquals("ESTIMATED",service.quota(member,"drive").usageState());
+    }
+
+    @Test void scheduledRetentionInvalidatesExactAccountingBeforeRemovingBytes() throws Exception {
+        enableLedger();var mount=mount();grant(member,mount.id(),"/members/u3","list,read,upload,delete",10L);
+        service.upload(member,"drive",p("/expired"),bytes("old"),3);
+        var trash=service.recycle(member,"drive",p("/expired"));service.reconcileQuota(member,"drive");
+        jdbc.update("UPDATE sc_drive_trash SET expires_at=0 WHERE id=?",trash.id());
+        assertEquals(1,service.cleanExpiredRecycle());
+        assertEquals("ESTIMATED",service.quota(member,"drive").usageState());
+        assertEquals(0L,service.reconcileQuota(member,"drive").usedBytes());
+    }
+
+    private void enableLedger() {
+        new ResourceDatabasePopulator(new ClassPathResource("db/independent-quota-schema.sql"),
+                new ClassPathResource("db/independent-file-catalog-schema.sql"),new ClassPathResource("db/independent-recycle-schema.sql")).execute(transactions.getDataSource());
+        service=new MountService(jdbc,transactions,Clock.systemUTC(),managed,new JdbcAccountDirectory(jdbc),
+                new FileCatalog(jdbc,transactions,Clock.systemUTC()),new QuotaLedger(jdbc,transactions,Clock.systemUTC()));
+    }
     private void seedAccount(Actor actor) {
         jdbc.update("INSERT INTO sc_account(id,account_id,username,password_hash,role,workspace_id,enabled,session_version,created_at) VALUES(?,?,?,'not-used-by-drive-tests',?,?,TRUE,1,1)",
                 actor.id(), actor.accountId(), actor.username(), actor.role().name(), actor.workspaceId());

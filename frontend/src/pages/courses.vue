@@ -120,6 +120,16 @@
 				</button>
 			</aside>
 			<section v-if="selected" class="course-content">
+				<OwnershipTransfer
+					v-if="ownershipTransferEnabled"
+					resource-type="course"
+					:resource-id="selected.id"
+					:enabled="ownershipTransferEnabled"
+					@completed="load"
+				/>
+				<p v-if="selected.creator && !canManage" role="status" class="hint">
+					管理资格已改变，现有课程仅可只读访问；管理交接启用时可将已有课程交给符合资格的接任者。
+				</p>
 				<header class="section-heading">
 					<div>
 						<h2>{{ selected.name }}</h2>
@@ -128,7 +138,7 @@
 						</p>
 					</div>
 					<div class="actions">
-						<template v-if="selected.creator"
+						<template v-if="canManage"
 							><el-button
 								type="primary"
 								:disabled="busy || !selected.enabled"
@@ -137,7 +147,10 @@
 							><el-button :disabled="busy" @click="openEditor(selected)"
 								>设置</el-button
 							></template
-						><el-button v-else :disabled="busy" @click="leave"
+						><el-button
+							v-else-if="!selected.creator"
+							:disabled="busy"
+							@click="leave"
 							>退出课程</el-button
 						>
 					</div>
@@ -162,7 +175,7 @@
 							@click="fileInput?.click()"
 							>上传资料</el-button
 						><el-button
-							v-else
+							v-else-if="!selected.creator"
 							:disabled="
 								busy || selected.uploadStatus === 'PENDING' || !selected.enabled
 							"
@@ -200,7 +213,7 @@
 							<el-button :disabled="busy" @click="download(material)"
 								>下载</el-button
 							><el-button
-								v-if="selected.creator"
+								v-if="canManage"
 								:disabled="busy"
 								@click="removeMaterial(material)"
 								>移除</el-button
@@ -208,7 +221,7 @@
 						</div>
 					</li>
 				</ul>
-				<details v-if="selected.creator" @toggle="membersToggle">
+				<details v-if="canManage" @toggle="membersToggle">
 					<summary>成员与上传审批 <span>只有课程创建者可处理</span></summary>
 					<el-button :disabled="busy" @click="loadMembers">刷新申请</el-button>
 					<p v-if="!members.length" class="hint">暂无加入成员</p>
@@ -238,7 +251,7 @@
 						</li>
 					</ul>
 				</details>
-				<details v-if="selected.creator" @toggle="incompleteToggle">
+				<details v-if="canManage" @toggle="incompleteToggle">
 					<summary>异常上传清理</summary>
 					<p class="hint">
 						中断或清理失败的上传仍占用容量。确认上传已结束后，可移除对应记录和文件。
@@ -461,6 +474,9 @@
 </template>
 
 <script setup>
+import OwnershipTransfer from '~/components/auth/OwnershipTransfer.vue'
+const ownershipTransferEnabled =
+	import.meta.env.VITE_OWNERSHIP_TRANSFER_ENABLED === 'true'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -527,8 +543,11 @@ const canCreate = computed(() => store.loginInfo.role === 'TENANT_ADMIN')
 const selected = computed(() =>
 	courses.value.find((c) => c.id === selectedId.value)
 )
-const mayUpload = computed(
-	() => selected.value?.creator || selected.value?.uploadStatus === 'APPROVED'
+const canManage = computed(() => canCreate.value && selected.value?.creator)
+const mayUpload = computed(() =>
+	selected.value?.creator
+		? canManage.value
+		: selected.value?.uploadStatus === 'APPROVED'
 )
 const validCode = computed(() => /^[a-f0-9]{32}$/i.test(joinCode.value.trim()))
 const validDraft = computed(
@@ -707,7 +726,7 @@ function acceptInvitation() {
 	}, previewError)
 }
 function openInvitations() {
-	if (busy.value || !selected.value?.creator || !selected.value.enabled) return
+	if (busy.value || !canManage.value || !selected.value.enabled) return
 	clearInvitations()
 	const id = selectedId.value
 	invitationCourseId.value = id
@@ -741,7 +760,7 @@ function generateInvitation() {
 	if (
 		!id ||
 		id !== selectedId.value ||
-		!selected.value?.creator ||
+		!canManage.value ||
 		!validInvitationExpiry.value ||
 		!validInvitationMembers.value
 	)

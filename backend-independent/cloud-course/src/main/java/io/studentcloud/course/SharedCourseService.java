@@ -253,8 +253,14 @@ public final class SharedCourseService {
         Actor current = actor(actor);
         CourseRow row = load(courseId, false);
         enabled(row);
-        if (row.ownerId() != current.id() && !activeMember(courseId, current.id()).uploadStatus().equals("APPROVED")) throw denied();
+        if(row.ownerId()==current.id())owner(current,row);
+        else if(!activeMember(courseId,current.id()).uploadStatus().equals("APPROVED"))throw denied();
         return view(current, row);
+    }
+
+    /** Ownership is provenance, not an authorization shortcut for a demoted administrator. */
+    public CourseView requireManage(Actor actor,long courseId){
+        Actor current=actor(actor);CourseRow row=load(courseId,false);owner(current,row);return view(current,row);
     }
 
     /** Public Actor fields are transport values; current identity comes from the owning service. */

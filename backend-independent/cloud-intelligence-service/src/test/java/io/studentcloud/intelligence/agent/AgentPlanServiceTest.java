@@ -66,6 +66,32 @@ class AgentPlanServiceTest {
         assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM sc_agent_plan WHERE workspace_id=200",Integer.class));
     }
 
+    @Test void recoveryPreviewsOnlyFailedAndUnexecutedStepsNeverCompletedOnes() throws Exception {
+        var supplied=new AtomicReference<List<AgentContentClient.Step>>();
+        AccountDirectory directory=new AccountDirectory(){public Actor account(long id){return owner;}public boolean workspaceEnabled(long id){return id==100;}};
+        AgentPlanService.PreviewPort echo=new AgentPlanService.PreviewPort(){
+            public AgentContentClient.Preview preview(Actor actor,String key,List<AgentContentClient.Step> steps){supplied.set(steps);return new AgentContentClient.Preview(UUID.randomUUID().toString(),clock.millis()+600_000,steps);}
+            public AgentContentClient.Preview previewBulk(Actor a,String k,String p,String t,Long c,String tags){throw new UnsupportedOperationException();}
+        };
+        service=new AgentPlanService(jdbc,new DataSourceTransactionManager(jdbc.getDataSource()),clock,directory,null,tasks,echo);
+        var steps=List.of(new AgentContentClient.Step("MKDIR",null,"/done"),new AgentContentClient.Step("COPY","/source","/failed"),new AgentContentClient.Step("MOVE","/other","/remaining"));
+        var original=service.preview(owner,"local",steps);service.confirm(owner,original.id(),true);
+        var lease=tasks.claim("recovery-test",180).orElseThrow();
+        var execution=new AgentContentClient.Execution("PARTIAL",List.of(new AgentContentClient.StepResult(0,"MKDIR",true,"done"),new AgentContentClient.StepResult(1,"COPY",false,"target conflict")),false);
+        tasks.finish(lease,new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(execution),false);
+        var recovered=service.retry(owner,original.id());
+        assertEquals(steps.subList(1,3),supplied.get());
+        assertEquals(2,recovered.steps().size());assertEquals("PENDING",recovered.status());
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM sc_job",Integer.class));
+    }
+
+    @Test void uncertainOutcomeCannotBeBlindlyRepreviewed() throws Exception {
+        var plan=service.preview(owner,"local",List.of(new AgentContentClient.Step("MKDIR",null,"/one")));
+        service.confirm(owner,plan.id(),true);var lease=tasks.claim("uncertain-test",180).orElseThrow();
+        tasks.finish(lease,new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(new AgentContentClient.Execution("INDETERMINATE",List.of(),false)),false);
+        assertEquals("AGENT_RETRY_NOT_ALLOWED",assertThrows(ApplicationFault.class,()->service.retry(owner,plan.id())).code());
+    }
+
     @Test void ownerPendingBudgetIsSerializedAndExpiredPreviewsDoNotBlockNewOnes(){
         AgentPlanService.View first=null;
         for(int i=0;i<50;i++){var created=service.preview(owner,"local",List.of(new AgentContentClient.Step("MKDIR",null,"/item"+i)));if(first==null)first=created;}
@@ -134,12 +160,13 @@ class AgentPlanServiceTest {
         assertEquals(1,tasks.pendingOutbox(20).size());
     }
 
-    @Test void failedExecutionsRetryThroughANewPreviewAndANewAtomicallyLinkedTask(){
+    @Test void failedExecutionsRetryThroughANewPreviewAndANewAtomicallyLinkedTask() throws Exception {
         var original=service.preview(owner,"local",List.of(new AgentContentClient.Step("MKDIR",null,"/confirm")));
         var confirmed=service.confirm(owner,original.id(),true);
         var lease=tasks.claim("worker",30).orElseThrow();
         assertEquals(confirmed.taskId(),lease.id());
-        tasks.fail(lease,"TOOL_EXECUTION_FAILED",false,Duration.ZERO);
+        tasks.finish(lease,new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
+                new AgentContentClient.Execution("FAILED",List.of(new AgentContentClient.StepResult(0,"MKDIR",false,"target conflict")),false)),false);
         assertEquals("FAILED",service.get(owner,original.id()).status());
 
         var preview=service.retry(owner,original.id());
@@ -152,6 +179,22 @@ class AgentPlanServiceTest {
         assertEquals(TaskState.FAILED,tasks.get(owner.id(),confirmed.taskId()).state());
         assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM sc_job",Integer.class));
         assertEquals(2,tasks.pendingOutbox(20).size());
+    }
+
+    @Test void failedJobWithoutConfirmedStepEvidenceCannotBeRetried(){
+        var plan=service.preview(owner,"local",List.of(new AgentContentClient.Step("MKDIR",null,"/unknown")));
+        service.confirm(owner,plan.id(),true);var lease=tasks.claim("worker",30).orElseThrow();
+        tasks.fail(lease,"TOOL_EXECUTION_FAILED",false,Duration.ZERO);
+        assertEquals("AGENT_RETRY_NOT_ALLOWED",assertThrows(ApplicationFault.class,()->service.retry(owner,plan.id())).code());
+    }
+
+    @Test void agentWorkerDoesNotLeaseAcknowledgeOrFailDocumentIndexTasks() {
+        var index = tasks.create(new io.studentcloud.tasks.CreateTask(owner.id(), owner.workspaceId(),
+                io.studentcloud.tasks.TaskType.DOCUMENT_INDEX, "{}", "document-index"));
+        new AgentWorker(tasks, null, null).poll();
+        assertEquals(TaskState.QUEUED, tasks.get(owner.id(), index.id()).state());
+        assertEquals(0, tasks.get(owner.id(), index.id()).attempts());
+        assertEquals(1, tasks.pendingOutbox(20).size());
     }
 
     private static String schema(){return "CREATE TABLE sc_agent_plan(plan_id VARCHAR(36) PRIMARY KEY,account_id BIGINT NOT NULL,workspace_id BIGINT,storage_key VARCHAR(128) NOT NULL,preview_token VARCHAR(256) NOT NULL,steps_json TEXT NOT NULL,expires_at BIGINT NOT NULL,job_id VARCHAR(36),state VARCHAR(16) NOT NULL,created_at BIGINT NOT NULL,updated_at BIGINT NOT NULL);"

@@ -43,6 +43,7 @@
 			<router-link :to="automationRoute"
 				><QueueListIcon aria-hidden="true" />自动化任务</router-link
 			>
+			<router-link v-if="ownershipTransferEnabled" to="/ownership-transfers">管理交接</router-link>
 			<router-link
 				v-if="
 					storageConfigStore.globalConfig?.accountModel === 'independent' &&
@@ -62,6 +63,10 @@
 				><Squares2X2Icon aria-hidden="true" />全局管理</router-link
 			>
 		</nav>
+		<DriveQuota v-if="route.params.storageKey && storageConfigStore.globalConfig?.accountModel === 'independent'"
+			:drive-key="String(route.params.storageKey)" :identity-key="uploadAccountIdentity(storageConfigStore.loginInfo)" />
+		<StorageOperationList v-if="storageOperationsEnabled && route.params.storageKey && storageConfigStore.globalConfig?.accountModel === 'independent'"
+			:drive-key="String(route.params.storageKey)" :identity-key="uploadAccountIdentity(storageConfigStore.loginInfo)" />
 		<div
 			ref="fileIndexBodyRef"
 			class="cloud-file-panel"
@@ -301,6 +306,10 @@
 </template>
 
 <script setup>
+import DriveQuota from '~/components/file/DriveQuota.vue'
+import StorageOperationList from '~/components/file/StorageOperationList.vue'
+const storageOperationsEnabled = import.meta.env.VITE_STORAGE_OPERATIONS_ENABLED === 'true'
+const ownershipTransferEnabled = import.meta.env.VITE_OWNERSHIP_TRANSFER_ENABLED === 'true'
 import { isMobile } from '~/utils'
 import { ElMessage } from 'element-plus'
 import { createLatestRequest } from '~/utils/latest-request.mjs'

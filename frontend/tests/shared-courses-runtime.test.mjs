@@ -160,6 +160,7 @@ const modules = {
 	vue,
 	'element-plus': { ElMessage: messages, ElMessageBox: box },
 	'~/stores/storage-config': () => store,
+	'~/components/auth/OwnershipTransfer.vue': { render: () => null },
 	'vue-router': {
 		useRoute: () => route,
 		useRouter: () => ({
@@ -186,6 +187,8 @@ const modules = {
 }
 const transform = (code) =>
 	code
+		// Vite owns env replacement; enabled new features have their own runtime tests.
+		.replace(/import\.meta\.env/g, '({})')
 		.replace(
 			/import\s*\{([\s\S]*?)\}\s*from\s*['"]([^'"]+)['"];?/g,
 			(_all, names, path) =>
@@ -278,6 +281,25 @@ const button = (root, text) =>
 	[...root.querySelectorAll('button')].find(
 		(node) => node.textContent.trim() === text
 	)
+
+test('demoted owner keeps their course listed without ordinary management or upload controls', async () => {
+	const view = mount('USER', [{ ...course(true), uploadStatus: 'APPROVED' }])
+	try {
+		await settle()
+		assert.match(view.root.textContent, /程序设计/)
+		for (const label of [
+			'邀请成员',
+			'设置',
+			'上传资料',
+			'申请上传权限',
+			'移除',
+		])
+			assert.equal(button(view.root, label), undefined)
+		assert.equal(view.root.querySelector('details'), null)
+	} finally {
+		view.close()
+	}
+})
 
 test('numeric backend course IDs honor a direct URL and retain the chosen course on refresh', async () => {
 	const items = [

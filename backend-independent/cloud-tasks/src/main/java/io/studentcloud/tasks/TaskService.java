@@ -116,22 +116,38 @@ public final class TaskService {
         return required(id);
     }
 
-    /** Internal worker API. It must never be exposed as an unauthenticated public endpoint. */
+    /** Compatibility entry point for a dispatcher that really handles every category.
+     * Category-specific workers MUST use the explicit allowlist overload.
+     */
     public Optional<TaskLease> claim(String workerId, int leaseSeconds) {
+        return claim(workerId, leaseSeconds, java.util.EnumSet.allOf(TaskType.class));
+    }
+
+    /** Internal worker API. The allowlist gates selection, expiry cleanup AND the claiming CAS.
+     * Filtering after LIMIT would let an unrelated backlog starve this consumer. Filtering after
+     * claim would consume attempts or even fail jobs which belong to another consumer.
+     */
+    public Optional<TaskLease> claim(String workerId, int leaseSeconds, java.util.Set<TaskType> allowedTypes) {
         requireWorker(workerId);
         requireLease(leaseSeconds);
+        if (allowedTypes == null || allowedTypes.isEmpty() || allowedTypes.stream().anyMatch(Objects::isNull))
+            throw invalid("请选择工作节点支持的任务类型");
+        // Enum values only, never user-provided SQL. Snapshot against concurrent caller mutation.
+        String types = java.util.EnumSet.copyOf(allowedTypes).stream().map(type -> "'" + type.name() + "'")
+                .collect(java.util.stream.Collectors.joining(","));
+        String category = " AND task_type IN (" + types + ") ";
         return Objects.requireNonNull(transactions.execute(status -> {
             long now = clock.millis();
             jdbc.update("UPDATE sc_job SET state='FAILED',failure_code='LEASE_ATTEMPTS_EXHAUSTED',worker_id=NULL,"
                             + "lease_until=NULL,fence=fence+1,updated_at=?,finished_at=? WHERE state='RUNNING' "
-                            + "AND lease_until<=? AND attempt_count>=max_attempts", now, now, now);
+                            + "AND lease_until<=? AND attempt_count>=max_attempts" + category, now, now, now);
             List<TaskRecord> candidates = jdbc.query("SELECT " + COLUMNS + " FROM sc_job WHERE attempt_count<max_attempts "
-                            + "AND ((state='QUEUED' AND available_at<=?) OR (state='RUNNING' AND lease_until<=?)) "
+                            + category + "AND ((state='QUEUED' AND available_at<=?) OR (state='RUNNING' AND lease_until<=?)) "
                             + "ORDER BY available_at,created_at,job_id LIMIT 16", ROW, now, now);
             for (TaskRecord task : candidates) {
                 int changed = jdbc.update("UPDATE sc_job SET state='RUNNING',worker_id=?,lease_until=?,fence=fence+1,"
                                 + "attempt_count=attempt_count+1,updated_at=?,failure_code=NULL WHERE job_id=? AND fence=? "
-                                + "AND attempt_count=? AND attempt_count<max_attempts AND "
+                                + category + "AND attempt_count=? AND attempt_count<max_attempts AND "
                                 + "((state='QUEUED' AND available_at<=?) OR (state='RUNNING' AND lease_until<=?))",
                         workerId, now + leaseSeconds * 1000L, now, task.id(), task.fence(), task.attempts(), now, now);
                 if (changed == 1) return Optional.of(new TaskLease(required(task.id())));

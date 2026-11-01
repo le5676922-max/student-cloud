@@ -200,6 +200,13 @@ public final class AgentCommandService {
                 }
                 results.add(new StepResult(index,step.op(),true,"已完成"));
             }catch(ApplicationFault failure){
+                // Transport/business status alone is not proof that storage was untouched.
+                // In particular IO/SQL and journal uncertainty can follow a published file.
+                // Only known pre-publication rejections may become a retryable failed suffix.
+                if(!confirmedPrepublicationRejection(failure.code())) {
+                    results.add(new StepResult(index,step.op(),false,"结果尚未核实，请查看操作记录，不要重复提交"));
+                    return finish(command,results,"INDETERMINATE");
+                }
                 results.add(new StepResult(index,step.op(),false,failure.getMessage()));
                 return finish(command,results,index==0?"FAILED":"PARTIAL");
             }catch(RuntimeException failure){
@@ -209,6 +216,11 @@ public final class AgentCommandService {
             jdbc.update("UPDATE sc_agent_command SET result_json=? WHERE id=? AND status='RUNNING'",encode(new Execution("RUNNING",List.copyOf(results),false)),command.id());
         }
         return finish(command,results,"COMPLETED");
+    }
+    private static boolean confirmedPrepublicationRejection(String code) {
+        return Set.of("41000","40300","40400","42000","AGENT_CHANGED",
+                "DRIVE_FORBIDDEN","DRIVE_INVALID","DRIVE_NOT_FOUND","DRIVE_CONFLICT","DRIVE_CHANGED",
+                "DRIVE_QUOTA_EXCEEDED","DRIVE_ENGINE_UNAVAILABLE","STORAGE_CAPABILITY_UNAVAILABLE").contains(code);
     }
     private Execution finish(Command command,List<StepResult> results,String status){
         var result=new Execution(status,List.copyOf(results),false);

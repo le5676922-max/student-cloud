@@ -78,6 +78,8 @@ function deferred() {
 }
 function execute(source, modules, globals) {
 	const executable = source
+		// Vite owns env replacement in the browser; page harness keeps new features OFF.
+		.replace(/import\.meta\.env/g, '({})')
 		.replace(
 			/import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"];?/g,
 			(_whole, bindings, name) =>
@@ -210,6 +212,8 @@ function setupPage({
 	}
 	const router = { push: (target) => calls.pushes.push(target) }
 	const modules = {
+		'~/components/file/DriveQuota.vue': { default: {} },
+		'~/components/file/StorageOperationList.vue': { default: {} },
 		'~/api/home/home': {
 			getSourceListReq: (config) => network('lists', undefined, config),
 			loadUserRootPathReq: (storageKey, config) =>

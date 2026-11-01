@@ -33,7 +33,7 @@ public final class AgentWorker {
     @Scheduled(initialDelay=2000, fixedDelayString="${student-cloud.agent.poll-ms:2000}")
     public void poll() {
         for (int i=0; i<4; i++) {
-            var claim = tasks.claim(workerId, 180);
+            var claim = tasks.claim(workerId, 180, java.util.Set.of(TaskType.FILE_ORGANIZE));
             if (claim.isEmpty()) return;
             TaskLease lease = claim.get();
             tasks.acknowledgeClaimedTask(lease.id());
