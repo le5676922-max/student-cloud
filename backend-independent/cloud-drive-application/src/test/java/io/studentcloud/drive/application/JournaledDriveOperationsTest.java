@@ -58,6 +58,32 @@ class JournaledDriveOperationsTest {
         assertSame(queued,new JournaledDriveOperations(remote,journal,true).mkdir(member,"remote",DrivePath.of("/remote")));
         assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM sc_storage_operation",Integer.class));
     }
+    @Test void receiptWrapperPreservesDriverSpecificTransferLimitWithEitherFlag() {
+        DriveOperations driver=(DriveOperations)Proxy.newProxyInstance(getClass().getClassLoader(),new Class<?>[]{DriveOperations.class},(p,m,a)->{
+            if(m.getName().equals("maxTransferBytes"))return 1024L*1024*1024;
+            throw new AssertionError("Unexpected call: "+m.getName());
+        });
+        for(boolean enabled:new boolean[]{false,true})
+            assertEquals(1024L*1024*1024,new JournaledDriveOperations(driver,journal,enabled).maxTransferBytes(member,"drive"));
+    }
+    @Test void receiptWrapperPreservesDiskAdmissionIdentityAndRejectionWithEitherFlag() {
+        java.util.function.LongConsumer admission=reserved->{
+            if(reserved==42)throw new ApplicationFault("UPLOAD_DISK_BUDGET",413,"disk budget rejected");
+        };
+        DrivePath target=DrivePath.of("/large.bin");
+        DriveOperations driver=(DriveOperations)Proxy.newProxyInstance(getClass().getClassLoader(),new Class<?>[]{DriveOperations.class},(p,m,a)->{
+            if(m.getName().equals("uploadDiskAdmission")){
+                assertSame(member,a[0]);assertEquals("drive",a[1]);assertSame(target,a[2]);assertEquals(7L,a[3]);
+                return admission;
+            }
+            throw new AssertionError("Unexpected call: "+m.getName());
+        });
+        for(boolean enabled:new boolean[]{false,true}){
+            var actual=new JournaledDriveOperations(driver,journal,enabled).uploadDiskAdmission(member,"drive",target,7);
+            assertSame(admission,actual);
+            assertEquals("UPLOAD_DISK_BUDGET",assertThrows(ApplicationFault.class,()->actual.accept(42)).code());
+        }
+    }
     @Test void publicationThenFailureReturnsUnknownNotAnInstructionToRetry() {
         DriveOperations failing=(DriveOperations)Proxy.newProxyInstance(getClass().getClassLoader(),new Class<?>[]{DriveOperations.class},(p,m,a)->{
             if(m.getName().equals("listMounts"))return local.listMounts((Actor)a[0]);

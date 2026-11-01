@@ -479,6 +479,115 @@ test('private stream works without extra confirmation when the click already has
 	assert.ok(handle.events.includes('close'))
 })
 
+test('authorized 51MiB download uses a single stream and never creates a Blob', async () => {
+	const size = 51 * 1024 * 1024
+	let written = 0, committed = 0
+	const handle = { async createWritable() { return {
+		async write(chunk) { assert.ok(chunk.byteLength <= 1024 * 1024); written += chunk.byteLength },
+		async close() { committed++ }, async abort() { assert.fail('valid download must commit') },
+	} } }
+	const h = setupOperators({ browser: streamBrowser(() => Promise.resolve(handle)) })
+	h.storage.folderConfig.metadata.maxDownloadFileSize = 1024 ** 3
+	h.api.batchDownloadFile({ ...privateRow(), size })
+	assert.equal(h.dialogs.length, 1)
+	h.dialogs[0].resolve('confirm')
+	await flush()
+	assert.equal(h.requests.length, 1)
+	assert.equal(h.requests[0].config.responseType, 'stream')
+	let sent = 0
+	const bytes = new Uint8Array(1024 * 1024)
+	h.requests[0].resolve({
+		headers: { 'content-type': 'application/octet-stream', 'content-length': String(size) },
+		data: new ReadableStream({ pull(controller) {
+			if (sent === size) return controller.close()
+			sent += bytes.byteLength; controller.enqueue(bytes)
+		} }, { highWaterMark: 0 }),
+	})
+	for (let step = 0; step < 30; step++) await flush()
+	assert.equal(written, size); assert.equal(committed, 1)
+	assert.equal(h.blobs.length, 0); assert.equal(h.requests.length, 1)
+})
+
+test('large download without a save handle stops before GET and explains browser support', async () => {
+	for (const browser of [{}, streamBrowser(() => Promise.resolve(null)), streamBrowser(() => Promise.reject(Object.assign(new Error('unsupported'), { name: 'NotSupportedError' })))]) {
+		const h = setupOperators({ browser })
+		h.storage.folderConfig.metadata.maxDownloadFileSize = 1024 ** 3
+		h.api.batchDownloadFile({ ...privateRow(), size: 51 * 1024 * 1024 })
+		assert.equal(h.dialogs.length, 1)
+		h.dialogs[0].resolve('confirm')
+		await flush()
+		assert.equal(h.requests.length, 0); assert.equal(h.blobs.length, 0)
+		assert.ok(h.messages.some(item => /流式|浏览器/.test(item.message)))
+	}
+})
+
+for (const [size, timeout] of [
+	[7, 120000],
+	[60 * 1024 * 1024, 120000],
+	[61 * 1024 * 1024, 121000],
+	[128 * 1024 * 1024, 188000],
+	[1024 ** 3, 1084000],
+]) {
+	test(`stream download deadline allows ${timeout}ms for ${size} bytes`, async () => {
+		const handle = saveHandle()
+		const h = setupOperators({ browser: streamBrowser(() => Promise.resolve(handle)) })
+		h.storage.folderConfig.metadata.maxDownloadFileSize = 1024 ** 3
+		h.storage.globalConfig.enableNormalDownloadConfirm = false
+		h.api.batchDownloadFile({ ...privateRow(), size })
+		await flush()
+		assert.equal(h.requests.length, 1)
+		const request = h.requests[0]
+		assert.equal(request.config.adapter, 'fetch')
+		assert.equal(request.config.responseType, 'stream')
+		assert.equal(request.config.timeout, timeout)
+		assert.ok(request.config.timeout <= 1200000)
+		request.reject(new Error('fixture ends after checking the transport boundary'))
+		await flush()
+		assert.equal(h.requests.length, 1)
+		assert.equal(h.blobs.length, 0)
+	})
+}
+
+test('Blob download retains its 120 second deadline at the 50MiB boundary', async () => {
+	const h = setupOperators()
+	h.storage.globalConfig.enableNormalDownloadConfirm = false
+	h.api.batchDownloadFile({ ...privateRow(), size: 50 * 1024 * 1024 })
+	await flush()
+	assert.equal(h.requests.length, 1)
+	assert.equal(h.requests[0].config.responseType, 'blob')
+	assert.equal(h.requests[0].config.timeout, 120000)
+	h.requests[0].reject(new Error('fixture ends after checking the transport boundary'))
+	await flush()
+	assert.equal(h.requests.length, 1)
+})
+
+test('download metadata fails closed and never raises the hard 1GiB limit', async () => {
+	for (const limit of [undefined, null, '1073741824', 0, -1, 0.5, Infinity, 1024 ** 3 + 1]) {
+		const h = setupOperators({ browser: streamBrowser(() => { assert.fail('invalid budget must not open picker') }) })
+		h.storage.folderConfig.metadata.maxDownloadFileSize = limit
+		h.api.batchDownloadFile({ ...privateRow(), size: 51 * 1024 * 1024 })
+		await flush()
+		assert.equal(h.requests.length, 0); assert.equal(h.dialogs.length, 0)
+	}
+})
+
+test('download budget change during a pending stream cancels disk and network', async () => {
+	const handle = saveHandle()
+	const h = setupOperators({ browser: streamBrowser(() => Promise.resolve(handle)) })
+	h.storage.folderConfig.metadata.maxDownloadFileSize = 1024 ** 3
+	h.api.batchDownloadFile(privateRow())
+	h.dialogs[0].resolve('confirm')
+	await flush()
+	let cancelled = 0
+	h.requests[0].resolve({ ...streamResponse(), data: new ReadableStream({ cancel() { cancelled++ } }) })
+	await flush()
+	h.storage.folderConfig.metadata.maxDownloadFileSize = 50 * 1024 * 1024
+	await flush()
+	assert.equal(cancelled, 1); assert.ok(handle.events.includes('abort'))
+	assert.equal(handle.events.includes('close'), false)
+	assert.equal(h.requests[0].config.signal.aborted, true)
+})
+
 test('picker cancellation never performs a fallback download and releases the concurrency slot', async () => {
 	const h = setupOperators({
 		browser: streamBrowser(() =>

@@ -50,6 +50,9 @@ public final class JournaledDriveOperations implements DriveOperations {
     @Override public Set<String> directoryCapabilities(Actor a,String k,DrivePath p){return raw.directoryCapabilities(a,k,p);}
     @Override public void prepareUpload(Actor a,String k,DrivePath p,long size){raw.prepareUpload(a,k,p,size);}
     @Override public String uploadAuthorization(Actor a,String k,DrivePath p,long size){return raw.uploadAuthorization(a,k,p,size);}
+    // Preserve driver limits and disk admission through the optional receipt decorator.
+    @Override public long maxTransferBytes(Actor a,String k){return raw.maxTransferBytes(a,k);}
+    @Override public java.util.function.LongConsumer uploadDiskAdmission(Actor a,String k,DrivePath p,long size){return raw.uploadDiskAdmission(a,k,p,size);}
     @Override public ReadHandle readWithMetadata(Actor a,String k,DrivePath p){return raw.readWithMetadata(a,k,p);}
     @Override public void delete(Actor a,String k,DrivePath p){raw.delete(a,k,p);}
     @Override public FileCatalog.Page catalogPage(Actor a,String k,DrivePath p,int page,int size,String query,boolean refresh){return raw.catalogPage(a,k,p,page,size,query,refresh);}

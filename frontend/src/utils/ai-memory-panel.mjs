@@ -82,7 +82,9 @@ export function normalizeMemoryState(value) {
 				item.id.length > 64 ||
 				typeof item.content !== 'string' ||
 				!item.content.trim() ||
-				item.content.length > 500
+				item.content.length > 500 ||
+				!Number.isSafeInteger(item.version) ||
+				item.version < 1
 		)
 	) {
 		throw new Error('记忆数据不完整，请刷新后重试')
@@ -91,9 +93,10 @@ export function normalizeMemoryState(value) {
 		enabled: value.enabled,
 		maxEntries: Math.min(50, Math.max(1, Number(value.maxEntries) || 50)),
 		maxChars: Math.min(500, Math.max(1, Number(value.maxChars) || 500)),
-		items: value.items.map(({ id, content, createdAt }) => ({
+		items: value.items.map(({ id, content, version, createdAt }) => ({
 			id,
 			content,
+			version,
 			createdAt: typeof createdAt === 'string' ? createdAt : '',
 		})),
 	}
@@ -187,7 +190,7 @@ export function createAiMemoryManager({ request, onChange = () => {} }) {
 				true
 			)
 		},
-		update(id, content, expectedContent) {
+		update(id, content, expectedContent, expectedVersion) {
 			const original = state.items.find((item) => item.id === id)
 			if (!mutable() || !state.enabled || !original)
 				return Promise.resolve(false)
@@ -195,16 +198,20 @@ export function createAiMemoryManager({ request, onChange = () => {} }) {
 			if (!text || text.length > state.maxChars) return Promise.resolve(false)
 			const expected =
 				expectedContent === undefined ? original.content : expectedContent
+			const version =
+				expectedVersion === undefined ? original.version : expectedVersion
 			if (
 				typeof expected !== 'string' ||
 				!expected ||
-				expected.length > state.maxChars
+				expected.length > state.maxChars ||
+				!Number.isSafeInteger(version) ||
+				version < 1
 			)
 				return Promise.resolve(false)
 			return run(
 				'put',
 				`/${encodeURIComponent(id)}`,
-				{ content: text, expectedContent: expected },
+				{ content: text, expectedContent: expected, expectedVersion: version },
 				'已更新这条记忆。',
 				true
 			)
@@ -221,11 +228,11 @@ export function createAiMemoryManager({ request, onChange = () => {} }) {
 			)
 		},
 		forget(id) {
-			if (!mutable() || !state.items.some((item) => item.id === id))
-				return Promise.resolve(false)
+			const original = state.items.find((item) => item.id === id)
+			if (!mutable() || !original) return Promise.resolve(false)
 			return run(
 				'delete',
-				`/${encodeURIComponent(id)}`,
+				`/${encodeURIComponent(id)}?expectedVersion=${original.version}`,
 				undefined,
 				'已删除这条记忆。'
 			)

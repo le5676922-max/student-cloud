@@ -55,6 +55,7 @@ const sample = (items = [], enabled = true) => ({
 const item = (id, content = '讲解时请给出简短示例') => ({
 	id,
 	content,
+	version: 1,
 	createdAt: '2026-10-22T00:00:00Z',
 })
 function deferred() {
@@ -216,7 +217,11 @@ test('disabled memory rejects saves but still allows deleting retained entries',
 	assert.equal(await manager.remember('偏好'), false)
 	assert.equal(await manager.forget('not-owned'), false)
 	assert.equal(await manager.forget('one'), true)
-	assert.deepEqual(calls[1].slice(0, 3), ['delete', '/one', undefined])
+	assert.deepEqual(calls[1].slice(0, 3), [
+		'delete',
+		'/one?expectedVersion=1',
+		undefined,
+	])
 	manager.dispose()
 })
 
@@ -371,7 +376,11 @@ test('editing uses an owned ID PUT and keeps count and creation metadata supplie
 	assert.deepEqual(calls[1].slice(0, 3), [
 		'put',
 		'/one',
-		{ content: '更新后的偏好', expectedContent: '原来的偏好' },
+		{
+			content: '更新后的偏好',
+			expectedContent: '原来的偏好',
+			expectedVersion: 1,
+		},
 	])
 	assert.deepEqual(manager.state().items, [
 		{ ...original, content: '更新后的偏好' },
@@ -556,7 +565,7 @@ test('actual panel edits and cancels locally; full store still permits editing a
 		assert.deepEqual(calls[1], [
 			'put',
 			'/0',
-			{ content: '更新偏好', expectedContent: '偏好 0' },
+			{ content: '更新偏好', expectedContent: '偏好 0', expectedVersion: 1 },
 		])
 		assert.equal(panel.bindings.editingId.value, '')
 		assert.equal(panel.bindings.editingOriginal.value, '')
@@ -684,7 +693,11 @@ test('refreshing during editing never rebases the original content used to rejec
 		assert.deepEqual(calls[1], [
 			'put',
 			'/one',
-			{ content: '本窗口的草稿', expectedContent: original.content },
+			{
+				content: '本窗口的草稿',
+				expectedContent: original.content,
+				expectedVersion: 1,
+			},
 		])
 		assert.match(panel.bindings.state.value.error, /其他窗口修改/)
 		await panel.bindings.manager.load()
@@ -712,6 +725,52 @@ test('refreshing during editing never rebases the original content used to rejec
 		assert.equal(panel.bindings.editingOriginal.value, '另一个窗口的新偏好')
 		assert.equal(panel.bindings.editStale.value, false)
 		assert.equal(panel.bindings.canSave.value, true)
+	} finally {
+		panel.dispose()
+	}
+})
+
+test('actual panel freezes its edit version and cannot save after an ABA refresh or a 409', async () => {
+	let reads = 0
+	const calls = []
+	const panel = setupPanel(async (method, path, data) => {
+		calls.push([method, path, data])
+		if (method === 'get') {
+			return {
+				data: sample([{ ...item('one', 'A'), version: ++reads === 1 ? 1 : 3 }]),
+			}
+		}
+		throw {
+			response: {
+				status: 409,
+				data: { code: '41000', msg: '记忆已变化，请刷新后再编辑' },
+			},
+		}
+	})
+	try {
+		await Promise.resolve()
+		panel.bindings.beginEdit(panel.bindings.state.value.items[0])
+		panel.bindings.draft.value = '仍需保留的草稿'
+		await panel.bindings.saveMemory()
+		assert.equal(calls[1][2].expectedVersion, 1)
+		assert.equal(panel.bindings.draft.value, '仍需保留的草稿')
+		assert.equal(panel.bindings.editingVersion.value, 1)
+		assert.equal(panel.bindings.canSave.value, false)
+		await panel.bindings.manager.load()
+		assert.equal(panel.bindings.state.value.items[0].content, 'A')
+		assert.equal(panel.bindings.state.value.items[0].version, 3)
+		assert.equal(panel.bindings.editingVersion.value, 1)
+		assert.equal(panel.bindings.editStale.value, true)
+		await panel.bindings.saveMemory()
+		assert.equal(calls.length, 3)
+		assert.equal(panel.bindings.draft.value, '仍需保留的草稿')
+		panel.bindings.cancelEdit()
+		panel.bindings.beginEdit(panel.bindings.state.value.items[0])
+		assert.equal(panel.bindings.editingVersion.value, 3)
+		assert.equal(panel.bindings.canSave.value, true)
+		panel.props.identityKey = 'bob'
+		assert.equal(panel.bindings.editingVersion.value, 0)
+		assert.equal(panel.bindings.draft.value, '')
 	} finally {
 		panel.dispose()
 	}
@@ -750,7 +809,9 @@ test('a successful authenticated refresh resets denial state without reviving th
 		if (method === 'get') return { data: sample([original]) }
 		if (rejectSave) {
 			rejectSave = false
-			throw { response: { status: 401, data: { code: '42000', msg: '请重新登录' } } }
+			throw {
+				response: { status: 401, data: { code: '42000', msg: '请重新登录' } },
+			}
 		}
 		return { data: sample([original, item('two', data.content)]) }
 	})
@@ -767,7 +828,10 @@ test('a successful authenticated refresh resets denial state without reviving th
 		panel.bindings.draft.value = '重新确认身份后填写的新草稿'
 		assert.equal(panel.bindings.canSave.value, true)
 		await panel.bindings.saveMemory()
-		assert.equal(panel.bindings.state.value.items[1].content, '重新确认身份后填写的新草稿')
+		assert.equal(
+			panel.bindings.state.value.items[1].content,
+			'重新确认身份后填写的新草稿'
+		)
 		assert.equal(panel.bindings.state.value.identityDenied, false)
 	} finally {
 		panel.dispose()

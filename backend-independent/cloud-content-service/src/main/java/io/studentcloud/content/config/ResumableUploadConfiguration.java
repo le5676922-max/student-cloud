@@ -19,8 +19,8 @@ public class ResumableUploadConfiguration {
             @Value("${student-cloud.uploads.staging-root:}") String stage,
             @Value("${student-cloud.storage.managed-root:}") String managed,
             @Value("${student-cloud.courses.private-root:}") String course,
-            @Value("${student-cloud.uploads.node-id:content-local}") String node){
-        return new ResumableUploadService(jdbc,tx,clock,mounts,accounts,path(stage),path(managed),path(course),node);
+            @Value("${student-cloud.uploads.node-id:content-local}") String node,UploadLimits uploadLimits){
+        return new ResumableUploadService(jdbc,tx,clock,mounts,accounts,path(stage),path(managed),path(course),node,uploadLimits);
     }
     @Bean Cleanup uploadCleanup(ResumableUploadService uploads){return new Cleanup(uploads);}
     static final class Cleanup {

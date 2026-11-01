@@ -154,7 +154,7 @@ class ResumableUploadServiceTest {
         service=create("node-a",Clock.offset(clock,Duration.ofHours(25)));
         service.cleanupExpired();
         assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM sc_upload_session WHERE id=?",Integer.class,session.id()));
-        assertEquals(first.length+last.length,jdbc.queryForObject("SELECT staging_reserved FROM sc_upload_session WHERE id=?",Long.class,session.id()));
+        assertEquals(4L*(first.length+last.length),jdbc.queryForObject("SELECT staging_reserved FROM sc_upload_session WHERE id=?",Long.class,session.id()));
         assertEquals("COMPLETING",service.status(user,session.id()).state());
         assertEquals(session.id(),init("pending.bin").id());
         assertEquals("COMPLETING",service.complete(user,session.id()).state());

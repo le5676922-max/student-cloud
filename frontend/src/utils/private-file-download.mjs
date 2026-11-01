@@ -25,14 +25,31 @@ export function privateDownloadUrl(value, expectedKey) {
 }
 
 export const MAX_PRIVATE_DOWNLOAD_BYTES = 50 * 1024 * 1024
+export const MAX_PRIVATE_STREAM_BYTES = 1024 ** 3
 
-export function privateDownloadSize(value) {
+// Only the current directory's server-issued capability can raise the default.
+export function privateDownloadLimit(metadata) {
+	const value = metadata?.maxDownloadFileSize
+	return Number.isSafeInteger(value) &&
+		value > 0 &&
+		value <= MAX_PRIVATE_STREAM_BYTES
+		? value
+		: MAX_PRIVATE_DOWNLOAD_BYTES
+}
+
+export function privateDownloadSize(
+	value,
+	maxBytes = MAX_PRIVATE_DOWNLOAD_BYTES
+) {
 	if (
+		!Number.isSafeInteger(maxBytes) ||
+		maxBytes < 1 ||
+		maxBytes > MAX_PRIVATE_STREAM_BYTES ||
 		!Number.isSafeInteger(value) ||
 		value < 0 ||
-		value > MAX_PRIVATE_DOWNLOAD_BYTES
+		value > maxBytes
 	)
-		throw new Error('请刷新目录，并选择不超过50MiB的文件')
+		throw new Error('文件大小超出当前下载预算，请刷新目录后重试')
 	return value
 }
 
@@ -54,8 +71,12 @@ export async function pickPrivateDownloadFile(browser, suggestedName) {
 	}
 }
 
-export function validatePrivateDownloadResponse(response, expectedSize) {
-	privateDownloadSize(expectedSize)
+export function validatePrivateDownloadResponse(
+	response,
+	expectedSize,
+	maxBytes = MAX_PRIVATE_DOWNLOAD_BYTES
+) {
+	privateDownloadSize(expectedSize, maxBytes)
 	const header = (name) =>
 		response.headers?.get?.(name) ?? response.headers?.[name]
 	const contentType = header('content-type') ?? response.data?.type
@@ -72,7 +93,7 @@ export function validatePrivateDownloadResponse(response, expectedSize) {
 	if (
 		length != null &&
 		(!/^(0|[1-9]\d*)$/.test(String(length)) ||
-			privateDownloadSize(Number(length)) !== expectedSize)
+			privateDownloadSize(Number(length), maxBytes) !== expectedSize)
 	)
 		throw new Error('文件大小已变化，请刷新目录后重试')
 }
@@ -86,6 +107,7 @@ export async function writePrivateDownloadStream({
 	response,
 	handle,
 	expectedSize,
+	maxBytes = MAX_PRIVATE_DOWNLOAD_BYTES,
 	signal,
 	isCurrent = () => true,
 	abortNetwork = () => {},
@@ -131,8 +153,8 @@ export async function writePrivateDownloadStream({
 			throw new Error('当前浏览器未返回文件数据流')
 		reader = response.data.getReader()
 		checkCurrent()
-		privateDownloadSize(expectedSize)
-		validatePrivateDownloadResponse(response, expectedSize)
+		privateDownloadSize(expectedSize, maxBytes)
+		validatePrivateDownloadResponse(response, expectedSize, maxBytes)
 		writable = await handle.createWritable()
 		checkCurrent()
 		let received = 0
@@ -143,7 +165,7 @@ export async function writePrivateDownloadStream({
 			if (done) break
 			if (!(value instanceof Uint8Array)) throw new Error('文件下载响应无效')
 			received += value.byteLength
-			if (received > expectedSize || received > MAX_PRIVATE_DOWNLOAD_BYTES)
+			if (received > expectedSize || received > maxBytes)
 				throw new Error('文件大小已变化，请刷新目录后重试')
 			await wait(writable.write(value))
 			onProgress(received)

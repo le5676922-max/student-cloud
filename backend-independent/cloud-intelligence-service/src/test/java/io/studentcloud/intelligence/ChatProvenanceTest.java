@@ -25,8 +25,8 @@ class ChatProvenanceTest {
         Actor admin=new Actor(1,"root","root",null,Role.ADMIN,null),user=new Actor(3,"member","member",null,Role.USER,7L);
         AccountDirectory accounts=new AccountDirectory(){public Actor account(long id){return id==1?admin:user;}public boolean workspaceEnabled(long id){return id==7;}};
         CourseKnowledgeAccess courses=CourseKnowledgeAccess.unavailable();
-        var feedback=new AnswerFeedbackService(jdbc,tx,clock,accounts,courses);
         var store=new ChatAnswerStore(jdbc,clock);
+        var feedback=new AnswerFeedbackService(jdbc,tx,clock,accounts,courses,store::requirePublishable);
         var knowledge=new ReviewedKnowledgeService(jdbc,tx,clock,accounts,courses,store::requirePublishable);
         String seedId=store.save(user.id(),7L,null,"upload","draft");
         var seed=feedback.submit(user,"upload","draft",seedId);
@@ -49,6 +49,44 @@ class ChatProvenanceTest {
             var receipt=feedback.submit(user,question,answer.answer(),answer.messageId());
             var resolution=feedback.review(admin,receipt.id(),1,"Reviewed workspace answer",FeedbackStatus.RESOLVED);
             assertEquals(403,assertThrows(ApplicationFault.class,()->knowledge.publish(admin,receipt.id(),resolution.version(),"Should stay private",KnowledgeScope.GLOBAL,null,true)).httpStatus());
+            assertTrue(feedback.exportReviewed(admin).stream().noneMatch(item -> item.question().equals(question)),
+                    "Human review must not make the private workspace answer exportable");
+            assertTrue(feedback.exportReviewed(admin).isEmpty(), "A TENANT publication is not a GLOBAL export");
         }finally{server.stop(0);jdbc.execute("SHUTDOWN");}
+    }
+
+    @Test void exportChecksPersistedPublicPrivateUnknownHistoricalAndCourseProvenance() {
+        var database = new JdbcDataSource();
+        database.setURL("jdbc:h2:mem:export_provenance_" + UUID.randomUUID() + ";MODE=MySQL;DB_CLOSE_DELAY=-1");
+        new ResourceDatabasePopulator(new ClassPathResource("db/independent-assistant-schema.sql"),
+                new ClassPathResource("db/independent-chat-schema.sql"), new ClassPathResource("db/independent-answer-provenance-schema.sql")).execute(database);
+        var jdbc = new JdbcTemplate(database);
+        try {
+            var tx = new DataSourceTransactionManager(database);
+            var clock = Clock.systemUTC();
+            Actor admin = new Actor(1, "root", "root", null, Role.ADMIN, null);
+            Actor user = new Actor(3, "member", "member", null, Role.USER, 7L);
+            AccountDirectory accounts = new AccountDirectory() {
+                public Actor account(long id) { return id == 1 ? admin : user; }
+                public boolean workspaceEnabled(long id) { return id == 7; }
+            };
+            var store = new ChatAnswerStore(jdbc, clock);
+            var feedback = new AnswerFeedbackService(jdbc, tx, clock, accounts, (actor, courseId) -> {}, store::requirePublishable);
+            for (String kind : List.of("public", "memory", "attachment", "history", "unknown", "historical", "course")) {
+                Long courseId = kind.equals("course") ? 12L : null;
+                String messageId = UUID.randomUUID().toString().replace("-", "");
+                if (kind.equals("historical")) {
+                    jdbc.update("INSERT INTO sc_chat_answer(message_id,account_id,workspace_id,question,answer,created_at) VALUES(?,3,7,?,'original',?)", messageId, kind, clock.millis());
+                } else if (!kind.equals("unknown")) {
+                    messageId = store.save(user.id(), 7L, courseId, kind, "original", !kind.equals("public"));
+                }
+                var receipt = feedback.submit(user, kind, "original", messageId, courseId);
+                var reviewed = feedback.review(admin, receipt.id(), 1, "Reviewed " + kind, "INTERNAL NOTE", FeedbackStatus.RESOLVED);
+                // Legacy rows intentionally bypass publication validation so export must recheck provenance.
+                jdbc.update("INSERT INTO sc_reviewed_knowledge(feedback_id,title,answer,scope,version,source_feedback_version,created_at) VALUES(?,?,?,'GLOBAL',1,?,?)",
+                        receipt.id(), "Reviewed " + kind, reviewed.correctedAnswer(), reviewed.version(), reviewed.updatedAt());
+            }
+            assertEquals(List.of(new AnswerFeedbackService.ReviewedAnswer("public", "Reviewed public")), feedback.exportReviewed(admin));
+        } finally { jdbc.execute("SHUTDOWN"); }
     }
 }

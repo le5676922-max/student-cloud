@@ -21,6 +21,7 @@ import selfAxios from '~/http/request'
 import {
 	MAX_PRIVATE_DOWNLOAD_BYTES,
 	pickPrivateDownloadFile,
+	privateDownloadLimit,
 	privateDownloadSize,
 	privateDownloadUrl,
 	validatePrivateDownloadResponse,
@@ -181,9 +182,11 @@ export default function useFileOperator() {
 		pendingPrivateDownloads++
 		try {
 			const original = captureFileOperationContext(readContext(), [row])
-			if (!original.accountIdentity)
-				throw new Error('请登录后下载不超过50MiB的文件')
-			const expectedSize = privateDownloadSize(row.size)
+			if (!original.accountIdentity) throw new Error('请登录后下载文件')
+			const maxBytes = privateDownloadLimit(
+				storageConfigStore.folderConfig.metadata
+			)
+			const expectedSize = privateDownloadSize(row.size, maxBytes)
 			const name = original.rows[0].name
 			// eslint-disable-next-line no-control-regex -- Strip unsafe filename control characters.
 			const filename = name.replace(/[\\/\u0000-\u001f]/g, '_') || 'download'
@@ -197,6 +200,7 @@ export default function useFileOperator() {
 						current.rootPath,
 						current.accountIdentity,
 						storageConfigStore.folderConfig.permission.download,
+						privateDownloadLimit(storageConfigStore.folderConfig.metadata),
 					]
 				},
 				() => {
@@ -212,6 +216,8 @@ export default function useFileOperator() {
 				!changed &&
 				!controller.signal.aborted &&
 				isFileOperationContextCurrent(original, readContext()) &&
+				privateDownloadLimit(storageConfigStore.folderConfig.metadata) ===
+					maxBytes &&
 				storageConfigStore.folderConfig.permission.download === true
 			if (storageConfigStore.globalConfig.enableNormalDownloadConfirm) {
 				const confirmed = await ElMessageBox.confirm(
@@ -235,6 +241,12 @@ export default function useFileOperator() {
 			// Browsers without an active save gesture retain the bounded Blob path.
 			const handle = await pickPrivateDownloadFile(window, filename)
 			if (!current()) return
+			if (!handle && expectedSize > MAX_PRIVATE_DOWNLOAD_BYTES) {
+				ElMessage.warning(
+					'大于50MiB的文件需要浏览器支持流式保存，请使用支持此功能的浏览器并通过HTTPS访问'
+				)
+				return
+			}
 			const downloadedBytes = ref(0)
 			if (handle) {
 				const progress = ElMessage.info({
@@ -250,16 +262,22 @@ export default function useFileOperator() {
 				})
 				closeProgress = () => progress.close()
 			}
+			const timeout = handle
+				? Math.min(
+						1200000,
+						Math.max(120000, Math.ceil(expectedSize / 1048576) * 1000 + 60000)
+				  )
+				: 120000
 			const response = await selfAxios({
 				method: 'get',
 				url,
 				config: {
 					...(handle ? { adapter: 'fetch' } : {}),
 					responseType: handle ? 'stream' : 'blob',
-					maxContentLength: MAX_PRIVATE_DOWNLOAD_BYTES,
+					maxContentLength: handle ? maxBytes : MAX_PRIVATE_DOWNLOAD_BYTES,
 					responseIntercept: false,
 					showDefaultMsg: false,
-					timeout: 120000,
+					timeout,
 					signal: controller.signal,
 				},
 			})
@@ -268,6 +286,7 @@ export default function useFileOperator() {
 					response,
 					handle,
 					expectedSize,
+					maxBytes,
 					signal: controller.signal,
 					isCurrent: current,
 					abortNetwork: () => controller.abort(),

@@ -9,6 +9,7 @@ import io.studentcloud.drive.application.DriveOperations;
 import io.studentcloud.drive.application.WorkspaceCloudService;
 import io.studentcloud.drive.application.FileCatalog;
 import io.studentcloud.drive.application.QuotaLedger;
+import io.studentcloud.drive.application.UploadLimits;
 import java.nio.file.Path;
 import java.time.Clock;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,6 +22,12 @@ import org.springframework.transaction.PlatformTransactionManager;
 /** 装配本地云盘、学习库和课程资料服务，并校验私有存储目录配置。 */
 @Configuration(proxyBeanMethods = false)
 public class StorageConfiguration {
+    @Bean UploadLimits uploadLimits(
+            @Value("${student-cloud.uploads.local-max-file-bytes:1073741824}") long maxFile,
+            @Value("${student-cloud.uploads.actor-staging-bytes:4294967296}") long actorBytes,
+            @Value("${student-cloud.uploads.global-staging-bytes:8589934592}") long globalBytes) {
+        return new UploadLimits(maxFile,actorBytes,globalBytes);
+    }
     @Bean @DependsOn("independentSchema")
     FileCatalog fileCatalog(JdbcTemplate jdbc,PlatformTransactionManager tx,Clock clock){return new FileCatalog(jdbc,tx,clock);}
     @Bean @DependsOn("independentSchema")
@@ -35,8 +42,8 @@ public class StorageConfiguration {
     @DependsOn("independentSchema")
     MountService mounts(JdbcTemplate jdbc, PlatformTransactionManager transactions, Clock clock,
                         @Value("${student-cloud.storage.managed-root:}") String configuredRoot, AccountDirectory accounts,FileCatalog catalog,
-                        QuotaLedger ledger,@Value("${student-cloud.features.quota-ledger:false}") boolean ledgerEnabled) {
-        return new MountService(jdbc, transactions, clock, configuredPath(configuredRoot), accounts,catalog,ledgerEnabled?ledger:null);
+                        QuotaLedger ledger,@Value("${student-cloud.features.quota-ledger:false}") boolean ledgerEnabled,UploadLimits uploadLimits) {
+        return new MountService(jdbc, transactions, clock, configuredPath(configuredRoot), accounts,catalog,ledgerEnabled?ledger:null,uploadLimits);
     }
 
     @Bean

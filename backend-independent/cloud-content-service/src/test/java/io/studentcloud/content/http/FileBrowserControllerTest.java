@@ -65,6 +65,8 @@ class FileBrowserControllerTest {
     }
 
     @Test void storageListUsesBrowserTypeWithoutChangingNativeDriveContract() throws Exception {
+        mvc.perform(json("/api/site/config/storage", Map.of("storageKey", "local-drive", "path", "/")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.metadata.maxDownloadFileSize").value(50*1024*1024));
         mvc.perform(get("/api/storage/list").header("Authorization", "Bearer member"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].key").value("local-drive"))
                 .andExpect(jsonPath("$.data[0].type.key").value("INDEPENDENT_LOCAL"));

@@ -181,6 +181,7 @@ const emit = defineEmits(['close'])
 const draft = ref('')
 const editingId = ref('')
 const editingOriginal = ref('')
+const editingVersion = ref(0)
 const filterQuery = ref('')
 const state = ref({
 	items: [],
@@ -196,6 +197,7 @@ const manager = createAiMemoryManager({
 		if (value.identityDenied) {
 			editingId.value = ''
 			editingOriginal.value = ''
+			editingVersion.value = 0
 			draft.value = ''
 			filterQuery.value = ''
 		}
@@ -207,6 +209,7 @@ const manager = createAiMemoryManager({
 		) {
 			editingId.value = ''
 			editingOriginal.value = ''
+			editingVersion.value = 0
 			draft.value = ''
 		}
 	},
@@ -222,7 +225,11 @@ const locked = computed(
 const editStale = computed(() => {
 	if (!editingId.value || !state.value.loaded) return false
 	const current = state.value.items.find((item) => item.id === editingId.value)
-	return Boolean(current && current.content !== editingOriginal.value)
+	return Boolean(
+		current &&
+			(current.version !== editingVersion.value ||
+				current.content !== editingOriginal.value)
+	)
 })
 const canSave = computed(
 	() =>
@@ -242,6 +249,7 @@ watch(
 		draft.value = ''
 		editingId.value = ''
 		editingOriginal.value = ''
+		editingVersion.value = 0
 		filterQuery.value = ''
 		void manager.setIdentity(identity)
 	},
@@ -251,6 +259,7 @@ onBeforeUnmount(() => {
 	draft.value = ''
 	editingId.value = ''
 	editingOriginal.value = ''
+	editingVersion.value = 0
 	filterQuery.value = ''
 	manager.dispose()
 })
@@ -258,6 +267,7 @@ function beginEdit(item) {
 	if (locked.value || !state.value.enabled || editingId.value) return
 	editingId.value = item.id
 	editingOriginal.value = item.content
+	editingVersion.value = item.version
 	draft.value = item.content
 	manager.clearFormError()
 }
@@ -265,6 +275,7 @@ function cancelEdit() {
 	if (state.value.busy) return
 	editingId.value = ''
 	editingOriginal.value = ''
+	editingVersion.value = 0
 	draft.value = ''
 	manager.clearFormError()
 }
@@ -273,12 +284,18 @@ async function saveMemory() {
 	const identity = props.identityKey
 	const editing = editingId.value
 	const saved = editing
-		? await manager.update(editing, draft.value, editingOriginal.value)
+		? await manager.update(
+				editing,
+				draft.value,
+				editingOriginal.value,
+				editingVersion.value
+		  )
 		: await manager.remember(draft.value)
 	if (saved && props.identityKey === identity && editingId.value === editing) {
 		draft.value = ''
 		editingId.value = ''
 		editingOriginal.value = ''
+		editingVersion.value = 0
 	}
 }
 </script>

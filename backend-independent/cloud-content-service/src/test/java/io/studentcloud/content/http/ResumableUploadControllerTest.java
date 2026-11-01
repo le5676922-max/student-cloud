@@ -34,10 +34,11 @@ class ResumableUploadControllerTest {
         jdbc=new JdbcTemplate(db);var tx=new DataSourceTransactionManager(db);
         Actor admin=new Actor(1,"a1","admin",null,Role.ADMIN,null);
         AccountDirectory accounts=new AccountDirectory(){public Actor account(long id){return id==1?admin:member;}public boolean workspaceEnabled(long id){return id==1;}};
-        var mounts=new MountService(jdbc,tx,Clock.systemUTC(),managed,accounts);
+        var limits=new UploadLimits(1024L*1024*1024,4L*1024*1024*1024,8L*1024*1024*1024);
+        var mounts=new MountService(jdbc,tx,Clock.systemUTC(),managed,accounts,null,limits);
         var mount=mounts.createLocal(admin,"drive","local-drive",root,1L);
         jdbc.update("INSERT INTO sc_drive_grant(user_id,mount_id,root_path,permissions,enabled,revision,created_at) VALUES(3,?,'/members/u3','list,read,upload',TRUE,1,1)",mount.id());
-        service=new ResumableUploadService(jdbc,tx,Clock.systemUTC(),mounts,accounts,stage,managed,null,"node-a");
+        service=new ResumableUploadService(jdbc,tx,Clock.systemUTC(),mounts,accounts,stage,managed,null,"node-a",limits);
         mvc=MockMvcBuilders.standaloneSetup(new ResumableUploadController(service)).setControllerAdvice(new HttpFailures())
                 .addFilters(new AuthenticationFilter(token->{if(!"member".equals(token))throw new ApplicationFault("42000",401,"请先登录");return member;},json)).build();
     }
@@ -46,7 +47,7 @@ class ResumableUploadControllerTest {
         mvc.perform(post("/api/uploads/resumable/capabilities").contentType("application/json").content(payload)).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/uploads/resumable/capabilities").param("token","member").contentType("application/json").content(payload)).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/uploads/resumable/capabilities").header("Authorization","Bearer member").contentType("application/json").content(payload))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data.protocol").value("independent-v1")).andExpect(jsonPath("$.data.maxFileSize").value(50*1024*1024));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.protocol").value("independent-v1")).andExpect(jsonPath("$.data.maxFileSize").value(1024*1024*1024));
     }
     @Test void rawChunkEndpointVerifiesDigestAndIdempotentlyCompletes()throws Exception{
         byte[] bytes={1,2,3};String hash=ResumableUploadService.sha256(bytes);
@@ -56,5 +57,15 @@ class ResumableUploadControllerTest {
         for(int i=0;i<2;i++)mvc.perform(post("/api/uploads/resumable/"+session.id()+"/complete").header("Authorization","Bearer member"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.state").value("COMPLETED"));
         assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM sc_upload_session WHERE state='COMPLETED'",Integer.class));
+    }
+    @Test void admits256ChunkManifestButRejectsWrongCountAndOutOfRangeIndex()throws Exception{
+        var hashes=Collections.nCopies(256,ResumableUploadService.sha256(new byte[0]));
+        var payload=new LinkedHashMap<String,Object>();payload.put("storageKey","local-drive");payload.put("path","/");payload.put("name","one-gib.bin");
+        payload.put("size",1024L*1024*1024);payload.put("chunkHashes",hashes);payload.put("manifestHash",ResumableUploadService.manifestHash(hashes));
+        mvc.perform(post("/api/uploads/resumable/init").header("Authorization","Bearer member").contentType("application/json").content(json.writeValueAsString(payload)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.missingChunks.length()").value(256));
+        payload.put("name","invalid.bin");payload.put("chunkHashes",hashes.subList(0,255));
+        mvc.perform(post("/api/uploads/resumable/init").header("Authorization","Bearer member").contentType("application/json").content(json.writeValueAsString(payload)))
+                .andExpect(status().isBadRequest());
     }
 }

@@ -1,5 +1,5 @@
 {
-  "revision": "2026-10-30-agent-foundation-v1",
+  "revision": "2026-11-01-ab-integration-v1",
   "description": "人工编写的产品检索回归；不是模型生成质量评分、训练数据或实际云账号验收。",
   "cases": [
     {"role":"USER","query":"上传文件失败怎么办","expected":"file-upload-download"},
@@ -49,6 +49,9 @@
     {"role":"TENANT_ADMIN","query":"凭据主密钥SC_STORAGE_MASTER_KEY","forbidden":"remote-storage-credentials"},
     {"role":"USER","query":"远程只读测试连接","forbidden":"remote-storage-validation"},
     {"role":"USER","query":"检查UNCERTAIN写入账本","forbidden":"remote-pending-write-inspection"},
-    {"role":"TENANT_ADMIN","query":"全站文件统计数字含义","forbidden":"platform-statistics-meaning"}
+    {"role":"TENANT_ADMIN","query":"全站文件统计数字含义","forbidden":"platform-statistics-meaning"},
+    {"role":"USER","query":"LOCAL本地上传1GiB与远程OSS限制","expected":"file-upload-download"},
+    {"role":"USER","query":"大文件4倍暂存预算256块如何续传","expected":"resumable-upload"},
+    {"role":"ADMIN","query":"已撤回的GLOBAL知识可以导出训练吗","expected":"platform-knowledge-review"}
   ]
 }

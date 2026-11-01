@@ -49,11 +49,21 @@ public final class MountService implements DriveOperations {
     private final Clock clock;
     private final AccountDirectory accounts;
     private final Path managedRoot;
+    private final UploadLimits uploadLimits;
     private final Semaphore stagedUploads = new Semaphore(2);
     private FileCatalog catalog;
     private QuotaLedger quotaLedger;
 
     public MountService(JdbcTemplate jdbc, PlatformTransactionManager transactionManager, Clock clock, Path managedRoot, AccountDirectory accounts) {
+        this(jdbc, transactionManager, clock, managedRoot, accounts, null, UploadLimits.defaults());
+    }
+    public MountService(JdbcTemplate jdbc, PlatformTransactionManager transactionManager, Clock clock, Path managedRoot,
+                        AccountDirectory accounts, FileCatalog catalog, UploadLimits uploadLimits) {
+        this(jdbc,transactionManager,clock,managedRoot,accounts,catalog,null,uploadLimits);
+    }
+    public MountService(JdbcTemplate jdbc, PlatformTransactionManager transactionManager, Clock clock, Path managedRoot,
+                        AccountDirectory accounts, FileCatalog catalog, QuotaLedger quotaLedger, UploadLimits uploadLimits) {
+        this.quotaLedger = quotaLedger;
         this.jdbc = Objects.requireNonNull(jdbc);
         this.transactions = new TransactionTemplate(Objects.requireNonNull(transactionManager));
         this.transactions.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
@@ -61,6 +71,8 @@ public final class MountService implements DriveOperations {
         this.clock = Objects.requireNonNull(clock);
         this.accounts = Objects.requireNonNull(accounts);
         this.managedRoot = managedRoot == null ? null : managedRoot.toAbsolutePath().normalize();
+        this.catalog = catalog;
+        this.uploadLimits = Objects.requireNonNull(uploadLimits);
     }
     public MountService(JdbcTemplate jdbc,PlatformTransactionManager transactions,Clock clock,Path root,AccountDirectory accounts,FileCatalog catalog){
         this(jdbc,transactions,clock,root,accounts);this.catalog=Objects.requireNonNull(catalog);
@@ -94,6 +106,16 @@ public final class MountService implements DriveOperations {
 
     public List<MountView> listMounts(Actor actor) {
         return protect(()->{configuredRoot();return listLocalMounts(actor);});
+    }
+
+    @Override public long maxTransferBytes(Actor actor, String key) { return uploadLimits.localMaxFileBytes(); }
+    @Override public java.util.function.LongConsumer uploadDiskAdmission(Actor actor,String key,DrivePath path,long size) {
+        // Resolve authorization before the global admission lock; the returned check
+        // reads only disk facts and cannot perform a remote identity lookup in that lock.
+        return protect(()->{
+            Access authorized=access(actor,key,Set.of("upload"),true);
+            return reservedBytes->protect(()->{checkPublicationSpace(authorized,path,size,reservedBytes);return null;});
+        });
     }
 
     /** Metadata discovery must not make healthy remote connections depend on a local disk. */
@@ -201,6 +223,7 @@ public final class MountService implements DriveOperations {
         protect(() -> {
             Access allowed = access(actor, key, Set.of("upload"), true);
             validateUpload(allowed, path, size);
+            checkPublicationSpace(allowed,path,size);
             return null;
         });
     }
@@ -209,7 +232,7 @@ public final class MountService implements DriveOperations {
     public String uploadAuthorization(Actor actor,String key,DrivePath path,long size){
         return protect(()->{
             Access access=access(actor,key,Set.of("upload"),true);
-            if(path.isRoot()||size<1||size>MAX_TRANSFER_BYTES)throw fault("DRIVE_INVALID",400,"文件大小或名称无效");
+            if(path.isRoot()||size<1||size>uploadLimits.localMaxFileBytes())throw fault("DRIVE_INVALID",400,"文件大小或名称无效");
             requireDirectory(access,path.parent());
             Path directory=visibleRoot(access).resolve(path.parent().relative());
             var attributes=Files.readAttributes(directory,java.nio.file.attribute.BasicFileAttributes.class,LinkOption.NOFOLLOW_LINKS);
@@ -231,11 +254,21 @@ public final class MountService implements DriveOperations {
         if(quotaLedger==null)requireQuota(allowed, size);
     }
 
-    private static void validateUploadTarget(Access allowed, DrivePath path, long size) throws IOException {
-        if (size < 0 || size > MAX_TRANSFER_BYTES) throw fault("DRIVE_INVALID", 400, "文件不能超过50MiB");
+    private void validateUploadTarget(Access allowed, DrivePath path, long size) throws IOException {
+        if (size < 0 || size > uploadLimits.localMaxFileBytes()) throw fault("DRIVE_INVALID", 400, "文件超过当前本地传输上限");
         if (path.isRoot()) throw fault("DRIVE_INVALID", 400, "请指定文件名称");
         requireDirectory(allowed, path.parent());
         if (allowed.store().stat(path).isPresent()) throw fault("DRIVE_CONFLICT", 409, "目标已存在同名文件，不会覆盖");
+    }
+
+    private void checkPublicationSpace(Access authorized,DrivePath target,long size) throws IOException {
+        checkPublicationSpace(authorized,target,size,0);
+    }
+    private void checkPublicationSpace(Access authorized,DrivePath target,long size,long reservedBytes) throws IOException {
+        Path parent=visibleRoot(authorized).resolve(target.parent().relative());
+        if (!uploadLimits.canAdmitPublication(Files.getFileStore(parent).getUsableSpace(),reservedBytes,size)
+                || !uploadLimits.canAdmitPublication(Files.getFileStore(Path.of(System.getProperty("java.io.tmpdir"))).getUsableSpace(),reservedBytes,size))
+            throw fault("DRIVE_DISK_BUDGET",507,"本地磁盘空间不足，无法安全暂存和保存文件");
     }
 
     public FileRecord mkdir(Actor actor, String key, DrivePath path) {
@@ -254,6 +287,9 @@ public final class MountService implements DriveOperations {
             if (!stagedUploads.tryAcquire()) throw fault("DRIVE_BUSY", 429, "上传暂存繁忙，请稍后重试");
             Path temporary = null;
             try {
+                // Parts and assembled data are accounted for by the resumable admission budget.
+                // Before creating the two publication copies, also check the actual involved volumes.
+                checkPublicationSpace(authorized,path,size);
                 temporary = Files.createTempFile("student-cloud-upload-", ".tmp");
                 if (temporary.toRealPath().startsWith(configuredRoot())) {
                     throw fault("DRIVE_STAGING_INVALID", 503, "上传暂存必须与可浏览存储隔离");
@@ -264,7 +300,7 @@ public final class MountService implements DriveOperations {
                     long started = System.nanoTime();
                     int emptyReads = 0;
                     for (int count; (count = input.read(buffer)) != -1;) {
-                        if (System.nanoTime() - started >= 60_000_000_000L)
+                        if (System.nanoTime() - started >= (size > MAX_TRANSFER_BYTES ? 600_000_000_000L : 60_000_000_000L))
                             throw fault("DRIVE_BUSY", 408, "上传暂存超时，请重试");
                         if (count == 0) {
                             if (++emptyReads > 1024) throw fault("DRIVE_INVALID", 400, "文件流未返回有效数据");
@@ -478,7 +514,7 @@ public final class MountService implements DriveOperations {
                     if(mounts.size()!=1){uncertain(id,"TRASHED");return false;}Path physical=requireManagedRoot(Path.of(mounts.getFirst().physicalRoot()));
                     DrivePath root=DrivePath.of(row.root());Path visible=physical.resolve(root.relative()).normalize();
                     if(!visible.startsWith(physical))throw denied();
-                    var store=new LocalFileStore(visible,MAX_ENTRIES,MAX_TRANSFER_BYTES);
+                    var store=new LocalFileStore(visible,MAX_ENTRIES,uploadLimits.localMaxFileBytes());
                     var attr=Files.readAttributes(visible,java.nio.file.attribute.BasicFileAttributes.class,LinkOption.NOFOLLOW_LINKS);
                     if(!row.scope().equals(digest(physical+"|"+root.value()+"|"+attr.fileKey()+"|"+attr.creationTime())))throw denied();
                     // Commit the intent before touching disk, so restart never mistakes a partial purge for retryable work.
@@ -491,7 +527,7 @@ public final class MountService implements DriveOperations {
                     if(!row.scope().equals(digest(mountRoot+"|"+row.root()+"|"+attr.fileKey()+"|"+attr.creationTime())))throw denied();
                     QuotaLedger.Scope scope=quotaLedger==null?null:new QuotaLedger.Scope(row.mountId(),row.actorId(),row.scope());
                     QuotaLedger.Reservation held=quotaLedger==null?null:quotaLedger.reserve(scope,null,"retention-"+id,0);
-                    new LocalFileStore(visible,MAX_ENTRIES,MAX_TRANSFER_BYTES).purgeRecycled(id);
+                    new LocalFileStore(visible,MAX_ENTRIES,uploadLimits.localMaxFileBytes()).purgeRecycled(id);
                     jdbc.update("UPDATE sc_drive_trash SET status='PURGED',updated_at=? WHERE id=? AND status='PURGING'",clock.millis(),id);
                     if(held!=null)quotaLedger.settle(scope,held.id(),0);
                     cleaned++;
@@ -535,7 +571,7 @@ public final class MountService implements DriveOperations {
         DrivePath rootPath = DrivePath.of(grant.root());
         Path visible = physical.resolve(rootPath.relative()).normalize();
         if (!visible.startsWith(physical)) throw denied();
-        LocalFileStore store = new LocalFileStore(visible, MAX_ENTRIES, MAX_TRANSFER_BYTES);
+        LocalFileStore store = new LocalFileStore(visible, MAX_ENTRIES, uploadLimits.localMaxFileBytes());
         return new Access(store, new Stamp(actor.id(), actor.role(), actor.workspaceId(), mount.id(), mount.revision(),
                 physical, grant.root(), grant.permissions(), grant.quotaBytes(), grant.revision()));
     }

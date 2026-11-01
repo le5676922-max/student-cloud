@@ -57,6 +57,7 @@ const useStorageConfigStore = defineStore('storageConfigStore', {
 				defaultSwitchToImgMode: false,
 				permission: {} as Record<string, boolean>,
 				metadata: {
+					maxDownloadFileSize: null as number | null,
 					uploadType: null,
 					supportRenameFolder: null,
 					supportMoveFolder: null,

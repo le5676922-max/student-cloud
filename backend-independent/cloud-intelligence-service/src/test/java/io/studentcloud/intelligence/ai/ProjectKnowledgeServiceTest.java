@@ -19,7 +19,7 @@ class ProjectKnowledgeServiceTest {
         try (var input = getClass().getResourceAsStream("/ai/knowledge/project-help.json")) {
             var data = new ObjectMapper().readTree(input);
             assertEquals(1, data.path("schemaVersion").asInt());
-            assertEquals("2026-10-30-agent-foundation-v1", data.path("revision").asText());
+            assertEquals("2026-11-01-ab-integration-v1", data.path("revision").asText());
             assertEquals(48, data.path("entries").size());
             var ids = new HashSet<String>();
             for (var entry : data.path("entries")) {
@@ -49,9 +49,13 @@ class ProjectKnowledgeServiceTest {
     @Test void specificOperationalLimitsAndPrivacyBoundariesRemainTruthful() {
         var upload = find(user, "上传", "file-upload-download");
         assertTrue(upload.content().contains("50MiB"));
+        assertTrue(upload.content().contains("1GiB"));
+        assertTrue(upload.content().contains("OSS/S3远程源仍保持50MiB"));
         var continuation = find(user, "分片续传", "resumable-upload");
         assertTrue(continuation.content().contains("原内容节点"));
         assertTrue(continuation.content().contains("24小时"));
+        assertTrue(continuation.content().contains("4倍"));
+        assertTrue(continuation.content().contains("256块"));
         var trash = find(user, "回收站", "trash-and-quota");
         assertTrue(trash.content().contains("7天"));
         assertTrue(trash.content().contains("仍计入容量"));
