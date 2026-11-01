@@ -33,6 +33,7 @@ Java 21、Spring Boot **4.1.2**、Spring Cloud **2025.1.4**；使用 Gateway、L
 - `SC_PLATFORM_URI`、`SC_CONTENT_URI`、`SC_INTELLIGENCE_URI` 指定服务实例，网关另配置当前平台实例的 `SC_PLATFORM_WS_URI`。
 - `SC_ALLOWED_ORIGINS` 是明确的浏览器来源；客服票据一次性、30秒有效，不在 URL 中传递用户登录 Token。
 - 内容服务配置 `SC_MANAGED_STORAGE_ROOT`、`SC_COURSE_STORAGE_ROOT`；启用续传还需 `SC_UPLOAD_STAGING_ROOT` 与稳定的 `SC_CONTENT_NODE_ID`。三个已有绝对目录不得重叠；暂存目录不能被挂载为云盘。未配置独立暂存目录时，续传能力保持关闭。
+- LOCAL 续传与流式下载最高1 GiB，可用 `SC_LOCAL_MAX_FILE_BYTES` 降低上限；普通 multipart 与远程保持50 MiB。个人/全站暂存峰值预算由 `SC_UPLOAD_ACTOR_STAGING_BYTES` / `SC_UPLOAD_GLOBAL_STAGING_BYTES` 配置，默认4/8 GiB；新任务按四份副本峰值准入。大于50 MiB的浏览器下载需要流式保存能力。验收与B方接入边界见[本轮交付记录](../docs/A侧独立增量交付-20261101.md)。
 - OSS/S3 连接由内容服务持有；凭据经 AES-GCM 加密，`SC_STORAGE_MASTER_KEY` 是独立的32字节Base64主密钥。自建服务需显式配置 `SC_STORAGE_ALLOWED_ENDPOINTS`；连接测试不修改Bucket CORS。配置、最小权限及操作边界见 [远程存储接入指南](../docs/OSS与S3远程存储接入指南.md)。
 - `/healthz` 检查存活；业务 `/readyz` 检查本服务数据库，不表示全部远程依赖健康。
 

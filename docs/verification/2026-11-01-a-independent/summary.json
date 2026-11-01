@@ -1,0 +1,104 @@
+{
+  "date": "2026-11-01",
+  "runtimes": {
+    "java": "21.0.13",
+    "node": "22.23.4",
+    "pnpm": "11.19.0"
+  },
+  "backend": {
+    "command": "mvn -B -f backend-independent/pom.xml verify",
+    "tests": 469,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 4,
+    "skip_reason": "Four existing symbolic-link cases skipped in this Windows environment"
+  },
+  "frontend": {
+    "tests": 1009,
+    "failed": 0,
+    "skipped": 0,
+    "typecheck": "passed",
+    "design_contract": "passed",
+    "production_build": "passed"
+  },
+  "review": {
+    "open_critical": 0,
+    "open_important": 0,
+    "closed": [
+      "expired unknown-publication init barrier",
+      "cross-volume pending disk promises",
+      "large-download total timeout",
+      "distinct chunk fixtures"
+    ]
+  },
+  "http": {
+    "profile": "isolated H2",
+    "sizes": [
+      {
+        "bytes": 51380224,
+        "chunks": 13,
+        "sha256": "ce249f4321874436bb1281588aaf03e34706dbaea0f420e9551163dd7f72b69c",
+        "seconds": 2.725,
+        "resumed_after_chunk": 3
+      },
+      {
+        "bytes": 52428800,
+        "chunks": 13,
+        "sha256": "4d17944984ff82388790e5a2b4d77b9244ab3241c0a2f3a2a8691a698767f797",
+        "seconds": 2.182,
+        "resumed_after_chunk": 3
+      },
+      {
+        "bytes": 53477376,
+        "chunks": 13,
+        "sha256": "21240570436c8c6ff0aaa5ea6aea5a7f7425ee7adaa6e79cdc36c1a50fe8ffa1",
+        "seconds": 2.681,
+        "resumed_after_chunk": 3
+      },
+      {
+        "bytes": 134217728,
+        "chunks": 32,
+        "sha256": "fc60d3eb3472e6047846fda3d0437d74fb5a9d79fd1c4e439315f1433913b47c",
+        "seconds": 5.751,
+        "resumed_after_chunk": 3
+      },
+      {
+        "bytes": 1073741824,
+        "chunks": 256,
+        "sha256": "084fb2f6bf6c2bbeb4f6a76d52f2eeaeb74aa45cc308cb84c68883eedf0b4edc",
+        "seconds": 33.595,
+        "resumed_after_chunk": 3
+      }
+    ],
+    "checks": [
+      "four real JVMs with isolated in-memory databases",
+      "resumable restart at chunk 3 and repeated completion",
+      "anonymous and cross-account download denied",
+      "256MiB content heap",
+      "stale memory delete denied; missing version denied; personal isolation",
+      "actual Chrome memory conflict, draft, 390px and keyboard checks"
+    ],
+    "content_peak_rss_bytes": 342056960,
+    "peak_observed_owned_data_bytes": 4550811648,
+    "status": "passed",
+    "last_request": "GET /api/ai/memories",
+    "seconds": 70.833
+  },
+  "browser": {
+    "status": "passed",
+    "browser": "Chrome headless",
+    "build": "production dist",
+    "checks": [
+      "real frontend and four-service H2 login session",
+      "stale memory edit shows conflict and preserves draft",
+      "desktop 1280px and mobile 390px panel bounds",
+      "Escape closes memory panel",
+      "no page exceptions"
+    ]
+  },
+  "limits": [
+    "H2 only; MySQL 8.4 integration not run",
+    "Native save picker and real multi-volume contention not exercised",
+    "No real OSS/SMTP/model account or production deployment"
+  ]
+}

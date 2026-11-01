@@ -1,6 +1,6 @@
 # A Independent Work Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 交付不等待 B 的真实 A06 控制修复、LOCAL 大文件增量和可接入的 A 方交接说明。
 
@@ -30,30 +30,30 @@
 
 **Files:** AnswerFeedbackService.java, IntelligenceConfiguration.java, ChatProvenanceTest.java, ai-feedback.vue 及相关已有测试。
 **Interfaces:** 消费 KnowledgeSourcePolicy.requirePublishable(long feedbackId)；产出同一 ReviewedAnswer 列表。
-- [ ] 写公开/私人/缺来源/课程混合导出失败回归，运行确认失败。
-- [ ] 为导出注入来源策略，默认拒绝；只忽略明确私人来源拒绝，其它异常不吞掉。
-- [ ] 更新界面说明并跑相关测试；提交。
+- [x] 写公开/私人/缺来源/课程混合导出失败回归，运行确认失败。
+- [x] 为导出注入来源策略，默认拒绝；只忽略明确私人来源拒绝，其它异常不吞掉。
+- [x] 更新界面说明并跑相关测试；提交。
 
 ### Task 2: 记忆版本贯通
 
 **Files:** MemoryController.java, ai-memory-panel.mjs, AiMemoryPanel.vue, ai-memory-panel.test.mjs, 新增 MemoryControllerVersionTest.java。
 **Interfaces:** Item.version；PUT expectedVersion；DELETE expectedVersion 查询参数。
-- [ ] 写旧版本删除、ABA 更新、缺版本和前端实际传版本回归，运行确认失败。
-- [ ] 绑定编辑起点版本，服务端拒绝缺版本更新/删除；409 保留草稿和已有账号隔离。
-- [ ] 跑前后端相关回归；提交。
+- [x] 写旧版本删除、ABA 更新、缺版本和前端实际传版本回归，运行确认失败。
+- [x] 绑定编辑起点版本，服务端拒绝缺版本更新/删除；409 保留草稿和已有账号隔离。
+- [x] 跑前后端相关回归；提交。
 
 ### Task 3: LOCAL 大文件传输
 
 **Files:** MountService/DriveOperations/DriveFacade/ResumableUploadService/ResumableUploadController、运行配置、独立上传与私有下载工具及其测试。
 **Interfaces:** 本地传输策略与每个目标的能力上限；原 independent-v1 和既有状态不变。
-- [ ] 写 51 MiB/128 MiB/1 GiB、256 块、动态能力、Blob 兜底限制的失败行为测试。
-- [ ] 实现有界 LOCAL 配置、按 4 倍峰值预留、下载上限分离、清理边界和动态前端能力；远程保留 50 MiB。
-- [ ] 实测合成文件摘要、故障与清理；跑相关回归；提交。
+- [x] 写 51 MiB/128 MiB/1 GiB、256 块、动态能力、Blob 兜底限制的失败行为测试。
+- [x] 实现有界 LOCAL 配置、按 4 倍峰值预留、下载上限分离、清理边界和动态前端能力；远程保留 50 MiB。
+- [x] 实测合成文件摘要、故障与清理；跑相关回归；提交。
 
 ### Task 4: 完整验证与 B 方交接
 
 **Files:** backend-independent/contracts/a-side-upgrade-draft.md, docs/A侧独立增量交付-20261101.md, 本计划进度。
 **Interfaces:** A 方合同仅为草案，不提前占用 B 类型实现。
-- [ ] 记录 A02/A03/A04/A05 共同依赖及待联调验收。
-- [ ] 跑完整 backend verify 和 frontend unit/typecheck/design-contract/build，逐项记录退出码与范围。
-- [ ] 请求独立全量变更评审，修复重要问题，形成可审查本地提交与补丁。
+- [x] 记录 A02/A03/A04/A05 共同依赖及待联调验收。
+- [x] 跑完整 backend verify 和 frontend unit/typecheck/design-contract/build，逐项记录退出码与范围。
+- [x] 请求独立全量变更评审，修复重要问题，形成可审查本地提交与补丁。
