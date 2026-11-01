@@ -27,8 +27,8 @@ public class IntelligenceConfiguration {
         return new MemoryService(jdbc, tx, clock, accounts);
     }
     @Bean @DependsOn("intelligenceSchema")
-    AnswerFeedbackService feedback(JdbcTemplate jdbc, PlatformTransactionManager tx, Clock clock, AccountDirectory accounts, CourseKnowledgeAccess courses) {
-        return new AnswerFeedbackService(jdbc, tx, clock, accounts, courses);
+    AnswerFeedbackService feedback(JdbcTemplate jdbc, PlatformTransactionManager tx, Clock clock, AccountDirectory accounts, CourseKnowledgeAccess courses, ChatAnswerStore answers) {
+        return new AnswerFeedbackService(jdbc, tx, clock, accounts, courses, answers::requirePublishable);
     }
     @Bean @DependsOn("intelligenceSchema")
     ReviewedKnowledgeService knowledge(JdbcTemplate jdbc, PlatformTransactionManager tx, Clock clock, AccountDirectory accounts, CourseKnowledgeAccess courses,ChatAnswerStore answers) {

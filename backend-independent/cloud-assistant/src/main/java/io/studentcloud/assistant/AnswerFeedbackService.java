@@ -19,14 +19,23 @@ public final class AnswerFeedbackService {
     private final Clock clock;
     private final CourseKnowledgeAccess courses;
     private final AccountDirectory accounts;
+    private final KnowledgeSourcePolicy sources;
 
     public AnswerFeedbackService(JdbcTemplate jdbc, PlatformTransactionManager transactions, Clock clock, AccountDirectory accounts, CourseKnowledgeAccess courses) {
+        this(jdbc, transactions, clock, accounts, courses, id -> {
+            throw AssistantAccess.fault("KNOWLEDGE_PRIVATE_SOURCE", 403, "尚未核验反馈来源，不能导出为通用问答");
+        });
+    }
+
+    public AnswerFeedbackService(JdbcTemplate jdbc, PlatformTransactionManager transactions, Clock clock, AccountDirectory accounts,
+                                 CourseKnowledgeAccess courses, KnowledgeSourcePolicy sources) {
         this.jdbc = Objects.requireNonNull(jdbc);
         this.transactions = new TransactionTemplate(Objects.requireNonNull(transactions));
         this.transactions.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         this.clock = Objects.requireNonNull(clock);
         this.courses = Objects.requireNonNull(courses);
         this.accounts = Objects.requireNonNull(accounts);
+        this.sources = Objects.requireNonNull(sources);
     }
 
     public FeedbackReceipt submit(Actor actor, String question, String answer, String messageId) {
@@ -83,14 +92,28 @@ public final class AnswerFeedbackService {
                 : jdbc.queryForObject("SELECT COUNT(*) FROM sc_answer_feedback WHERE status=?", Long.class, status.name()));
     }
 
-    /** Bounded manual export; contains no identities, administrative notes or original model answers. */
+    /** Checks at most 500 reviewed candidates; unknown/private provenance never leaves this service. */
     public List<ReviewedAnswer> exportReviewed(Actor actor) {
         AssistantAccess.administrator(accounts, actor);
-        return jdbc.query("SELECT question,corrected_answer FROM sc_answer_feedback WHERE status='RESOLVED' AND course_id IS NULL AND corrected_answer<>'' ORDER BY updated_at DESC,id DESC LIMIT 500",
-                (r, index) -> new ReviewedAnswer(r.getString("question"), r.getString("corrected_answer")));
+        List<ExportCandidate> candidates = jdbc.query("SELECT id,question,corrected_answer FROM sc_answer_feedback WHERE status='RESOLVED' AND course_id IS NULL AND corrected_answer<>'' ORDER BY updated_at DESC,id DESC LIMIT 500",
+                (r, index) -> new ExportCandidate(r.getLong("id"), new ReviewedAnswer(r.getString("question"), r.getString("corrected_answer"))));
+        List<ReviewedAnswer> result = candidates.stream().filter(candidate -> exportable(candidate.id())).map(ExportCandidate::answer).toList();
+        AssistantAccess.administrator(accounts, actor);
+        return result;
     }
 
     public record ReviewedAnswer(String question, String answer) { }
+    private record ExportCandidate(long id, ReviewedAnswer answer) { }
+
+    private boolean exportable(long feedbackId) {
+        try {
+            sources.requirePublishable(feedbackId);
+            return true;
+        } catch (io.studentcloud.common.ApplicationFault denied) {
+            if (!"KNOWLEDGE_PRIVATE_SOURCE".equals(denied.code())) throw denied;
+            return false;
+        }
+    }
 
     public FeedbackView review(Actor actor, long id, long expectedVersion, String correctedAnswer, FeedbackStatus status) {
         return review(actor, id, expectedVersion, correctedAnswer, null, status);
