@@ -71,6 +71,36 @@ test('private download size is a bounded exact integer, including empty files', 
 		assert.throws(() => downloads.privateDownloadSize(size))
 })
 
+test('explicit stream budgets accept large files while default Blob validation stays at 50MiB', () => {
+	assert.equal(downloads.privateDownloadSize(51 * 1024 * 1024, 1024 ** 3), 51 * 1024 * 1024)
+	assert.equal(downloads.privateDownloadSize(1024 ** 3, 1024 ** 3), 1024 ** 3)
+	assert.throws(() => downloads.privateDownloadSize(51 * 1024 * 1024))
+	for (const maxBytes of [0, -1, 1.5, '1073741824', Infinity, 1024 ** 3 + 1])
+		assert.throws(() => downloads.privateDownloadSize(1, maxBytes))
+	assert.throws(() => downloads.privateDownloadSize(51 * 1024 * 1024, 50 * 1024 * 1024))
+})
+
+test('51MiB stream saves incrementally only with an explicit authorized budget', async () => {
+	const size = 51 * 1024 * 1024
+	const bytes = new Uint8Array(1024 * 1024)
+	let read = 0, written = 0, closed = 0, aborted = 0
+	const response = {
+		headers: { 'content-type': 'application/octet-stream', 'content-length': String(size) },
+		data: new ReadableStream({ pull(controller) {
+			assert.equal(read, written, 'each chunk must reach disk before another read')
+			if (read === size) return controller.close()
+			read += bytes.length
+			controller.enqueue(bytes)
+		} }, { highWaterMark: 0 }),
+	}
+	const handle = { async createWritable() { return {
+		async write(value) { assert.ok(value.byteLength <= 1024 * 1024); written += value.byteLength },
+		async close() { closed++ }, async abort() { aborted++ },
+	} } }
+	assert.equal(await downloads.writePrivateDownloadStream({ response, handle, expectedSize: size, maxBytes: 1024 ** 3 }), size)
+	assert.equal(written, size); assert.equal(closed, 1); assert.equal(aborted, 0)
+})
+
 test('save picker runs before network with the frozen suggested filename', async () => {
 	let options
 	const handle = {}

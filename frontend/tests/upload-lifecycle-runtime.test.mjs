@@ -309,6 +309,40 @@ test('independent logout rejects new uploads before making any resumable request
 	assert.equal(h.signatures.length, 0)
 })
 
+for (const silent of [false, true]) {
+	test(`${silent ? 'silent' : 'queued'} independent non-proxy large upload cannot bypass the ordinary limit through signing`, async (t) => {
+		const h = setupUploads({ uploadType: 'S3' })
+		t.after(h.dispose)
+		h.storage.globalConfig.accountModel = 'independent'
+		const item = file('large.bin', 51 * 1024 * 1024)
+		if (silent) {
+			const result = h.api.silentUploadFile(item, { showFeedback: false, showLoading: false })
+			const rejected = assert.rejects(result, /50 MiB|续传/)
+			await flush()
+			assert.equal(h.signatures.length, 0)
+			await rejected
+		}
+		else {
+			h.api.uploadFile(item)
+			await flush()
+			assert.equal(h.api.uploadProgressInfoSorted.value[0]?.status, 'error')
+		}
+		assert.equal(h.signatures.length, 0)
+		assert.equal(h.resumableRequests.length, 0)
+	})
+}
+
+test('independent disabled resumable large uploads never fall back to signing', async (t) => {
+	const h = setupUploads({ resumable: async () => ({ data: { enabled: false, protocol: 'independent-v1' } }) })
+	t.after(h.dispose)
+	h.storage.globalConfig.accountModel = 'independent'
+	h.api.uploadFile(file('large.bin', 51 * 1024 * 1024))
+	await waitFor(() => h.api.uploadProgressInfoSorted.value[0]?.status === 'error')
+	assert.equal(h.resumableRequests.length, 1)
+	assert.equal(h.signatures.length, 0)
+	assert.match(h.api.uploadProgressInfoSorted.value[0].msg, /50 MiB|续传/)
+})
+
 test('resumable probe failure is visible and never falls back to whole-file signing', async (t) => {
 	const h = setupUploads({ resumable: async () => { throw new Error('续传服务暂不可用') } })
 	t.after(h.dispose)

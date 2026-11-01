@@ -101,7 +101,8 @@ public class FileBrowserController {
         permission.put("createShareLink",local && operations.contains("read") && AuthenticationFilter.actor(request).workspaceId()!=null);
         Map<String,Object> metadata = Map.of("uploadType", "PROXY", "needCreateFolderBeforeUpload", true,"controlledShareFilesOnly",true,"recycleBin",local,
                 "supportRenameFolder", permission.get("rename"), "supportMoveFolder", permission.get("move"),
-                "supportCopyFolder", permission.get("copy"), "supportDeleteNotEmptyFolder", permission.get("delete"));
+                "supportCopyFolder", permission.get("copy"), "supportDeleteNotEmptyFolder", permission.get("delete"),
+                "maxDownloadFileSize",mounts.maxTransferBytes(AuthenticationFilter.actor(request),key(input)));
         return ApiResponse.success(Map.of("rootPath", "/", "permission", permission, "metadata", metadata,
                 "proxyUpload", true, "readmeText", ""));
     }

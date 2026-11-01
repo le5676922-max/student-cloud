@@ -14,6 +14,8 @@ public interface DriveOperations {
  Set<String> directoryCapabilities(Actor actor,String key,DrivePath path);
  void prepareUpload(Actor actor,String key,DrivePath path,long size);
  String uploadAuthorization(Actor actor,String key,DrivePath path,long size);
+ default long maxTransferBytes(Actor actor,String key){return MountService.MAX_TRANSFER_BYTES;}
+ default java.util.function.LongConsumer uploadDiskAdmission(Actor actor,String key,DrivePath path,long size){return reservedBytes->{};}
  FileRecord mkdir(Actor actor,String key,DrivePath path);
  FileRecord upload(Actor actor,String key,DrivePath path,InputStream input,long size);
  ReadHandle readWithMetadata(Actor actor,String key,DrivePath path);

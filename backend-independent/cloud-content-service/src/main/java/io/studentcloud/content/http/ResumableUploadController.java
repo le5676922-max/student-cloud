@@ -20,7 +20,7 @@ public class ResumableUploadController {
     public ResumableUploadController(ResumableUploadService uploads){this.uploads=uploads;}
     public record Input(@NotBlank @Size(max=64) String storageKey,@Size(max=4096) String path,
                         @NotBlank @Size(max=255) String name,@NotNull @Min(1) Long size,
-                        @Size(max=13) List<@Pattern(regexp="[a-f0-9]{64}") String> chunkHashes,
+                        @Size(max=256) List<@Pattern(regexp="[a-f0-9]{64}") String> chunkHashes,
                         @Size(max=64) String manifestHash) { }
     @PostMapping("/capabilities")
     public ApiResponse<Map<String,Object>> capabilities(@Valid @RequestBody Input input,HttpServletRequest request,HttpServletResponse response){

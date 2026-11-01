@@ -62,9 +62,14 @@ const publishFileChanges = (target, path) => {
 		fileChanges.emit(change)
 }
 const uploadWatchScope = effectScope(true)
-const uploadCredential = useStorage('tongligong-student-cloud-token', '', undefined, {
-	writeDefaults: false,
-})
+const uploadCredential = useStorage(
+	'tongligong-student-cloud-token',
+	'',
+	undefined,
+	{
+		writeDefaults: false,
+	}
+)
 let detachDropListeners = null
 
 const currentAccountIdentity = () =>
@@ -831,7 +836,10 @@ export default function useFileUpload() {
 				}
 			}
 			if (!isUploadOperationActive(fileIndex)) return
-			if (isResumableCandidate(file, target.uploadType)) {
+			if (
+				target.accountModel === 'independent' ||
+				isResumableCandidate(file, target.uploadType)
+			) {
 				const result = await resumableUpload(file, param, fileIndex, target)
 				if (!isUploadOperationActive(fileIndex)) return
 				if (result.handled) {
@@ -966,7 +974,10 @@ export default function useFileUpload() {
 						)
 					})
 					.catch(fail)
-			if (isResumableCandidate(file, target.uploadType)) {
+			if (
+				target.accountModel === 'independent' ||
+				isResumableCandidate(file, target.uploadType)
+			) {
 				resumableUpload(file, param, fileIndex, target)
 					.then((result) => {
 						if (!isUploadOperationActive(fileIndex)) return

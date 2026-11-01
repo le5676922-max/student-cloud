@@ -20,7 +20,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public final class ResumableUploadService {
     public static final int CHUNK_SIZE=4*1024*1024;
     public static final long TTL=86_400_000L;
-    private static final long ACTOR_BYTES=100L*1024*1024, GLOBAL_BYTES=1024L*1024*1024;
+    private final UploadLimits limits;
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
     private final Clock clock;
@@ -40,6 +40,11 @@ public final class ResumableUploadService {
 
     public ResumableUploadService(JdbcTemplate jdbc,PlatformTransactionManager transactions,Clock clock,DriveOperations mounts,
                                   Path staging,Path managedRoot,Path courseRoot,String node) {
+        this(jdbc,transactions,clock,mounts,staging,managedRoot,courseRoot,node,UploadLimits.defaults());
+    }
+    public ResumableUploadService(JdbcTemplate jdbc,PlatformTransactionManager transactions,Clock clock,DriveOperations mounts,
+                                  Path staging,Path managedRoot,Path courseRoot,String node,UploadLimits limits) {
+        this.limits=Objects.requireNonNull(limits);
         this.jdbc=Objects.requireNonNull(jdbc);this.tx=new TransactionTemplate(transactions);this.tx.setTimeout(20);
         this.clock=Objects.requireNonNull(clock);this.mounts=Objects.requireNonNull(mounts);
         if(node==null||!node.matches("[a-zA-Z0-9_-]{1,64}"))throw new IllegalArgumentException("Configure a stable content node id");
@@ -67,7 +72,7 @@ public final class ResumableUploadService {
         checkedRoot();
         // Capability checks do not publish or claim that an existing target can be overwritten.
         return Map.of("enabled",true,"protocol","independent-v1","chunkSize",CHUNK_SIZE,
-                "maxFileSize",MountService.MAX_TRANSFER_BYTES,"expiresInSeconds",86400);
+                "maxFileSize",mounts.maxTransferBytes(actor,key),"expiresInSeconds",86400);
     }
 
     public View init(Actor actor,String key,DrivePath target,long size,List<String> hashes,String manifest){
@@ -80,6 +85,8 @@ public final class ResumableUploadService {
             boolean preflight=!candidates(actor,key,size,manifest,false).stream().anyMatch(prior->
                     matches(prior,actor,target,authorization)&&prior.state().equals("COMPLETING"));
             if(preflight)mounts.prepareUpload(actor,key,target,size);
+            java.util.function.LongConsumer publicationDiskAdmission=preflight
+                    ?mounts.uploadDiskAdmission(actor,key,target,size):reservedBytes->{};
             Row selected=tx.execute(status->{
                 // Also serializes actor/global byte reservation across service processes.
                 jdbc.queryForObject("SELECT id FROM sc_content_settings WHERE id=1 FOR UPDATE",Integer.class);
@@ -88,17 +95,28 @@ public final class ResumableUploadService {
                     return prior;
                 }
                 if(!preflight)throw initializationChanged();
+                // Existing sessions already own their reservation; reselecting one must not
+                // demand another full peak of currently free disk.
                 Long count=jdbc.queryForObject("SELECT COUNT(*) FROM sc_upload_session WHERE owner_id=? AND state IN ('OPEN','COMPLETING')",Long.class,actor.id());
-                Long bytes=jdbc.queryForObject("SELECT COALESCE(SUM(staging_reserved),0) FROM sc_upload_session WHERE owner_id=?",Long.class,actor.id());
-                Long all=jdbc.queryForObject("SELECT COALESCE(SUM(staging_reserved),0) FROM sc_upload_session",Long.class);
+                // Older sessions reserved one copy. Count their still-retained bytes at the
+                // new conservative peak too, without rewriting already-applied migrations.
+                String reservedSum="COALESCE(SUM(CASE WHEN staging_reserved>0 THEN GREATEST(staging_reserved,byte_size*4) ELSE 0 END),0)";
+                Long bytes=jdbc.queryForObject("SELECT "+reservedSum+" FROM sc_upload_session WHERE owner_id=?",Long.class,actor.id());
+                Long all=jdbc.queryForObject("SELECT "+reservedSum+" FROM sc_upload_session",Long.class);
+                try {
+                    if(!limits.canAdmitToDisk(Files.getFileStore(checkedRoot()).getUsableSpace(),all,size))
+                        throw fault(507,"UPLOAD_DISK_BUDGET","上传暂存磁盘空间不足，请稍后重试");
+                } catch(IOException failure) { throw ioFault(); }
+                publicationDiskAdmission.accept(all);
                 Long records=jdbc.queryForObject("SELECT COUNT(*) FROM sc_upload_session",Long.class);
-                if(count>=3||size>ACTOR_BYTES-bytes||size>GLOBAL_BYTES-all||records>=1000)throw fault(429,"UPLOAD_BUDGET","未完成上传已达到数量或暂存预算，请完成或取消已有任务");
+                long reserved=limits.reservationBytes(size);
+                if(count>=3||reserved>limits.actorStagingBytes()-bytes||reserved>limits.globalStagingBytes()-all||records>=1000)throw fault(429,"UPLOAD_BUDGET","未完成上传已达到数量或暂存预算，请完成或取消已有任务");
                 String id=UUID.randomUUID().toString();Path folder=staging.resolve(id);
                 try {
                     Files.createDirectory(folder);
                     String identity=identity(folder);
                     jdbc.update("INSERT INTO sc_upload_session(id,owner_id,workspace_id,node_id,mount_key,target_path,byte_size,staging_reserved,manifest_hash,authorization_hash,staging_identity,state,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'OPEN',?,?)",
-                            id,actor.id(),actor.workspaceId(),node,key,target.value(),size,size,manifest,authorization,identity,clock.millis(),clock.millis()+TTL);
+                            id,actor.id(),actor.workspaceId(),node,key,target.value(),size,reserved,manifest,authorization,identity,clock.millis(),clock.millis()+TTL);
                     for(int index=0;index<hashes.size();index++)jdbc.update("INSERT INTO sc_upload_chunk(session_id,chunk_index,expected_hash) VALUES(?,?,?)",id,index,hashes.get(index));
                     return find(id);
                 }catch(IOException failure){throw ioFault();}
@@ -109,7 +127,7 @@ public final class ResumableUploadService {
     }
 
     private List<Row> candidates(Actor actor,String key,long size,String manifest,boolean lock){
-        return jdbc.query("SELECT * FROM sc_upload_session WHERE owner_id=? AND node_id=? AND mount_key=? AND manifest_hash=? AND byte_size=? AND expires_at>? AND state IN ('OPEN','COMPLETING') ORDER BY created_at DESC LIMIT 4"+(lock?" FOR UPDATE":""),this::row,
+        return jdbc.query("SELECT * FROM sc_upload_session WHERE owner_id=? AND node_id=? AND mount_key=? AND manifest_hash=? AND byte_size=? AND (expires_at>? OR state='COMPLETING') AND state IN ('OPEN','COMPLETING') ORDER BY created_at DESC LIMIT 4"+(lock?" FOR UPDATE":""),this::row,
                 actor.id(),node,key,manifest,size,clock.millis());
     }
     private static boolean matches(Row prior,Actor actor,DrivePath target,String authorization){
@@ -201,12 +219,12 @@ public final class ResumableUploadService {
         var completed=jdbc.query("SELECT * FROM sc_upload_session WHERE node_id=? AND state='COMPLETED' AND staging_reserved>0 ORDER BY created_at LIMIT 16",this::row,node);
         for(Row row:completed)tx.execute(status->{Row current=locked(row.id());if(!current.state().equals("COMPLETED"))return null;
             clearFolder(current);jdbc.update("UPDATE sc_upload_session SET staging_reserved=0 WHERE id=?",row.id());return null;});
-        var expired=jdbc.query("SELECT * FROM sc_upload_session WHERE node_id=? AND id>? AND expires_at<=? AND (attempt_token IS NULL OR attempt_until<?) ORDER BY id LIMIT 32",this::row,node,cleanupCursor,clock.millis(),clock.millis());
+        var expired=jdbc.query("SELECT * FROM sc_upload_session WHERE node_id=? AND state<>'COMPLETING' AND id>? AND expires_at<=? AND (attempt_token IS NULL OR attempt_until<?) ORDER BY id LIMIT 32",this::row,node,cleanupCursor,clock.millis(),clock.millis());
         if(expired.isEmpty())cleanupCursor="";
         for(Row row:expired){
             cleanupCursor=row.id();
             // Hold the same record lock as claims while deleting. A later request cannot take over mid-cleanup.
-            try{tx.execute(status->{Row current=locked(row.id());if(current.expires()>clock.millis()||current.attemptUntil()>clock.millis())return null;
+            try{tx.execute(status->{Row current=locked(row.id());if(current.state().equals("COMPLETING")||current.expires()>clock.millis()||current.attemptUntil()>clock.millis())return null;
                 Path directory=checkedRoot().resolve(current.id());
                 if(Files.exists(directory,LinkOption.NOFOLLOW_LINKS)){
                     clearFolder(current);
@@ -222,7 +240,7 @@ public final class ResumableUploadService {
         checkedRoot();if(id==null||!id.matches("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}"))throw invalid();
         Row row=find(id);if(row.owner()!=actor.id()||!Objects.equals(row.workspace(),actor.workspaceId()))throw fault(404,"UPLOAD_NOT_FOUND","上传任务不存在");
         if(!row.node().equals(node))throw fault(409,"UPLOAD_NODE_CHANGED","此任务属于另一内容节点，请返回原节点续传");
-        if(row.expires()<=clock.millis())throw fault(410,"UPLOAD_EXPIRED","上传任务已过期，请重新选择文件");
+        if(row.expires()<=clock.millis()&&!row.state().equals("COMPLETING"))throw fault(410,"UPLOAD_EXPIRED","上传任务已过期，请重新选择文件");
         return row;
     }
     private void authorize(Actor actor,Row row){
@@ -239,7 +257,7 @@ public final class ResumableUploadService {
     private String claim(Row row){
         String token=UUID.randomUUID().toString();
         int changed=jdbc.update("UPDATE sc_upload_session SET attempt_token=?,attempt_until=? WHERE id=? AND state=? AND (attempt_token IS NULL OR attempt_until<?)",
-                token,clock.millis()+180_000,row.id(),row.state(),clock.millis());
+                token,clock.millis()+900_000,row.id(),row.state(),clock.millis());
         if(changed!=1)throw fault(409,"UPLOAD_BUSY","上传任务正在处理，请稍后检查状态");return token;
     }
     private void ensureAttempt(Row row,String token){if(!token.equals(row.attempt())||!row.state().equals("OPEN"))throw fault(409,"UPLOAD_ATTEMPT_CHANGED","上传处理已变化，请重新检查任务状态");}
@@ -271,7 +289,7 @@ public final class ResumableUploadService {
         Path directory=folder(row);
         try(var children=Files.newDirectoryStream(directory)){
             int count=0;for(Path child:children){
-                if(++count>256||!child.getFileName().toString().matches("[a-f0-9-]{36}\\.(part|assembled)")||!Files.isRegularFile(child,LinkOption.NOFOLLOW_LINKS)||Files.isSymbolicLink(child))throw ioFault();
+                if(++count>260||!child.getFileName().toString().matches("[a-f0-9-]{36}\\.(part|assembled)")||!Files.isRegularFile(child,LinkOption.NOFOLLOW_LINKS)||Files.isSymbolicLink(child))throw ioFault();
                 Files.delete(child);
             }
             // Keep the empty identity-bound directory until the durable record is removed.
@@ -283,7 +301,7 @@ public final class ResumableUploadService {
         try(var files=Files.newDirectoryStream(folder(row))){
             int count=0;for(Path file:files){
                 String name=file.getFileName().toString();
-                if(++count>256||!name.matches("[a-f0-9-]{36}\\.(part|assembled)")||!Files.isRegularFile(file,LinkOption.NOFOLLOW_LINKS)||Files.isSymbolicLink(file))throw ioFault();
+                if(++count>260||!name.matches("[a-f0-9-]{36}\\.(part|assembled)")||!Files.isRegularFile(file,LinkOption.NOFOLLOW_LINKS)||Files.isSymbolicLink(file))throw ioFault();
                 if(!retained.contains(name))Files.delete(file);
             }
         }catch(IOException failure){throw ioFault();}
@@ -297,7 +315,7 @@ public final class ResumableUploadService {
         if(total!=expected)throw invalid();
     }
     private static void validateManifest(long size,List<String> hashes,String manifest){
-        if(size<=0||size>MountService.MAX_TRANSFER_BYTES||hashes==null||hashes.size()!=(size+CHUNK_SIZE-1)/CHUNK_SIZE||hashes.stream().anyMatch(h->h==null||!h.matches("[a-f0-9]{64}"))||!manifestHash(hashes).equals(manifest))throw invalid();
+        if(size<=0||size>UploadLimits.HARD_MAX_FILE_BYTES||hashes==null||hashes.size()!=(size+CHUNK_SIZE-1)/CHUNK_SIZE||hashes.stream().anyMatch(h->h==null||!h.matches("[a-f0-9]{64}"))||!manifestHash(hashes).equals(manifest))throw invalid();
     }
     public static String manifestHash(List<String> hashes){return sha256(String.join("\n",hashes).getBytes(StandardCharsets.US_ASCII));}
     public static String sha256(byte[] data){return HexFormat.of().formatHex(digest().digest(data));}
