@@ -196,8 +196,20 @@ public final class AccountAdministration {
     }
 
     private AccountView requireCaller(Actor caller, Role expected) {
+        if (expected == Role.ADMIN) return currentCaller(caller, expected, true);
+        // Ownership handover locks workspace -> accounts. Never hold an administrator row
+        // while waiting for that workspace; the optimistic identity is not authorization.
+        AccountView observed = currentCaller(caller, expected, false);
+        List<Boolean> workspace = jdbc.queryForList("SELECT enabled FROM sc_workspace WHERE id=? FOR UPDATE", Boolean.class, observed.workspaceId());
+        if (workspace.size() != 1 || !Boolean.TRUE.equals(workspace.getFirst())) throw forbidden();
+        AccountView current = currentCaller(caller, expected, true);
+        if (!Objects.equals(current.workspaceId(), observed.workspaceId())) throw forbidden();
+        return current;
+    }
+
+    private AccountView currentCaller(Actor caller, Role expected, boolean lock) {
         if (caller == null || caller.id() <= 0) throw unauthorized();
-        List<CurrentAccount> rows = jdbc.query("SELECT " + VIEW_COLUMNS + ",a.session_version FROM sc_account a WHERE a.id=? FOR UPDATE",
+        List<CurrentAccount> rows = jdbc.query("SELECT " + VIEW_COLUMNS + ",a.session_version FROM sc_account a WHERE a.id=?" + (lock ? " FOR UPDATE" : ""),
                 (row, index) -> new CurrentAccount(view(row), row.getLong("session_version")), caller.id());
         if (rows.size() != 1 || !rows.getFirst().account().enabled() || rows.getFirst().sessionVersion() < 1) throw unauthorized();
         AccountView current = rows.getFirst().account();
@@ -209,8 +221,6 @@ public final class AccountAdministration {
             return current;
         }
         if (current.workspaceId() == null || current.workspaceId() <= 0) throw unauthorized();
-        List<Boolean> workspace = jdbc.queryForList("SELECT enabled FROM sc_workspace WHERE id=? FOR UPDATE", Boolean.class, current.workspaceId());
-        if (workspace.size() != 1 || !Boolean.TRUE.equals(workspace.getFirst())) throw forbidden();
         return current;
     }
 

@@ -19,6 +19,9 @@
 		<p v-if="error" role="alert">{{ error }}</p>
 		<p v-if="notice" role="status">{{ notice }}</p>
 		<p v-if="loading" role="status">正在读取交接信息…</p>
+		<p v-if="snapshot && !snapshotFresh && !loading" role="status">
+			当前显示上次读取的交接信息；请刷新核对后再操作。
+		</p>
 		<template v-if="snapshot && enabled">
 			<p>
 				<strong>{{ snapshot.resourceName }}</strong> · 管理版本
@@ -32,7 +35,7 @@
 					id="ownership-recipient"
 					v-model="draft.toAccountId"
 					aria-label="接任者"
-					:disabled="busy || loading"
+					:disabled="busy || loading || !snapshotFresh"
 					placeholder="核对账号后选择接任者"
 				>
 					<ElOption
@@ -50,7 +53,7 @@
 					id="ownership-expiry"
 					v-model="draft.hours"
 					aria-label="交接有效期"
-					:disabled="busy || loading"
+					:disabled="busy || loading || !snapshotFresh"
 				>
 					<ElOption
 						v-for="hours in [1, 24, 72, 168]"
@@ -59,14 +62,22 @@
 						:label="`${hours} 小时`"
 					/>
 				</ElSelect>
-				<ElCheckbox v-model="draft.confirmed" :disabled="busy || loading"
+				<ElCheckbox
+					v-model="draft.confirmed"
+					:disabled="busy || loading || !snapshotFresh"
 					>我已核对接任账号；完成后前任管理能力将被撤销，私人资料不会转移。</ElCheckbox
 				>
 				<ElButton
 					native-type="submit"
 					type="primary"
 					:loading="busy"
-					:disabled="loading || busy || !draft.toAccountId || !draft.confirmed"
+					:disabled="
+						loading ||
+						busy ||
+						!snapshotFresh ||
+						!draft.toAccountId ||
+						!draft.confirmed
+					"
 					>发起交接</ElButton
 				>
 			</form>
@@ -79,19 +90,21 @@
 				<p>有效至 {{ dateText(row.expiresAt) }}（北京时间）</p>
 				<div v-if="row.state === 'PENDING'" class="actions">
 					<template v-if="row.toAccountId === snapshot.actorId">
-						<ElButton :disabled="busy || loading" @click="decide(row, 'reject')"
+						<ElButton
+							:disabled="busy || loading || !snapshotFresh"
+							@click="decide(row, 'reject')"
 							>拒绝交接</ElButton
 						>
 						<ElButton
 							type="primary"
-							:disabled="busy || loading"
+							:disabled="busy || loading || !snapshotFresh"
 							@click="decide(row, 'accept')"
 							>确认接任</ElButton
 						>
 					</template>
 					<ElButton
 						v-if="row.fromAccountId === snapshot.actorId"
-						:disabled="busy || loading"
+						:disabled="busy || loading || !snapshotFresh"
 						@click="decide(row, 'cancel')"
 						>撤回交接</ElButton
 					>
@@ -133,6 +146,7 @@ const identity = computed(
 		`${store.loginInfo?.isLogin}:${store.loginInfo?.username}:${store.loginInfo?.tenantId}:${store.loginInfo?.role}:${props.resourceType}:${props.resourceId}:${props.enabled}`
 )
 const snapshot = ref(null),
+	snapshotFresh = ref(false),
 	loading = ref(false),
 	busy = ref(false),
 	error = ref(''),
@@ -161,6 +175,17 @@ const dateText = (value) =>
 		hour: '2-digit',
 		minute: '2-digit',
 	}).format(value)
+const authorizationDenied = (failure) =>
+	[401, 403].includes(failure?.response?.status || failure?.status)
+function clearAuthority() {
+	readController?.abort()
+	epoch++
+	loading.value = false
+	snapshot.value = null
+	snapshotFresh.value = false
+	frozenRequest = undefined
+	Object.assign(draft, { toAccountId: null, hours: 24, confirmed: false })
+}
 async function load() {
 	if (disposed) return
 	readController?.abort()
@@ -168,6 +193,7 @@ async function load() {
 		actor = identity.value,
 		controller = new AbortController()
 	readController = controller
+	snapshotFresh.value = false
 	if (!props.enabled || !store.loginInfo?.isLogin) {
 		snapshot.value = null
 		loading.value = false
@@ -181,20 +207,24 @@ async function load() {
 			props.resourceId,
 			{ signal: controller.signal }
 		)
-		if (!disposed && token === epoch && actor === identity.value)
+		if (!disposed && token === epoch && actor === identity.value) {
 			snapshot.value = response.data
+			snapshotFresh.value = true
+		}
 	} catch (failure) {
-		if (!disposed && token === epoch && actor === identity.value)
+		if (!disposed && token === epoch && actor === identity.value) {
+			if (authorizationDenied(failure)) clearAuthority()
 			error.value =
-				failure?.response?.data?.msg ||
-				'交接信息读取失败，请刷新；不会自动发起或确认交接。'
+				'交接信息读取失败，请确认登录和当前权限后刷新；不会自动发起或确认交接。'
+		}
 	} finally {
 		if (!disposed && token === epoch && actor === identity.value)
 			loading.value = false
 	}
 }
 async function mutate(work) {
-	if (busy.value || loading.value || !props.enabled) return
+	if (busy.value || loading.value || !props.enabled || !snapshotFresh.value)
+		return
 	const actor = identity.value,
 		controller = new AbortController()
 	writeController = controller
@@ -209,10 +239,10 @@ async function mutate(work) {
 		if (response.data.state === 'COMPLETED') emit('completed', response.data)
 		await load()
 	} catch (failure) {
-		if (!disposed && actor === identity.value)
-			error.value =
-				failure?.response?.data?.msg ||
-				'交接操作结果未确认，请先刷新核对；不会自动重试。'
+		if (!disposed && actor === identity.value) {
+			if (authorizationDenied(failure)) clearAuthority()
+			error.value = '交接操作结果未确认，请先刷新核对；不会自动重试。'
+		}
 	} finally {
 		if (writeController === controller) busy.value = false
 	}
@@ -221,6 +251,7 @@ async function create() {
 	if (
 		busy.value ||
 		loading.value ||
+		!snapshotFresh.value ||
 		!snapshot.value?.canCreate ||
 		!draft.confirmed ||
 		!snapshot.value.candidates.some((person) => person.id === draft.toAccountId)
@@ -274,7 +305,13 @@ async function create() {
 	)
 }
 async function decide(row, action) {
-	if (!snapshot.value || row.state !== 'PENDING' || busy.value || loading.value)
+	if (
+		!snapshot.value ||
+		!snapshotFresh.value ||
+		row.state !== 'PENDING' ||
+		busy.value ||
+		loading.value
+	)
 		return
 	if (
 		snapshot.value.actorId !==
@@ -314,13 +351,9 @@ async function decide(row, action) {
 watch(
 	identity,
 	() => {
-		readController?.abort()
 		writeController?.abort()
-		epoch++
 		busy.value = false
-		snapshot.value = null
-		frozenRequest = undefined
-		Object.assign(draft, { toAccountId: null, hours: 24, confirmed: false })
+		clearAuthority()
 		error.value = ''
 		notice.value = ''
 		load()

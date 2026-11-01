@@ -227,15 +227,24 @@ public final class MountService implements DriveOperations {
     }
 
     private void validateUpload(Access allowed, DrivePath path, long size) throws IOException {
+        validateUploadTarget(allowed,path,size);
+        if(quotaLedger==null)requireQuota(allowed, size);
+    }
+
+    private static void validateUploadTarget(Access allowed, DrivePath path, long size) throws IOException {
         if (size < 0 || size > MAX_TRANSFER_BYTES) throw fault("DRIVE_INVALID", 400, "文件不能超过50MiB");
         if (path.isRoot()) throw fault("DRIVE_INVALID", 400, "请指定文件名称");
         requireDirectory(allowed, path.parent());
         if (allowed.store().stat(path).isPresent()) throw fault("DRIVE_CONFLICT", 409, "目标已存在同名文件，不会覆盖");
-        if(quotaLedger==null)requireQuota(allowed, size);
     }
 
     public FileRecord mkdir(Actor actor, String key, DrivePath path) {
-        return mutate(actor, key, Set.of("mkdir"), null, allowed -> 0L, allowed -> allowed.store().createDirectory(path));
+        return mutate(actor, key, Set.of("mkdir"), null, allowed -> {
+            var existing=allowed.store().stat(path);
+            if(existing.isPresent()&&!existing.get().directory())throw new FileAlreadyExistsException(path.value());
+            if(existing.isEmpty())requireDirectory(allowed,path.parent());
+            return 0L;
+        }, allowed -> allowed.store().createDirectory(path));
     }
 
     public FileRecord upload(Actor actor, String key, DrivePath path, InputStream input, long size) {
@@ -269,7 +278,9 @@ public final class MountService implements DriveOperations {
                     if (written != size) throw fault("DRIVE_INVALID", 400, "文件实际大小与声明不一致");
                 }
                 Path staged = temporary;
-                return mutate(actor, key, Set.of("upload"), authorized.stamp(), allowed -> size, allowed -> {
+                return mutate(actor, key, Set.of("upload"), authorized.stamp(), allowed -> {
+                    validateUploadTarget(allowed,path,size);return size;
+                }, allowed -> {
                     try (InputStream ready = Files.newInputStream(staged)) {
                         return allowed.store().write(path, ready, size, false);
                     }
@@ -292,18 +303,30 @@ public final class MountService implements DriveOperations {
     public FileRecord copy(Actor actor, String key, DrivePath source, DrivePath target) {
         return mutate(actor, key, Set.of("read", "copy"), null,
                 allowed -> {
-                    allowed.store().stat(source).orElseThrow(() -> fault("DRIVE_NOT_FOUND", 404, "文件或目录不存在"));
+                    validateDestination(allowed,source,target);
                     return LocalUsageMeter.bytes(visibleRoot(allowed).resolve(source.relative()));
                 },
                 allowed -> allowed.store().copy(source, target));
     }
 
     public FileRecord move(Actor actor, String key, DrivePath source, DrivePath target) {
-        return mutate(actor, key, Set.of("move"), null, allowed -> 0L, allowed -> allowed.store().move(source, target));
+        return mutate(actor, key, Set.of("move"), null, allowed -> {validateDestination(allowed,source,target);return 0L;}, allowed -> allowed.store().move(source, target));
     }
 
     public FileRecord rename(Actor actor, String key, DrivePath source, String name) {
-        return mutate(actor, key, Set.of("rename"), null, allowed -> 0L, allowed -> allowed.store().move(source, source.parent().child(name)));
+        return mutate(actor, key, Set.of("rename"), null, allowed -> {validateDestination(allowed,source,source.parent().child(name));return 0L;}, allowed -> allowed.store().move(source, source.parent().child(name)));
+    }
+
+    /** Read-only, re-run under the mount lock before started=true. Proven input rejections
+     * must not become durable "unknown publication" reservations that block future uploads. */
+    private static void validateDestination(Access allowed,DrivePath source,DrivePath target)throws IOException{
+        if(source.isRoot()||target.isRoot())throw fault("DRIVE_INVALID",400,"不能移动或覆盖个人根目录");
+        FileRecord current=allowed.store().stat(source).orElseThrow(()->fault("DRIVE_NOT_FOUND",404,"文件或目录不存在"));
+        Path root=visibleRoot(allowed);
+        if(current.directory()&&root.resolve(target.relative()).normalize().startsWith(root.resolve(source.relative()).normalize()))
+            throw fault("DRIVE_INVALID",400,"不能将目录移入或复制到自身内部");
+        requireDirectory(allowed,target.parent());
+        if(allowed.store().stat(target).isPresent())throw new FileAlreadyExistsException(target.value());
     }
 
     public void delete(Actor actor, String key, DrivePath path) {

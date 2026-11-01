@@ -233,3 +233,118 @@ test('only recipient can accept and expired result never emits completion', asyn
 		x.dispose()
 	}
 })
+
+for (const status of [401, 403]) {
+	test(`confirmed ${status} on refresh clears private transfer state and write authority`, async () => {
+		let denied = false
+		const x = await mount({
+			read: async () => {
+				if (denied)
+					throw { response: { status, data: { msg: 'private-read-detail' } } }
+				return { data: structuredClone(snapshot) }
+			},
+		})
+		try {
+			x.api.draft.toAccountId = 2
+			x.api.draft.confirmed = true
+			denied = true
+			await x.api.load()
+			await flush()
+			assert.equal(x.api.snapshot, null)
+			assert.equal(x.api.draft.toAccountId, null)
+			assert.equal(x.api.draft.confirmed, false)
+			assert.equal(x.host.querySelector('form'), null)
+			assert.doesNotMatch(
+				x.host.textContent,
+				/合成空间|接任同学|private-read-detail/
+			)
+			await x.api.create()
+			assert.equal(x.writes.length, 0)
+		} finally {
+			x.dispose()
+		}
+	})
+	test(`confirmed ${status} on mutation clears private state without leaking response body`, async () => {
+		const x = await mount({
+			write: async () => {
+				throw { response: { status, data: { msg: 'private-post-detail' } } }
+			},
+		})
+		try {
+			x.api.draft.toAccountId = 2
+			x.api.draft.confirmed = true
+			await x.api.create()
+			await flush()
+			assert.equal(x.writes.length, 1)
+			assert.equal(x.api.snapshot, null)
+			assert.equal(x.api.draft.toAccountId, null)
+			assert.equal(x.api.draft.confirmed, false)
+			assert.equal(x.host.querySelector('form'), null)
+			assert.doesNotMatch(x.host.textContent, /合成空间|private-post-detail/)
+		} finally {
+			x.dispose()
+		}
+	})
+}
+
+test('network refresh failure labels retained state stale and requires a fresh read before writing', async () => {
+	let unavailable = false
+	const x = await mount({
+		read: async () => {
+			if (unavailable) throw Error('network unavailable')
+			return { data: structuredClone(snapshot) }
+		},
+	})
+	try {
+		x.api.draft.toAccountId = 2
+		x.api.draft.confirmed = true
+		unavailable = true
+		await x.api.load()
+		await flush()
+		assert.equal(x.api.snapshot.resourceName, '合成空间')
+		assert.match(x.host.textContent, /上次读取.*刷新核对后再操作/)
+		await x.api.create()
+		await x.api.decide(
+			{ id: 'pending', fromAccountId: 2, toAccountId: 1, state: 'PENDING' },
+			'accept'
+		)
+		assert.equal(x.writes.length, 0)
+		unavailable = false
+		await x.api.load()
+		await x.api.create()
+		assert.equal(x.writes.length, 1)
+	} finally {
+		x.dispose()
+	}
+})
+
+test('authorization denial discards the frozen unknown-write key before a newly authorized request', async () => {
+	let denied = false
+	const x = await mount({
+		read: async () => {
+			if (denied) throw { response: { status: 403 } }
+			return { data: structuredClone(snapshot) }
+		},
+		write: async () => {
+			throw { response: { status: 500, data: { msg: 'private-post-detail' } } }
+		},
+	})
+	try {
+		x.api.draft.toAccountId = 2
+		x.api.draft.confirmed = true
+		await x.api.create()
+		assert.doesNotMatch(x.host.textContent, /private-post-detail/)
+		const originalKey = x.writes[0][2].idempotencyKey
+		denied = true
+		await x.api.load()
+		denied = false
+		await x.api.load()
+		x.api.draft.toAccountId = 2
+		x.api.draft.confirmed = true
+		await x.api.create()
+		assert.equal(x.writes.length, 2)
+		assert.notEqual(x.writes[1][2].idempotencyKey, originalKey)
+	} finally {
+		x.dispose()
+	}
+})

@@ -206,14 +206,23 @@ public final class WorkspaceEnrollmentService {
     }
 
     private Current administrator(Actor caller) {
+        // Match ownership handover: lock the workspace before either party's account.
+        // Re-read under the account lock; an identity observed before waiting may be stale.
+        Current observed = currentAdministrator(caller, false);
+        workspace(observed.workspaceId(), true);
+        Current current = currentAdministrator(caller, true);
+        if (!Objects.equals(current.workspaceId(), observed.workspaceId())) throw forbidden();
+        return current;
+    }
+
+    private Current currentAdministrator(Actor caller, boolean lock) {
         if (caller == null || caller.id() < 1) throw unauthorized();
-        List<Current> rows = jdbc.query("SELECT id,role,workspace_id,enabled,session_version FROM sc_account WHERE id=? FOR UPDATE",
+        List<Current> rows = jdbc.query("SELECT id,role,workspace_id,enabled,session_version FROM sc_account WHERE id=?" + (lock ? " FOR UPDATE" : ""),
                 (r, index) -> new Current(r.getLong("id"), r.getString("role"), r.getObject("workspace_id", Long.class), r.getBoolean("enabled"), r.getLong("session_version")), caller.id());
         if (rows.size() != 1 || !rows.getFirst().enabled() || rows.getFirst().sessionVersion() < 1) throw unauthorized();
         Current current = rows.getFirst();
         if (!"TENANT_ADMIN".equals(current.role()) || caller.role() != Role.TENANT_ADMIN
                 || current.workspaceId() == null || !Objects.equals(current.workspaceId(), caller.workspaceId())) throw forbidden();
-        workspace(current.workspaceId(), true);
         return current;
     }
 

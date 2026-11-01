@@ -374,6 +374,33 @@ class MountServiceTest {
         assertEquals(0L,service.reconcileQuota(member,"drive").usedBytes());
     }
 
+    @Test void invalidMoveDoesNotPermanentlyBlockAnUnscannedQuotaAccount() throws Exception {
+        enableLedger();var mount=mount();grant(member,mount.id(),"/members/u3","list,read,upload,move",20L);
+        assertStatus(404,()->service.move(member,"drive",p("/missing"),p("/target")));
+        assertEquals(0,service.quota(member,"drive").pendingWrites());
+        service.upload(member,"drive",p("/valid"),bytes("valid"),5);
+        assertEquals(5L,service.quota(member,"drive").usedBytes());
+    }
+
+    @Test void existingCopyTargetDoesNotRetainAPublicationReservation() throws Exception {
+        enableLedger();var mount=mount();grant(member,mount.id(),"/members/u3","list,read,upload,copy",20L);
+        service.upload(member,"drive",p("/one"),bytes("one"),3);service.upload(member,"drive",p("/two"),bytes("two"),3);
+        assertStatus(409,()->service.copy(member,"drive",p("/one"),p("/two")));
+        assertEquals(0,service.quota(member,"drive").pendingWrites());
+        assertEquals(0,service.quota(member,"drive").reservedBytes());
+        assertEquals(6L,service.reconcileQuota(member,"drive").usedBytes());
+        assertEquals("two",Files.readString(mounted.resolve("members/u3/two")));
+    }
+
+    @Test void caseVariantDescendantRejectionDoesNotLeaveAnUnknownQuotaIntent() throws Exception {
+        enableLedger();var mount=mount();grant(member,mount.id(),"/members/u3","list,read,upload,move,mkdir",20L);
+        service.mkdir(member,"drive",p("/folder"));
+        int rejected=Path.of("folder").equals(Path.of("FOLDER"))?400:404;
+        assertStatus(rejected,()->service.move(member,"drive",p("/folder"),p("/FOLDER/child")));
+        assertEquals(0,service.quota(member,"drive").pendingWrites());
+        service.upload(member,"drive",p("/valid"),bytes("x"),1);
+    }
+
     private void enableLedger() {
         new ResourceDatabasePopulator(new ClassPathResource("db/independent-quota-schema.sql"),
                 new ClassPathResource("db/independent-file-catalog-schema.sql"),new ClassPathResource("db/independent-recycle-schema.sql")).execute(transactions.getDataSource());
